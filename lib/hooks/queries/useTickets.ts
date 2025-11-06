@@ -1,4 +1,5 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
 
 export type Ticket = {
   id: number;
@@ -151,4 +152,87 @@ export function useTicketMessages(ticketId: string | number, options?: { enabled
     staleTime: 2 * 60 * 1000, // 2 minutes (transcript doesn't change often)
     enabled: !!ticketId && (options?.enabled !== false),
   });
+}
+
+/**
+ * Prefetch tickets for the next/previous page
+ * Use this to improve pagination performance
+ */
+export function usePrefetchTickets(params: TicketsParams = {}) {
+  const queryClient = useQueryClient();
+  const { page = 1, limit = 50, sortBy = 'newest', status, author } = params;
+
+  const prefetchPage = (targetPage: number) => {
+    queryClient.prefetchQuery({
+      queryKey: ['tickets', { page: targetPage, limit, sortBy, status, author }],
+      queryFn: async (): Promise<TicketsResponse> => {
+        const searchParams = new URLSearchParams({
+          page: targetPage.toString(),
+          limit: limit.toString(),
+          sortBy,
+        });
+        
+        if (status && status !== 'all') {
+          searchParams.set('status', status);
+        }
+        
+        if (author) {
+          searchParams.set('author', author);
+        }
+        
+        const response = await fetch(`/api/tickets?${searchParams}`);
+        
+        if (!response.ok) {
+          throw new Error('Failed to fetch tickets');
+        }
+        
+        return response.json();
+      },
+      staleTime: 30 * 1000,
+    });
+  };
+
+  return { prefetchPage };
+}
+
+/**
+ * Prefetch a single ticket and its messages
+ * Use this on hover to improve navigation performance
+ */
+export function usePrefetchTicketDetail() {
+  const queryClient = useQueryClient();
+
+  const prefetchTicket = (ticketId: string | number) => {
+    // Prefetch ticket data
+    queryClient.prefetchQuery({
+      queryKey: ['ticket', ticketId],
+      queryFn: async (): Promise<TicketResponse> => {
+        const response = await fetch(`/api/tickets?id=${ticketId}`);
+        
+        if (!response.ok) {
+          throw new Error('Failed to fetch ticket');
+        }
+        
+        return response.json();
+      },
+      staleTime: 1 * 60 * 1000,
+    });
+
+    // Prefetch ticket messages
+    queryClient.prefetchQuery({
+      queryKey: ['ticketMessages', ticketId],
+      queryFn: async (): Promise<TicketMessagesResponse> => {
+        const response = await fetch(`/api/messages?ticketId=${ticketId}&mode=transcript&limit=1000`);
+        
+        if (!response.ok) {
+          throw new Error('Failed to fetch messages');
+        }
+        
+        return response.json();
+      },
+      staleTime: 2 * 60 * 1000,
+    });
+  };
+
+  return { prefetchTicket };
 }

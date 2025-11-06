@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 export type Message = {
   id: string;
@@ -82,4 +82,44 @@ export function useMessages(params: MessagesParams = {}, options?: { enabled?: b
     staleTime: 30 * 1000, // 30 seconds
     ...options,
   });
+}
+
+/**
+ * Prefetch messages for the next/previous page
+ * Use this to improve pagination performance
+ */
+export function usePrefetchMessages(params: MessagesParams = {}) {
+  const queryClient = useQueryClient();
+  const { q, page = 1, limit = 50, staffOnly = false } = params;
+
+  const prefetchPage = (targetPage: number) => {
+    queryClient.prefetchQuery({
+      queryKey: ['messages', { q, page: targetPage, limit, staffOnly }],
+      queryFn: async (): Promise<MessagesResponse> => {
+        const searchParams = new URLSearchParams({
+          page: targetPage.toString(),
+          limit: limit.toString(),
+        });
+        
+        if (q) {
+          searchParams.set('q', q);
+        }
+        
+        if (staffOnly) {
+          searchParams.set('staffOnly', 'true');
+        }
+        
+        const response = await fetch(`/api/messages?${searchParams}`);
+        
+        if (!response.ok) {
+          throw new Error('Failed to fetch messages');
+        }
+        
+        return response.json();
+      },
+      staleTime: 30 * 1000,
+    });
+  };
+
+  return { prefetchPage };
 }

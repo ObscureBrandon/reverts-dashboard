@@ -4,7 +4,7 @@ import { useState, useRef, useLayoutEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useTicket, useTicketMessages } from '@/lib/hooks/queries/useTickets';
-import { useUser, useUserTicketStats, useUserRecentTickets } from '@/lib/hooks/queries/useUsers';
+import { useUser, useUserTicketStats, useUserRecentTickets, usePrefetchUser } from '@/lib/hooks/queries/useUsers';
 import { useGenerateTicketSummary } from '@/lib/hooks/mutations/useTicketMutations';
 
 type Message = {
@@ -174,12 +174,14 @@ function Mention({
   type, 
   id, 
   mentionLookup,
-  onClick
+  onClick,
+  onMouseEnter
 }: { 
   type: 'user' | 'role' | 'channel'; 
   id: string; 
   mentionLookup: MentionLookup;
   onClick: (e: React.MouseEvent) => void;
+  onMouseEnter?: () => void;
 }) {
   if (type === 'user') {
     const user = mentionLookup.users[id];
@@ -187,6 +189,7 @@ function Mention({
     return (
       <span 
         onClick={onClick}
+        onMouseEnter={onMouseEnter}
         className="inline-flex items-center px-1 py-0.5 mx-0.5 rounded text-sm font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 cursor-pointer hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors"
       >
         @{displayName}
@@ -227,7 +230,8 @@ function Mention({
 function parseMessageContent(
   content: string, 
   mentionLookup: MentionLookup,
-  onMentionClick: (type: 'user' | 'role' | 'channel', id: string, event: React.MouseEvent) => void
+  onMentionClick: (type: 'user' | 'role' | 'channel', id: string, event: React.MouseEvent) => void,
+  onUserMentionHover?: (userId: string) => void
 ) {
   if (!content) return null;
   
@@ -252,6 +256,7 @@ function parseMessageContent(
           id={userId} 
           mentionLookup={mentionLookup}
           onClick={(e) => onMentionClick('user', userId, e)}
+          onMouseEnter={onUserMentionHover ? () => onUserMentionHover(userId) : undefined}
         />
       );
     } else if (match[2]) {
@@ -383,11 +388,13 @@ type DiscordEmbed = {
 function DiscordEmbedDisplay({ 
   embed, 
   mentions, 
-  onMentionClick 
+  onMentionClick,
+  onUserMentionHover
 }: { 
   embed: DiscordEmbed;
   mentions: MentionLookup;
   onMentionClick: (type: 'user' | 'role' | 'channel', id: string, event: React.MouseEvent) => void;
+  onUserMentionHover?: (userId: string) => void;
 }) {
   // Convert Discord color integer to hex
   const embedColor = embed.color 
@@ -451,7 +458,7 @@ function DiscordEmbedDisplay({
           {/* Description */}
           {embed.description && (
             <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-words">
-              {parseMessageContent(embed.description, mentions, onMentionClick)}
+              {parseMessageContent(embed.description, mentions, onMentionClick, onUserMentionHover)}
             </p>
           )}
 
@@ -466,10 +473,10 @@ function DiscordEmbedDisplay({
                   className={field.inline ? '' : 'col-span-full'}
                 >
                   <div className="text-sm font-semibold text-gray-900 dark:text-white mb-0.5">
-                    {parseMessageContent(field.name, mentions, onMentionClick)}
+                    {parseMessageContent(field.name, mentions, onMentionClick, onUserMentionHover)}
                   </div>
                   <div className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-words">
-                    {parseMessageContent(field.value, mentions, onMentionClick)}
+                    {parseMessageContent(field.value, mentions, onMentionClick, onUserMentionHover)}
                   </div>
                 </div>
               ))}
@@ -982,6 +989,7 @@ export default function TicketDetailPage() {
   const { data: ticketData, isLoading: ticketLoading, error: ticketError } = useTicket(ticketId);
   const { data: messagesData, isLoading: messagesLoading, error: messagesError } = useTicketMessages(ticketId);
   const { mutate: generateSummary, isPending: generatingSummary, error: summaryMutationError } = useGenerateTicketSummary(ticketId);
+  const { prefetchUser } = usePrefetchUser();
   
   // Extract data from hook responses
   const ticket = ticketData?.ticket || null;
@@ -1329,10 +1337,10 @@ export default function TicketDetailPage() {
                                     minute: '2-digit',
                                     hour12: true 
                                   })}
-                                </span>
+                                 </span>
                               </div>
                               <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-words">
-                                {parseMessageContent(msg.content || (msg.attachments?.length ? '' : '(No content)'), mentions, handleMentionClick)}
+                                {parseMessageContent(msg.content || (msg.attachments?.length ? '' : '(No content)'), mentions, handleMentionClick, prefetchUser)}
                               </p>
                               
                               {/* Render embeds if present */}
@@ -1344,6 +1352,7 @@ export default function TicketDetailPage() {
                                       embed={embed} 
                                       mentions={mentions}
                                       onMentionClick={handleMentionClick}
+                                      onUserMentionHover={prefetchUser}
                                     />
                                   ))}
                                 </div>
@@ -1381,7 +1390,7 @@ export default function TicketDetailPage() {
                             </div>
                             <div className="flex-1 min-w-0">
                               <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-words">
-                                {parseMessageContent(msg.content || (msg.attachments?.length ? '' : '(No content)'), mentions, handleMentionClick)}
+                                {parseMessageContent(msg.content || (msg.attachments?.length ? '' : '(No content)'), mentions, handleMentionClick, prefetchUser)}
                               </p>
                               
                               {/* Render embeds if present */}
@@ -1393,6 +1402,7 @@ export default function TicketDetailPage() {
                                       embed={embed} 
                                       mentions={mentions}
                                       onMentionClick={handleMentionClick}
+                                      onUserMentionHover={prefetchUser}
                                     />
                                   ))}
                                 </div>

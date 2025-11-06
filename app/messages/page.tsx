@@ -3,7 +3,7 @@
 import { useState, useCallback, Suspense, useRef, useLayoutEffect, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useDebounce } from '@/lib/hooks/useDebounce';
-import { useMessages } from '@/lib/hooks/queries/useMessages';
+import { useMessages, usePrefetchMessages } from '@/lib/hooks/queries/useMessages';
 import Link from 'next/link';
 
 type Message = {
@@ -543,6 +543,31 @@ function MessagesPageContent() {
     page,
     limit: 50,
   });
+  
+  // Prefetch adjacent pages for instant navigation
+  const { prefetchPage } = usePrefetchMessages({
+    q: debouncedQuery || undefined,
+    staffOnly: staffOnly || undefined,
+    page,
+    limit: 50,
+  });
+
+  // Prefetch next/previous pages when data loads
+  useEffect(() => {
+    if (data?.pagination) {
+      const { page: currentPage, totalPages } = data.pagination;
+      
+      // Prefetch next page if it exists
+      if (currentPage < totalPages) {
+        prefetchPage(currentPage + 1);
+      }
+      
+      // Prefetch previous page if it exists
+      if (currentPage > 1) {
+        prefetchPage(currentPage - 1);
+      }
+    }
+  }, [data?.pagination, prefetchPage]);
   
   // Extract data from the hook response
   const messages = data?.messages || [];
