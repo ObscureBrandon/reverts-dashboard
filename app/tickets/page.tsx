@@ -1,8 +1,10 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
+import { useTickets } from '@/lib/hooks/queries/useTickets';
+import { useUser } from '@/lib/hooks/queries/useUsers';
 
 type Ticket = {
   id: number;
@@ -82,79 +84,35 @@ function TicketsContent() {
   const searchParams = useSearchParams();
   const authorParam = searchParams.get('author');
   
-  const [tickets, setTickets] = useState<Ticket[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'messages'>('newest');
   const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [total, setTotal] = useState(0);
-  const [authorInfo, setAuthorInfo] = useState<{ id: string; name: string; displayName: string | null } | null>(null);
   
   const limit = 50;
   
-  // Fetch author info when author param is present
-  useEffect(() => {
-    if (authorParam) {
-      fetch(`/api/users/${authorParam}`)
-        .then(res => res.json())
-        .then(data => {
-          if (data.user) {
-            setAuthorInfo({
-              id: data.user.id,
-              name: data.user.name,
-              displayName: data.user.displayName,
-            });
-          }
-        })
-        .catch(err => console.error('Failed to fetch author info:', err));
-    } else {
-      setAuthorInfo(null);
-    }
-  }, [authorParam]);
+  // Use TanStack Query hooks for data fetching
+  const { data, isLoading, error } = useTickets({
+    page,
+    limit,
+    sortBy,
+    status: statusFilter !== 'all' ? statusFilter : undefined,
+    author: authorParam || undefined,
+  });
   
-  useEffect(() => {
-    const fetchTickets = async () => {
-      setLoading(true);
-      setError(null);
-      
-      try {
-        const params = new URLSearchParams({
-          page: page.toString(),
-          limit: limit.toString(),
-          sortBy: sortBy,
-        });
-        
-        if (statusFilter !== 'all') {
-          params.set('status', statusFilter);
-        }
-        
-        if (authorParam) {
-          params.set('author', authorParam);
-        }
-        
-        const response = await fetch(`/api/tickets?${params}`);
-        
-        if (!response.ok) {
-          throw new Error('Failed to fetch tickets');
-        }
-        
-        const data = await response.json();
-        
-        setTickets(data.tickets);
-        setTotalPages(data.pagination.totalPages);
-        setTotal(data.pagination.total);
-      } catch (err) {
-        console.error('Failed to fetch tickets:', err);
-        setError(err instanceof Error ? err.message : 'Unknown error occurred');
-      } finally {
-        setLoading(false);
-      }
-    };
-    
-    fetchTickets();
-  }, [page, statusFilter, sortBy, authorParam]);
+  // Fetch author info when author param is present
+  const { data: authorData } = useUser(authorParam || undefined, {
+    enabled: !!authorParam,
+  });
+  
+  // Extract data from hook responses
+  const tickets = data?.tickets || [];
+  const totalPages = data?.pagination.totalPages || 1;
+  const total = data?.pagination.total || 0;
+  const authorInfo = authorData ? {
+    id: authorData.id,
+    name: authorData.name,
+    displayName: authorData.displayName,
+  } : null;
   
   const filteredTickets = tickets;
   
@@ -257,14 +215,14 @@ function TicketsContent() {
         {error && (
           <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 mb-6">
             <p className="text-red-800 dark:text-red-200">
-              Error: {error}
+              Error: {error.message}
             </p>
           </div>
         )}
         
         {/* Tickets List */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden">
-          {loading ? (
+          {isLoading ? (
             <div className="p-12 text-center">
               <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
               <p className="mt-4 text-gray-500 dark:text-gray-400">Loading tickets...</p>
@@ -454,7 +412,7 @@ function TicketsContent() {
                 <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex flex-col sm:flex-row justify-between items-center gap-4">
                   <button
                     onClick={() => setPage(p => Math.max(1, p - 1))}
-                    disabled={page === 1 || loading}
+                    disabled={page === 1 || isLoading}
                     className="w-full sm:w-auto px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed disabled:hover:bg-gray-300 transition-colors"
                   >
                     Previous
@@ -466,7 +424,7 @@ function TicketsContent() {
                   
                   <button
                     onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                    disabled={page === totalPages || loading}
+                    disabled={page === totalPages || isLoading}
                     className="w-full sm:w-auto px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed disabled:hover:bg-gray-300 transition-colors"
                   >
                     Next

@@ -1,8 +1,11 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useRef, useLayoutEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { useTicket, useTicketMessages } from '@/lib/hooks/queries/useTickets';
+import { useUser, useUserTicketStats, useUserRecentTickets } from '@/lib/hooks/queries/useUsers';
+import { useGenerateTicketSummary } from '@/lib/hooks/mutations/useTicketMutations';
 
 type Message = {
   id: string;
@@ -581,49 +584,78 @@ function Avatar({
 // Component to render info popover
 function MentionPopover({ modalData, onClose }: { modalData: ModalData; onClose: () => void }) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [userRoles, setUserRoles] = useState<UserRole[]>([]);
-  const [rolesLoading, setRolesLoading] = useState(false);
-  const [ticketStats, setTicketStats] = useState<{ open: number; closed: number } | null>(null);
-  const [recentTickets, setRecentTickets] = useState<Array<{ id: number; sequence: number | null; status: string | null; createdAt: string }>>([]);
-  const [ticketsLoading, setTicketsLoading] = useState(false);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [isPositioned, setIsPositioned] = useState(false);
 
-  // Fetch user roles and tickets when popover opens for a user
-  useEffect(() => {
-    if (modalData?.type === 'user') {
-      setRolesLoading(true);
-      fetch(`/api/users/${modalData.id}`)
-        .then(res => res.json())
-        .then(data => {
-          if (data.roles) {
-            setUserRoles(data.roles);
-          }
-        })
-        .catch(err => console.error('Failed to fetch user roles:', err))
-        .finally(() => setRolesLoading(false));
-      
-      // Fetch user ticket stats
-      setTicketsLoading(true);
-      Promise.all([
-        fetch(`/api/tickets?author=${modalData.id}&status=OPEN&limit=1`).then(res => res.json()),
-        fetch(`/api/tickets?author=${modalData.id}&status=CLOSED&limit=1`).then(res => res.json()),
-        fetch(`/api/tickets?author=${modalData.id}&status=DELETED&limit=1`).then(res => res.json()),
-        fetch(`/api/tickets?author=${modalData.id}&limit=5&sortBy=newest`).then(res => res.json())
-      ])
-        .then(([openData, closedData, deletedData, recentData]) => {
-          setTicketStats({
-            open: openData.pagination?.total || 0,
-            closed: (closedData.pagination?.total || 0) + (deletedData.pagination?.total || 0)
-          });
-          setRecentTickets(recentData.tickets || []);
-        })
-        .catch(err => console.error('Failed to fetch user tickets:', err))
-        .finally(() => setTicketsLoading(false));
-    } else {
-      setUserRoles([]);
-      setTicketStats(null);
-      setRecentTickets([]);
+  // Use TanStack Query hooks for data fetching
+  const userId = modalData?.type === 'user' ? modalData.id : undefined;
+  
+  const { data: userData, isLoading: rolesLoading } = useUser(userId, {
+    enabled: modalData?.type === 'user',
+  });
+  
+  const { data: ticketStats, isLoading: statsLoading } = useUserTicketStats(userId, {
+    enabled: modalData?.type === 'user',
+  });
+  
+  const { data: recentTickets = [], isLoading: recentLoading } = useUserRecentTickets(userId, 5, {
+    enabled: modalData?.type === 'user',
+  });
+  
+  const ticketsLoading = statsLoading || recentLoading;
+  const userRoles = userData?.roles || [];
+
+  // Calculate optimal position after render based on actual popover dimensions
+  useLayoutEffect(() => {
+    if (!modalData || !popoverRef.current) return;
+    
+    // Reset positioning when new popover opens
+    if (modalData.type === 'user') {
+      setIsPositioned(false);
     }
-  }, [modalData?.type, modalData?.id]);
+
+    const popover = popoverRef.current;
+    const rect = popover.getBoundingClientRect();
+    const viewportPadding = 16; // Buffer from viewport edges
+    
+    let x = modalData.position.x;
+    let y = modalData.position.y + 10; // Default: show below with small gap
+
+    // Horizontal positioning
+    // Check if popover overflows right edge
+    if (x + rect.width > window.innerWidth - viewportPadding) {
+      // Align to right edge of viewport with padding
+      x = window.innerWidth - rect.width - viewportPadding;
+    }
+    
+    // Check if popover overflows left edge
+    if (x < viewportPadding) {
+      x = viewportPadding;
+    }
+
+    // Vertical positioning
+    // Check if popover overflows bottom edge
+    if (y + rect.height > window.innerHeight - viewportPadding) {
+      // Try to show above the mention instead
+      const yAbove = modalData.position.y - rect.height - 10;
+      if (yAbove >= viewportPadding) {
+        // Enough space above
+        y = yAbove;
+      } else {
+        // Not enough space above or below, align to bottom with padding
+        y = window.innerHeight - rect.height - viewportPadding;
+      }
+    }
+    
+    // Check if popover overflows top edge
+    if (y < viewportPadding) {
+      y = viewportPadding;
+    }
+
+    setPosition({ x, y });
+    setIsPositioned(true);
+  }, [modalData, ticketsLoading, rolesLoading, userRoles.length, recentTickets.length]);
 
   if (!modalData) return null;
 
@@ -637,15 +669,6 @@ function MentionPopover({ modalData, onClose }: { modalData: ModalData; onClose:
     }
   };
 
-  const adjustedPosition = {
-    x: Math.min(modalData.position.x, window.innerWidth - 320),
-    y: modalData.position.y + 10,
-  };
-
-  if (adjustedPosition.y + 300 > window.innerHeight) {
-    adjustedPosition.y = modalData.position.y - 310;
-  }
-
   return (
     <>
       <div 
@@ -654,10 +677,13 @@ function MentionPopover({ modalData, onClose }: { modalData: ModalData; onClose:
       />
       
       <div 
-        className="fixed z-50 bg-white dark:bg-gray-800 rounded-lg shadow-2xl border border-gray-200 dark:border-gray-700 w-80 animate-in fade-in slide-in-from-top-2 duration-200"
+        ref={popoverRef}
+        className={`fixed z-50 bg-white dark:bg-gray-800 rounded-lg shadow-2xl border border-gray-200 dark:border-gray-700 w-80 max-h-[90vh] overflow-y-auto transition-opacity duration-200 ${
+          isPositioned ? 'opacity-100' : 'opacity-0'
+        }`}
         style={{
-          left: `${adjustedPosition.x}px`,
-          top: `${adjustedPosition.y}px`,
+          left: `${position.x}px`,
+          top: `${position.y}px`,
         }}
       >
         <div className="p-4">
@@ -948,61 +974,25 @@ export default function TicketDetailPage() {
   const router = useRouter();
   const ticketId = params.id as string;
   
-  const [ticket, setTicket] = useState<Ticket | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [mentions, setMentions] = useState<MentionLookup>({ users: {}, roles: {}, channels: {} });
   const [modalData, setModalData] = useState<ModalData>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [guildId, setGuildId] = useState<string | null>(null);
-  const [generatingSummary, setGeneratingSummary] = useState(false);
-  const [summaryError, setSummaryError] = useState<string | null>(null);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
-  useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-      setError(null);
-      // Reset state when ticket changes
-      setTicket(null);
-      setMessages([]);
-      setMentions({ users: {}, roles: {}, channels: {} });
-      setModalData(null);
-      
-      try {
-        // Fetch ticket details
-        const ticketResponse = await fetch(`/api/tickets?id=${ticketId}`);
-        if (!ticketResponse.ok) {
-          throw new Error('Failed to fetch ticket');
-        }
-        const ticketData = await ticketResponse.json();
-        if (!ticketData.ticket) {
-          throw new Error('Ticket not found');
-        }
-        setTicket(ticketData.ticket);
-        
-        // Fetch messages in transcript mode
-        const messagesResponse = await fetch(`/api/messages?ticketId=${ticketId}&mode=transcript&limit=1000`);
-        if (!messagesResponse.ok) {
-          throw new Error('Failed to fetch messages');
-        }
-        const messagesData = await messagesResponse.json();
-        setMessages(messagesData.messages);
-        setMentions(messagesData.mentions);
-        setGuildId(messagesData.guildId);
-        
-      } catch (err) {
-        console.error('Failed to fetch data:', err);
-        setError(err instanceof Error ? err.message : 'Unknown error occurred');
-      } finally {
-        setLoading(false);
-      }
-    };
-    
-    fetchData();
-  }, [ticketId]);
+  // Use TanStack Query hooks for data fetching
+  const { data: ticketData, isLoading: ticketLoading, error: ticketError } = useTicket(ticketId);
+  const { data: messagesData, isLoading: messagesLoading, error: messagesError } = useTicketMessages(ticketId);
+  const { mutate: generateSummary, isPending: generatingSummary, error: summaryMutationError } = useGenerateTicketSummary(ticketId);
   
+  // Extract data from hook responses
+  const ticket = ticketData?.ticket || null;
+  const messages = messagesData?.messages || [];
+  const mentions = messagesData?.mentions || { users: {}, roles: {}, channels: {} };
+  const guildId = messagesData?.guildId || null;
+  
+  // Combined loading and error states
+  const loading = ticketLoading || messagesLoading;
+  const error = ticketError || messagesError;
+  const summaryError = summaryMutationError?.message || null;
 
   
   const handleMentionClick = (type: 'user' | 'role' | 'channel', id: string, event: React.MouseEvent) => {
@@ -1030,35 +1020,8 @@ export default function TicketDetailPage() {
     }
   };
   
-  const handleGenerateSummary = async () => {
-    setGeneratingSummary(true);
-    setSummaryError(null);
-    
-    try {
-      const response = await fetch(`/api/tickets/${ticketId}/summary`, {
-        method: 'POST',
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to generate summary');
-      }
-      
-      const data = await response.json();
-      
-      // Update ticket with new summary
-      setTicket(prev => prev ? {
-        ...prev,
-        summary: data.summary,
-        summaryGeneratedAt: new Date().toISOString(),
-        summaryModel: data.model,
-        summaryTokensUsed: data.tokensUsed,
-      } : null);
-    } catch (err) {
-      setSummaryError(err instanceof Error ? err.message : 'Failed to generate summary');
-    } finally {
-      setGeneratingSummary(false);
-    }
+  const handleGenerateSummary = () => {
+    generateSummary();
   };
   
   if (loading) {
@@ -1080,7 +1043,7 @@ export default function TicketDetailPage() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Ticket Not Found</h1>
-          <p className="text-gray-600 dark:text-gray-400 mb-6">{error || 'The ticket you are looking for does not exist.'}</p>
+          <p className="text-gray-600 dark:text-gray-400 mb-6">{error?.message || 'The ticket you are looking for does not exist.'}</p>
           <Link 
             href="/tickets"
             className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"

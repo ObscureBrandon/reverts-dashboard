@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect, useCallback, Suspense } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { useState, useCallback, Suspense, useRef, useLayoutEffect, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useDebounce } from '@/lib/hooks/useDebounce';
+import { useMessages } from '@/lib/hooks/queries/useMessages';
 import Link from 'next/link';
 
 type Message = {
@@ -125,10 +126,14 @@ function MentionPopover({ modalData, onClose }: { modalData: ModalData; onClose:
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [userRoles, setUserRoles] = useState<UserRole[]>([]);
   const [rolesLoading, setRolesLoading] = useState(false);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [isPositioned, setIsPositioned] = useState(false);
 
   // Fetch user roles when popover opens for a user
   useEffect(() => {
     if (modalData?.type === 'user') {
+      setIsPositioned(false); // Reset positioning when new popover opens
       setRolesLoading(true);
       fetch(`/api/users/${modalData.id}`)
         .then(res => res.json())
@@ -144,6 +149,52 @@ function MentionPopover({ modalData, onClose }: { modalData: ModalData; onClose:
     }
   }, [modalData?.type, modalData?.id]);
 
+  // Calculate optimal position after render based on actual popover dimensions
+  useLayoutEffect(() => {
+    if (!modalData || !popoverRef.current) return;
+
+    const popover = popoverRef.current;
+    const rect = popover.getBoundingClientRect();
+    const viewportPadding = 16; // Buffer from viewport edges
+    
+    let x = modalData.position.x;
+    let y = modalData.position.y + 10; // Default: show below with small gap
+
+    // Horizontal positioning
+    // Check if popover overflows right edge
+    if (x + rect.width > window.innerWidth - viewportPadding) {
+      // Align to right edge of viewport with padding
+      x = window.innerWidth - rect.width - viewportPadding;
+    }
+    
+    // Check if popover overflows left edge
+    if (x < viewportPadding) {
+      x = viewportPadding;
+    }
+
+    // Vertical positioning
+    // Check if popover overflows bottom edge
+    if (y + rect.height > window.innerHeight - viewportPadding) {
+      // Try to show above the mention instead
+      const yAbove = modalData.position.y - rect.height - 10;
+      if (yAbove >= viewportPadding) {
+        // Enough space above
+        y = yAbove;
+      } else {
+        // Not enough space above or below, align to bottom with padding
+        y = window.innerHeight - rect.height - viewportPadding;
+      }
+    }
+    
+    // Check if popover overflows top edge
+    if (y < viewportPadding) {
+      y = viewportPadding;
+    }
+
+    setPosition({ x, y });
+    setIsPositioned(true);
+  }, [modalData, rolesLoading, userRoles.length]);
+
   if (!modalData) return null;
 
   const copyToClipboard = async (text: string) => {
@@ -156,15 +207,6 @@ function MentionPopover({ modalData, onClose }: { modalData: ModalData; onClose:
     }
   };
 
-  const adjustedPosition = {
-    x: Math.min(modalData.position.x, window.innerWidth - 320),
-    y: modalData.position.y + 10,
-  };
-
-  if (adjustedPosition.y + 300 > window.innerHeight) {
-    adjustedPosition.y = modalData.position.y - 310;
-  }
-
   return (
     <>
       <div 
@@ -173,10 +215,13 @@ function MentionPopover({ modalData, onClose }: { modalData: ModalData; onClose:
       />
       
       <div 
-        className="fixed z-50 bg-white dark:bg-gray-800 rounded-lg shadow-2xl border border-gray-200 dark:border-gray-700 w-80 animate-in fade-in slide-in-from-top-2 duration-200"
+        ref={popoverRef}
+        className={`fixed z-50 bg-white dark:bg-gray-800 rounded-lg shadow-2xl border border-gray-200 dark:border-gray-700 w-80 max-h-[90vh] overflow-y-auto transition-opacity duration-200 ${
+          isPositioned ? 'opacity-100' : 'opacity-0'
+        }`}
         style={{
-          left: `${adjustedPosition.x}px`,
-          top: `${adjustedPosition.y}px`,
+          left: `${position.x}px`,
+          top: `${position.y}px`,
         }}
       >
         <div className="p-4">
@@ -470,24 +515,41 @@ function parseMessageContent(
 
 function MessagesPageContent() {
   const searchParams = useSearchParams();
-  const router = useRouter();
   
   // Get initial values from URL
   const urlQuery = searchParams.get('q');
   
   const [searchQuery, setSearchQuery] = useState(urlQuery || '');
   const [staffOnly, setStaffOnly] = useState(false);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [mentions, setMentions] = useState<MentionLookup>({ users: {}, roles: {}, channels: {} });
   const [modalData, setModalData] = useState<ModalData>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [total, setTotal] = useState(0);
-  const [guildId, setGuildId] = useState<string | null>(null);
   
   const debouncedQuery = useDebounce(searchQuery, 150);
+  
+  // Reset page when search params change
+  const prevQueryRef = useRef(debouncedQuery);
+  const prevStaffOnlyRef = useRef(staffOnly);
+  
+  if (prevQueryRef.current !== debouncedQuery || prevStaffOnlyRef.current !== staffOnly) {
+    setPage(1);
+    prevQueryRef.current = debouncedQuery;
+    prevStaffOnlyRef.current = staffOnly;
+  }
+  
+  // Use TanStack Query hook for data fetching
+  const { data, isLoading, error } = useMessages({
+    q: debouncedQuery || undefined,
+    staffOnly: staffOnly || undefined,
+    page,
+    limit: 50,
+  });
+  
+  // Extract data from the hook response
+  const messages = data?.messages || [];
+  const mentions = data?.mentions || { users: {}, roles: {}, channels: {} };
+  const totalPages = data?.pagination.totalPages || 1;
+  const total = data?.pagination.total || 0;
+  const guildId = data?.guildId || null;
   
   const handleMentionClick = useCallback((type: 'user' | 'role' | 'channel', id: string, event: React.MouseEvent) => {
     const rect = (event.target as HTMLElement).getBoundingClientRect();
@@ -513,67 +575,6 @@ function MessagesPageContent() {
       }
     }
   }, [mentions]);
-  
-  const fetchMessages = useCallback(async (signal: AbortSignal) => {
-    const isFirstLoad = messages.length === 0;
-    if (isFirstLoad) {
-      setLoading(true);
-    }
-    setError(null);
-    
-    try {
-      const params = new URLSearchParams({
-        page: page.toString(),
-        limit: '50',
-      });
-      
-      if (debouncedQuery) {
-        params.set('q', debouncedQuery);
-      }
-      
-      if (staffOnly) {
-        params.set('staffOnly', 'true');
-      }
-      
-      const response = await fetch(`/api/messages?${params}`, {
-        signal,
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch messages');
-      }
-      
-      const data: SearchResponse = await response.json();
-      
-      setMessages(data.messages);
-      setMentions(data.mentions);
-      setTotalPages(data.pagination.totalPages);
-      setTotal(data.pagination.total);
-      setGuildId(data.guildId);
-    } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') {
-        return;
-      }
-      console.error('Failed to fetch messages:', err);
-      setError(err instanceof Error ? err.message : 'Unknown error occurred');
-      setMessages([]);
-    } finally {
-      if (isFirstLoad) {
-        setLoading(false);
-      }
-    }
-  }, [debouncedQuery, staffOnly, page, messages.length]);
-  
-  useEffect(() => {
-    const abortController = new AbortController();
-    fetchMessages(abortController.signal);
-    
-    return () => abortController.abort();
-  }, [fetchMessages]);
-  
-  useEffect(() => {
-    setPage(1);
-  }, [debouncedQuery, staffOnly]);
   
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
@@ -634,14 +635,14 @@ function MessagesPageContent() {
         {error && (
           <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 mb-6">
             <p className="text-red-800 dark:text-red-200">
-              Error: {error}
+              Error: {error.message}
             </p>
           </div>
         )}
         
         {/* Results */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden">
-          {loading ? (
+          {isLoading ? (
             <div className="p-12 text-center">
               <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
               <p className="mt-4 text-gray-500 dark:text-gray-400">Loading messages...</p>
@@ -764,7 +765,7 @@ function MessagesPageContent() {
                 <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex flex-col sm:flex-row justify-between items-center gap-4">
                   <button
                     onClick={() => setPage(p => Math.max(1, p - 1))}
-                    disabled={page === 1 || loading}
+                    disabled={page === 1 || isLoading}
                     className="w-full sm:w-auto px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed disabled:hover:bg-gray-300 transition-colors"
                   >
                     Previous
@@ -776,7 +777,7 @@ function MessagesPageContent() {
                   
                   <button
                     onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                    disabled={page === totalPages || loading}
+                    disabled={page === totalPages || isLoading}
                     className="w-full sm:w-auto px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed disabled:hover:bg-gray-300 transition-colors"
                   >
                     Next
