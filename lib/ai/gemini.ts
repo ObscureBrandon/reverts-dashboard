@@ -92,14 +92,14 @@ export async function getTicketContext(ticketId: number): Promise<TicketContext 
     messages: formattedMessages,
     userProfile: author
       ? {
-          relationToIslam: author.relationToIslam,
-          gender: author.gender,
-          age: author.age,
-          region: author.region,
-          religiousAffiliation: author.religiousAffiliation,
-          isVerified: author.isVerified,
-          isVoiceVerified: author.isVoiceVerified,
-        }
+        relationToIslam: author.relationToIslam,
+        gender: author.gender,
+        age: author.age,
+        region: author.region,
+        religiousAffiliation: author.religiousAffiliation,
+        isVerified: author.isVerified,
+        isVoiceVerified: author.isVoiceVerified,
+      }
       : undefined,
   };
 }
@@ -121,7 +121,7 @@ function generatePrompt(context: TicketContext): string {
     if (userProfile.region) profileDetails.push(`Region: ${userProfile.region}`);
     if (userProfile.isVerified) profileDetails.push('✓ Verified');
     if (userProfile.isVoiceVerified) profileDetails.push('✓ Voice Verified');
-    
+
     if (profileDetails.length > 0) {
       userContext += `\n${profileDetails.join(', ')}`;
     }
@@ -209,7 +209,7 @@ export async function generateTicketSummary(ticketId: number): Promise<{
 }> {
   // Get ticket context
   const context = await getTicketContext(ticketId);
-  
+
   if (!context) {
     throw new Error('Ticket not found');
   }

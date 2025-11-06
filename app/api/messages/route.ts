@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { searchMessages, getMessageCount, getStaffRoles, getMentionsForMessages } from '@/lib/db/queries';
+import { requireAuth } from '@/lib/auth-helpers';
 
 // In-memory cache for staff role IDs (refresh every 5 minutes)
 let staffRoleCache: { ids: bigint[]; timestamp: number } | null = null;
@@ -24,6 +25,10 @@ async function getStaffRoleIds(): Promise<bigint[]> {
 }
 
 export async function GET(request: NextRequest) {
+  // Require authentication
+  const { session, error } = await requireAuth();
+  if (error) return error;
+  
   const searchParams = request.nextUrl.searchParams;
   
   const query = searchParams.get('q') || undefined;

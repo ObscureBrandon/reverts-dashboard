@@ -3,11 +3,16 @@ import { db } from '@/lib/db';
 import { users } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { getUserRoles } from '@/lib/db/queries';
+import { requireAuth } from '@/lib/auth-helpers';
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  // Require authentication
+  const { session, error } = await requireAuth();
+  if (error) return error;
+  
   try {
     const { id } = await params;
     const userId = BigInt(id);
