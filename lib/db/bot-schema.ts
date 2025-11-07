@@ -15,6 +15,8 @@ import { pgTable, bigint, varchar, integer, boolean, timestamp, text, jsonb, ind
 
 // Enums used by bot tables
 export const ticketStatusEnum = pgEnum("TicketStatus", ['OPEN', 'CLOSED', 'DELETED']);
+export const infractionTypeEnum = pgEnum("InfractionType", ['NOTE', 'WARNING', 'TIMEOUT', 'KICK', 'BAN', 'JAIL', 'VOICE_MUTE', 'VOICE_BAN']);
+export const infractionStatusEnum = pgEnum("InfractionStatus", ['ACTIVE', 'EXPIRED', 'PARDONED']);
 
 // Bot Tables - Minimal definitions for read-only access
 
@@ -124,4 +126,38 @@ export const userRoles = pgTable("UserRoles", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({
   roleIdIdx: index("user_roles_role_id_idx").on(table.roleId),
+}));
+
+export const infractions = pgTable("Infraction", {
+  id: integer("id").primaryKey(),
+  userId: bigint("user_id", { mode: "bigint" }).notNull(),
+  moderatorId: bigint("moderator_id", { mode: "bigint" }).notNull(),
+  type: infractionTypeEnum("type").notNull(),
+  status: infractionStatusEnum("status").default('ACTIVE').notNull(),
+  reason: text(),
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").notNull(),
+  pardonedById: bigint("pardoned_by_id", { mode: "bigint" }),
+  pardonedAt: timestamp("pardoned_at"),
+  pardonReason: text("pardon_reason"),
+  hidden: boolean().default(false).notNull(),
+  jumpUrl: text("jump_url"),
+}, (table) => ({
+  userIdStatusIdx: index("Infraction_user_id_status_idx").on(table.userId, table.status),
+  userIdTypeIdx: index("Infraction_user_id_type_idx").on(table.userId, table.type),
+}));
+
+export const infractionAppeals = pgTable("InfractionAppeal", {
+  id: integer("id").primaryKey(),
+  infractionId: integer("infraction_id").notNull(),
+  appealText: text("appeal_text").notNull(),
+  submittedAt: timestamp("submitted_at").defaultNow().notNull(),
+  reviewedById: bigint("reviewed_by_id", { mode: "bigint" }),
+  reviewedAt: timestamp("reviewed_at"),
+  reviewNotes: text("review_notes"),
+  approved: boolean(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  infractionIdIdx: index("InfractionAppeal_infraction_id_idx").on(table.infractionId),
 }));

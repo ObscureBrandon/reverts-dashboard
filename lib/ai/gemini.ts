@@ -1,6 +1,6 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { db } from '@/lib/db';
-import { messages, users, tickets, panels } from '@/lib/db/schema';
+import { messages, users, tickets, panels, infractions, infractionAppeals } from '@/lib/db/schema';
 import { eq, and } from 'drizzle-orm';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
@@ -29,6 +29,10 @@ export type TicketContext = {
     isVerified: boolean;
     isVoiceVerified: boolean;
   };
+  jailInfo?: {
+    reason: string | null;
+    appeal: string | null;
+  };
 };
 
 /**
@@ -53,6 +57,33 @@ export async function getTicketContext(ticketId: number): Promise<TicketContext 
   }
 
   const { ticket, author, panel } = ticketResult[0];
+
+  // Get active JAIL infraction for the ticket author (if any)
+  let jailInfo: { reason: string | null; appeal: string | null } | undefined;
+  if (author) {
+    const jailResult = await db
+      .select({
+        reason: infractions.reason,
+        appealText: infractionAppeals.appealText,
+      })
+      .from(infractions)
+      .leftJoin(infractionAppeals, eq(infractions.id, infractionAppeals.infractionId))
+      .where(
+        and(
+          eq(infractions.userId, author.discordId),
+          eq(infractions.type, 'JAIL'),
+          eq(infractions.status, 'ACTIVE')
+        )
+      )
+      .limit(1);
+
+    if (jailResult[0]) {
+      jailInfo = {
+        reason: jailResult[0].reason,
+        appeal: jailResult[0].appealText,
+      };
+    }
+  }
 
   // Get all non-deleted messages for this ticket
   const ticketMessages = await db
@@ -101,6 +132,7 @@ export async function getTicketContext(ticketId: number): Promise<TicketContext 
         isVoiceVerified: author.isVoiceVerified,
       }
       : undefined,
+    jailInfo,
   };
 }
 
@@ -147,15 +179,24 @@ function generatePrompt(context: TicketContext): string {
 This is a VERIFICATION ticket. Focus on:
 - What type of verification was requested (age, gender, religious affiliation)
 - User's demographics and stated information
-- Whether verification was completed successfully
+- Whether verification was completed successfully, if it was verification only or verification and voice verification
 - Any concerns or special notes from the verification process`;
   } else if (panelLower.includes('jail')) {
+    let jailContext = '';
+    if (context.jailInfo) {
+      if (context.jailInfo.reason) {
+        jailContext += `\nJail Reason: ${context.jailInfo.reason}`;
+      }
+      if (context.jailInfo.appeal) {
+        jailContext += `\nUser's Appeal: ${context.jailInfo.appeal}`;
+      }
+    }
     specificGuidance = `
 This is a JAIL ticket (for moderation issues). Focus on:
-- Reason the user was jailed
-- User's response and explanation
+- Reason the user was jailed${context.jailInfo?.reason ? ' (provided below)' : ''}
+- User's response and explanation${context.jailInfo?.appeal ? ' (appeal provided below)' : ''}
 - Staff decision and resolution
-- Whether the issue was resolved and how`;
+- Whether the issue was resolved and how${jailContext}`;
   } else if (panelLower.includes('urgent')) {
     specificGuidance = `
 This is an URGENT QUESTION ticket. Focus on:
