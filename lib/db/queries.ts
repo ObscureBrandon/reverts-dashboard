@@ -427,3 +427,24 @@ export async function getAllPanels() {
     .from(panels)
     .orderBy(asc(panels.title));
 }
+
+/**
+ * Get ticket statistics for a specific user (optimized single query)
+ * Returns counts for open, closed, and deleted tickets
+ */
+export async function getUserTicketStats(userId: bigint) {
+  const result = await db
+    .select({
+      openCount: sql<number>`COUNT(*) FILTER (WHERE ${tickets.status} = 'OPEN')::int`,
+      closedCount: sql<number>`COUNT(*) FILTER (WHERE ${tickets.status} = 'CLOSED')::int`,
+      deletedCount: sql<number>`COUNT(*) FILTER (WHERE ${tickets.status} = 'DELETED')::int`,
+    })
+    .from(tickets)
+    .where(eq(tickets.authorId, userId));
+
+  const stats = result[0];
+  return {
+    open: stats?.openCount || 0,
+    closed: (stats?.closedCount || 0) + (stats?.deletedCount || 0),
+  };
+}

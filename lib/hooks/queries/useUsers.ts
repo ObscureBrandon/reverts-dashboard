@@ -49,6 +49,7 @@ export function useUser(userId: string | undefined, options?: { enabled?: boolea
 
 /**
  * Fetch user ticket statistics (open and closed counts)
+ * OPTIMIZED: Uses single endpoint instead of 3 separate API calls
  */
 export function useUserTicketStats(userId: string | undefined, options?: { enabled?: boolean }) {
   return useQuery({
@@ -56,16 +57,11 @@ export function useUserTicketStats(userId: string | undefined, options?: { enabl
     queryFn: async () => {
       if (!userId) throw new Error('User ID is required');
       
-      const [openData, closedData, deletedData] = await Promise.all([
-        fetch(`/api/tickets?author=${userId}&status=OPEN&limit=1`).then(res => res.json()),
-        fetch(`/api/tickets?author=${userId}&status=CLOSED&limit=1`).then(res => res.json()),
-        fetch(`/api/tickets?author=${userId}&status=DELETED&limit=1`).then(res => res.json()),
-      ]);
-      
-      return {
-        open: openData.pagination?.total || 0,
-        closed: (closedData.pagination?.total || 0) + (deletedData.pagination?.total || 0),
-      } as TicketStatsData;
+      const response = await fetch(`/api/users/${userId}/ticket-stats`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch ticket stats');
+      }
+      return response.json() as Promise<TicketStatsData>;
     },
     enabled: options?.enabled !== false && !!userId,
     staleTime: 1 * 60 * 1000, // Ticket stats fresh for 1 minute
@@ -100,6 +96,7 @@ export function useUserRecentTickets(
 /**
  * Prefetch user data and stats on hover
  * Use this to improve popover performance
+ * OPTIMIZED: Uses new single-query ticket stats endpoint
  */
 export function usePrefetchUser() {
   const queryClient = useQueryClient();
@@ -118,20 +115,15 @@ export function usePrefetchUser() {
       staleTime: 2 * 60 * 1000,
     });
 
-    // Prefetch user ticket stats
+    // Prefetch user ticket stats (optimized single call)
     queryClient.prefetchQuery({
       queryKey: ['userTicketStats', userId],
       queryFn: async () => {
-        const [openData, closedData, deletedData] = await Promise.all([
-          fetch(`/api/tickets?author=${userId}&status=OPEN&limit=1`).then(res => res.json()),
-          fetch(`/api/tickets?author=${userId}&status=CLOSED&limit=1`).then(res => res.json()),
-          fetch(`/api/tickets?author=${userId}&status=DELETED&limit=1`).then(res => res.json()),
-        ]);
-        
-        return {
-          open: openData.pagination?.total || 0,
-          closed: (closedData.pagination?.total || 0) + (deletedData.pagination?.total || 0),
-        } as TicketStatsData;
+        const response = await fetch(`/api/users/${userId}/ticket-stats`);
+        if (!response.ok) {
+          throw new Error('Failed to fetch ticket stats');
+        }
+        return response.json() as Promise<TicketStatsData>;
       },
       staleTime: 1 * 60 * 1000,
     });
