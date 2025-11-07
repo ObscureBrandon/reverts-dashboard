@@ -17,6 +17,10 @@ export type Ticket = {
     id: string;
     name: string;
   } | null;
+  panel: {
+    id: number;
+    title: string;
+  } | null;
   messageCount: number;
   summary?: string | null;
   summaryGeneratedAt?: string | null;
@@ -56,6 +60,7 @@ export type TicketsParams = {
   sortBy?: 'newest' | 'oldest' | 'messages';
   status?: string;
   author?: string;
+  panel?: number;
 };
 
 export type TicketsResponse = {
@@ -82,10 +87,10 @@ export type TicketMessagesResponse = {
  * Fetch a list of tickets with pagination and filters
  */
 export function useTickets(params: TicketsParams = {}, options?: { enabled?: boolean }) {
-  const { page = 1, limit = 50, sortBy = 'newest', status, author } = params;
+  const { page = 1, limit = 50, sortBy = 'newest', status, author, panel } = params;
   
   return useQuery({
-    queryKey: ['tickets', { page, limit, sortBy, status, author }],
+    queryKey: ['tickets', { page, limit, sortBy, status, author, panel }],
     queryFn: async (): Promise<TicketsResponse> => {
       const searchParams = new URLSearchParams({
         page: page.toString(),
@@ -99,6 +104,10 @@ export function useTickets(params: TicketsParams = {}, options?: { enabled?: boo
       
       if (author) {
         searchParams.set('author', author);
+      }
+      
+      if (panel) {
+        searchParams.set('panel', panel.toString());
       }
       
       const response = await fetch(`/api/tickets?${searchParams}`);
@@ -160,11 +169,11 @@ export function useTicketMessages(ticketId: string | number, options?: { enabled
  */
 export function usePrefetchTickets(params: TicketsParams = {}) {
   const queryClient = useQueryClient();
-  const { page = 1, limit = 50, sortBy = 'newest', status, author } = params;
+  const { page = 1, limit = 50, sortBy = 'newest', status, author, panel } = params;
 
   const prefetchPage = (targetPage: number) => {
     queryClient.prefetchQuery({
-      queryKey: ['tickets', { page: targetPage, limit, sortBy, status, author }],
+      queryKey: ['tickets', { page: targetPage, limit, sortBy, status, author, panel }],
       queryFn: async (): Promise<TicketsResponse> => {
         const searchParams = new URLSearchParams({
           page: targetPage.toString(),
@@ -178,6 +187,10 @@ export function usePrefetchTickets(params: TicketsParams = {}) {
         
         if (author) {
           searchParams.set('author', author);
+        }
+        
+        if (panel) {
+          searchParams.set('panel', panel.toString());
         }
         
         const response = await fetch(`/api/tickets?${searchParams}`);

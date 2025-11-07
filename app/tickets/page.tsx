@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useTickets, usePrefetchTickets, usePrefetchTicketDetail } from '@/lib/hooks/queries/useTickets';
 import { useUser, useUserTicketStats, useUserRecentTickets, usePrefetchUser } from '@/lib/hooks/queries/useUsers';
+import { usePanels } from '@/lib/hooks/queries/usePanels';
 
 type Ticket = {
   id: number;
@@ -21,6 +22,10 @@ type Ticket = {
   channel: {
     id: string;
     name: string;
+  } | null;
+  panel: {
+    id: number;
+    title: string;
   } | null;
   messageCount: number;
 };
@@ -380,10 +385,15 @@ function TicketsContent() {
   const authorParam = searchParams.get('author');
   
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [panelFilter, setPanelFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'messages'>('newest');
   const [page, setPage] = useState(1);
   
   const limit = 50;
+  
+  // Fetch panels list
+  const { data: panelsData } = usePanels();
+  const panels = panelsData || [];
   
   // Use TanStack Query hooks for data fetching
   const { data, isLoading, error } = useTickets({
@@ -392,6 +402,7 @@ function TicketsContent() {
     sortBy,
     status: statusFilter !== 'all' ? statusFilter : undefined,
     author: authorParam || undefined,
+    panel: panelFilter !== 'all' ? parseInt(panelFilter) : undefined,
   });
   
   // Prefetch adjacent pages for instant navigation
@@ -401,6 +412,7 @@ function TicketsContent() {
     sortBy,
     status: statusFilter !== 'all' ? statusFilter : undefined,
     author: authorParam || undefined,
+    panel: panelFilter !== 'all' ? parseInt(panelFilter) : undefined,
   });
 
   // Prefetch ticket details on hover
@@ -546,6 +558,27 @@ function TicketsContent() {
                   <option value="OPEN">Open</option>
                   <option value="CLOSED">Closed</option>
                   <option value="DELETED">Deleted</option>
+                </select>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Panel
+                </label>
+                <select
+                  value={panelFilter}
+                  onChange={(e) => {
+                    setPanelFilter(e.target.value);
+                    setPage(1);
+                  }}
+                  className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white text-sm"
+                >
+                  <option value="all">All Panels</option>
+                  {panels.map(panel => (
+                    <option key={panel.id} value={panel.id.toString()}>
+                      {panel.title}
+                    </option>
+                  ))}
                 </select>
               </div>
               

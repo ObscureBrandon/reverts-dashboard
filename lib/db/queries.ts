@@ -1,5 +1,5 @@
 import { db } from './index';
-import { messages, users, channels, tickets, userRoles, roles } from './schema';
+import { messages, users, channels, tickets, userRoles, roles, panels } from './schema';
 import { eq, and, like, inArray, sql, desc, asc, ilike, or, isNotNull } from 'drizzle-orm';
 
 export type MessageSearchParams = {
@@ -151,6 +151,7 @@ export async function getTicketById(ticketId: number) {
       ticket: tickets,
       author: users,
       channel: channels,
+      panel: panels,
       messageCount: sql<number>`(
         SELECT COUNT(*)::int 
         FROM ${messages} 
@@ -161,6 +162,7 @@ export async function getTicketById(ticketId: number) {
     .from(tickets)
     .leftJoin(users, eq(tickets.authorId, users.discordId))
     .leftJoin(channels, eq(tickets.channelId, channels.channelId))
+    .leftJoin(panels, eq(tickets.panelId, panels.id))
     .where(eq(tickets.id, ticketId))
     .limit(1);
 
@@ -170,6 +172,7 @@ export async function getTicketById(ticketId: number) {
 export type TicketListParams = {
   status?: 'OPEN' | 'CLOSED' | 'DELETED';
   authorId?: bigint;
+  panelId?: number;
   limit?: number;
   offset?: number;
   search?: string;
@@ -180,6 +183,7 @@ export async function getTickets(params: TicketListParams = {}) {
   const {
     status,
     authorId,
+    panelId,
     limit = 50,
     offset = 0,
     search,
@@ -194,6 +198,10 @@ export async function getTickets(params: TicketListParams = {}) {
 
   if (authorId) {
     conditions.push(eq(tickets.authorId, authorId));
+  }
+
+  if (panelId) {
+    conditions.push(eq(tickets.panelId, panelId));
   }
 
   if (search) {
@@ -233,6 +241,7 @@ export async function getTickets(params: TicketListParams = {}) {
       ticket: tickets,
       author: users,
       channel: channels,
+      panel: panels,
       messageCount: sql<number>`(
         SELECT COUNT(*)::int 
         FROM ${messages} 
@@ -243,6 +252,7 @@ export async function getTickets(params: TicketListParams = {}) {
     .from(tickets)
     .leftJoin(users, eq(tickets.authorId, users.discordId))
     .leftJoin(channels, eq(tickets.channelId, channels.channelId))
+    .leftJoin(panels, eq(tickets.panelId, panels.id))
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(orderByClause)
     .limit(limit)
@@ -252,7 +262,7 @@ export async function getTickets(params: TicketListParams = {}) {
 }
 
 export async function getTicketCount(params: TicketListParams = {}) {
-  const { status, authorId, search } = params;
+  const { status, authorId, panelId, search } = params;
   
   const conditions = [];
 
@@ -262,6 +272,10 @@ export async function getTicketCount(params: TicketListParams = {}) {
 
   if (authorId) {
     conditions.push(eq(tickets.authorId, authorId));
+  }
+
+  if (panelId) {
+    conditions.push(eq(tickets.panelId, panelId));
   }
 
   if (search) {
@@ -399,4 +413,17 @@ export async function getUserRoles(userId: bigint) {
       eq(roles.deleted, false)
     ))
     .orderBy(desc(roles.position));
+}
+
+/**
+ * Get all panels for ticket filtering
+ */
+export async function getAllPanels() {
+  return db
+    .select({
+      id: panels.id,
+      title: panels.title,
+    })
+    .from(panels)
+    .orderBy(asc(panels.title));
 }

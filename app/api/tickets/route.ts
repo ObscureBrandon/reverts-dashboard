@@ -40,6 +40,10 @@ export async function GET(request: NextRequest) {
             id: ticket.channel.channelId.toString(),
             name: ticket.channel.name,
           } : null,
+          panel: ticket.panel ? {
+            id: ticket.panel.id,
+            title: ticket.panel.title,
+          } : null,
           messageCount: ticket.messageCount || 0,
           summary: ticket.ticket.summary,
           summaryGeneratedAt: ticket.ticket.summaryGeneratedAt?.toISOString(),
@@ -59,6 +63,7 @@ export async function GET(request: NextRequest) {
   // Otherwise, return list of tickets
   const status = searchParams.get('status') as 'OPEN' | 'CLOSED' | 'DELETED' | null;
   const authorIdParam = searchParams.get('author');
+  const panelParam = searchParams.get('panel');
   const search = searchParams.get('search') || undefined;
   const sortBy = searchParams.get('sortBy') as 'newest' | 'oldest' | 'messages' | null;
   const page = parseInt(searchParams.get('page') || '1');
@@ -67,12 +72,14 @@ export async function GET(request: NextRequest) {
   try {
     const offset = (page - 1) * limit;
     
-    // Parse authorId if provided
+    // Parse authorId and panelId if provided
     const authorId = authorIdParam ? BigInt(authorIdParam) : undefined;
+    const panelId = panelParam ? parseInt(panelParam) : undefined;
     
     const results = await getTickets({
       status: status || undefined,
       authorId,
+      panelId,
       search,
       sortBy: sortBy || 'newest',
       limit,
@@ -82,6 +89,7 @@ export async function GET(request: NextRequest) {
     const total = await getTicketCount({
       status: status || undefined,
       authorId,
+      panelId,
       search,
     });
     
@@ -101,6 +109,10 @@ export async function GET(request: NextRequest) {
         channel: r.channel ? {
           id: r.channel.channelId.toString(),
           name: r.channel.name,
+        } : null,
+        panel: r.panel ? {
+          id: r.panel.id,
+          title: r.panel.title,
         } : null,
         messageCount: r.messageCount || 0,
       })),
