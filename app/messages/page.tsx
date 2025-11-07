@@ -4,6 +4,7 @@ import { useState, useCallback, Suspense, useRef, useLayoutEffect, useEffect } f
 import { useSearchParams } from 'next/navigation';
 import { useDebounce } from '@/lib/hooks/useDebounce';
 import { useMessages, usePrefetchMessages } from '@/lib/hooks/queries/useMessages';
+import { useUser, useUserTicketStats, useUserRecentTickets, usePrefetchUser } from '@/lib/hooks/queries/useUsers';
 import Link from 'next/link';
 
 type Message = {
@@ -70,11 +71,13 @@ function roleColorToHex(color: number): string {
 function Avatar({ 
   src, 
   name, 
-  size = 40 
+  size = 40,
+  onClick 
 }: { 
   src: string | null; 
   name: string; 
   size?: number;
+  onClick?: (e: React.MouseEvent) => void;
 }) {
   const [imageError, setImageError] = useState(false);
   
@@ -94,16 +97,20 @@ function Avatar({
     return `hsl(${hue}, 60%, 50%)`;
   };
   
+  const baseClasses = "rounded-full flex items-center justify-center border-2 border-gray-200 dark:border-gray-700 flex-shrink-0";
+  const clickableClasses = onClick ? "cursor-pointer hover:opacity-80 transition-opacity" : "";
+  
   if (!src || imageError) {
     return (
       <div 
-        className="rounded-full flex items-center justify-center font-semibold text-white border-2 border-gray-200 dark:border-gray-700 flex-shrink-0"
+        className={`${baseClasses} ${clickableClasses} font-semibold text-white`}
         style={{ 
           width: `${size}px`, 
           height: `${size}px`,
           backgroundColor: getColorFromName(name),
           fontSize: `${size * 0.4}px`
         }}
+        onClick={onClick}
       >
         {initials}
       </div>
@@ -114,9 +121,10 @@ function Avatar({
     <img 
       src={src}
       alt={`${name}'s avatar`}
-      className="rounded-full border-2 border-gray-200 dark:border-gray-700 flex-shrink-0"
+      className={`${baseClasses} ${clickableClasses}`}
       style={{ width: `${size}px`, height: `${size}px` }}
       onError={() => setImageError(true)}
+      onClick={onClick}
     />
   );
 }
@@ -124,34 +132,36 @@ function Avatar({
 // Component to render info popover
 function MentionPopover({ modalData, onClose }: { modalData: ModalData; onClose: () => void }) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [userRoles, setUserRoles] = useState<UserRole[]>([]);
-  const [rolesLoading, setRolesLoading] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isPositioned, setIsPositioned] = useState(false);
 
-  // Fetch user roles when popover opens for a user
-  useEffect(() => {
-    if (modalData?.type === 'user') {
-      setIsPositioned(false); // Reset positioning when new popover opens
-      setRolesLoading(true);
-      fetch(`/api/users/${modalData.id}`)
-        .then(res => res.json())
-        .then(data => {
-          if (data.roles) {
-            setUserRoles(data.roles);
-          }
-        })
-        .catch(err => console.error('Failed to fetch user roles:', err))
-        .finally(() => setRolesLoading(false));
-    } else {
-      setUserRoles([]);
-    }
-  }, [modalData?.type, modalData?.id]);
+  // Use TanStack Query hooks for data fetching
+  const userId = modalData?.type === 'user' ? modalData.id : undefined;
+  
+  const { data: userData, isLoading: rolesLoading } = useUser(userId, {
+    enabled: modalData?.type === 'user',
+  });
+  
+  const { data: ticketStats, isLoading: statsLoading } = useUserTicketStats(userId, {
+    enabled: modalData?.type === 'user',
+  });
+  
+  const { data: recentTickets = [], isLoading: recentLoading } = useUserRecentTickets(userId, 5, {
+    enabled: modalData?.type === 'user',
+  });
+  
+  const ticketsLoading = statsLoading || recentLoading;
+  const userRoles = userData?.roles || [];
 
   // Calculate optimal position after render based on actual popover dimensions
   useLayoutEffect(() => {
     if (!modalData || !popoverRef.current) return;
+    
+    // Reset positioning when new popover opens
+    if (modalData.type === 'user') {
+      setIsPositioned(false);
+    }
 
     const popover = popoverRef.current;
     const rect = popover.getBoundingClientRect();
@@ -193,7 +203,7 @@ function MentionPopover({ modalData, onClose }: { modalData: ModalData; onClose:
 
     setPosition({ x, y });
     setIsPositioned(true);
-  }, [modalData, rolesLoading, userRoles.length]);
+  }, [modalData, ticketsLoading, rolesLoading, userRoles.length, recentTickets.length]);
 
   if (!modalData) return null;
 
@@ -307,6 +317,82 @@ function MentionPopover({ modalData, onClose }: { modalData: ModalData; onClose:
                     </div>
                   ) : (
                     <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">No roles</div>
+                  )}
+                </div>
+                
+                {/* Tickets Section */}
+                <div className="pt-3 border-t border-gray-200 dark:border-gray-700">
+                  <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+                    Support Tickets
+                  </label>
+                  {ticketsLoading ? (
+                    <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">Loading tickets...</div>
+                  ) : ticketStats ? (
+                    <>
+                      <div className="flex gap-4 mt-2 mb-3">
+                        <div className="flex-1">
+                          <div className="text-2xl font-bold text-green-600 dark:text-green-400">
+                            {ticketStats.open}
+                          </div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400">Open</div>
+                        </div>
+                        <div className="flex-1">
+                          <div className="text-2xl font-bold text-gray-600 dark:text-gray-400">
+                            {ticketStats.closed}
+                          </div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400">Closed</div>
+                        </div>
+                      </div>
+                      
+                      {recentTickets.length > 0 && (
+                        <div className="space-y-1.5">
+                          <div className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+                            Recent Tickets
+                          </div>
+                          {recentTickets.map(ticket => (
+                            <Link
+                              key={ticket.id}
+                              href={`/tickets/${ticket.id}`}
+                              className="block px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors group"
+                              onClick={onClose}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm font-medium text-blue-600 dark:text-blue-400 group-hover:underline">
+                                    #{ticket.sequence !== null ? ticket.sequence : ticket.id}
+                                  </span>
+                                  <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${
+                                    ticket.status === 'OPEN' 
+                                      ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
+                                      : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
+                                  }`}>
+                                    {ticket.status}
+                                  </span>
+                                </div>
+                                <span className="text-xs text-gray-400 dark:text-gray-500">
+                                  {new Date(ticket.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                </span>
+                              </div>
+                            </Link>
+                          ))}
+                        </div>
+                      )}
+                      
+                      {(ticketStats.open > 0 || ticketStats.closed > 0) && (
+                        <Link
+                          href={`/tickets?author=${modalData.id}`}
+                          className="mt-3 flex items-center justify-center gap-1 px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm font-medium"
+                          onClick={onClose}
+                        >
+                          <span>View All Tickets</span>
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                          </svg>
+                        </Link>
+                      )}
+                    </>
+                  ) : (
+                    <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">No tickets found</div>
                   )}
                 </div>
               </>
@@ -552,6 +638,9 @@ function MessagesPageContent() {
     limit: 50,
   });
 
+  // Prefetch user data on hover
+  const { prefetchUser } = usePrefetchUser();
+
   // Prefetch next/previous pages when data loads
   useEffect(() => {
     if (data?.pagination) {
@@ -600,6 +689,33 @@ function MessagesPageContent() {
       }
     }
   }, [mentions]);
+
+  // Handler for opening user popover from avatar click
+  const handleUserClick = useCallback((
+    e: React.MouseEvent,
+    userId: string,
+    userName: string,
+    displayName: string | null,
+    displayAvatar: string | null
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const rect = (e.target as HTMLElement).getBoundingClientRect();
+    setModalData({
+      type: 'user',
+      id: userId,
+      data: {
+        name: userName,
+        displayName: displayName,
+        displayAvatar: displayAvatar,
+      },
+      position: {
+        x: rect.left,
+        y: rect.bottom,
+      },
+    });
+  }, []);
   
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
@@ -700,11 +816,29 @@ function MessagesPageContent() {
                     <div className="flex items-start justify-between mb-3 flex-wrap gap-2">
                       <div className="flex items-center gap-3 flex-wrap">
                         {msg.author && (
-                          <Avatar 
-                            src={msg.author.displayAvatar}
-                            name={msg.author.displayName || msg.author.name}
-                            size={40}
-                          />
+                          <div
+                            onClick={(e) => handleUserClick(
+                              e,
+                              msg.author!.id,
+                              msg.author!.name,
+                              msg.author!.displayName,
+                              msg.author!.displayAvatar
+                            )}
+                            onMouseEnter={() => prefetchUser(msg.author!.id)}
+                          >
+                            <Avatar 
+                              src={msg.author.displayAvatar}
+                              name={msg.author.displayName || msg.author.name}
+                              size={40}
+                              onClick={(e) => handleUserClick(
+                                e,
+                                msg.author!.id,
+                                msg.author!.name,
+                                msg.author!.displayName,
+                                msg.author!.displayAvatar
+                              )}
+                            />
+                          </div>
                         )}
                         <div className="flex flex-col">
                           <span className="font-semibold text-gray-900 dark:text-white">
