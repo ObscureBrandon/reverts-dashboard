@@ -6,6 +6,7 @@ import { useSearchParams } from 'next/navigation';
 import { useTickets, usePrefetchTickets, usePrefetchTicketDetail } from '@/lib/hooks/queries/useTickets';
 import { useUser, useUserTicketStats, useUserRecentTickets, usePrefetchUser } from '@/lib/hooks/queries/useUsers';
 import { usePanels } from '@/lib/hooks/queries/usePanels';
+import TicketsListSkeleton from './skeleton';
 
 type Ticket = {
   id: number;
@@ -494,6 +495,11 @@ function TicketsContent() {
     setModalData(null);
   };
   
+  // Show loading skeleton while data is being fetched
+  if (isLoading) {
+    return <TicketsListSkeleton />;
+  }
+  
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <div className="max-w-7xl mx-auto px-4 py-8">
@@ -617,12 +623,7 @@ function TicketsContent() {
         
         {/* Tickets List */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden">
-          {isLoading ? (
-            <div className="p-12 text-center">
-              <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-              <p className="mt-4 text-gray-500 dark:text-gray-400">Loading tickets...</p>
-            </div>
-          ) : filteredTickets.length === 0 ? (
+          {filteredTickets.length === 0 ? (
             <div className="p-12 text-center text-gray-500 dark:text-gray-400">
               <svg className="mx-auto h-12 w-12 text-gray-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
@@ -831,7 +832,7 @@ function TicketsContent() {
                 <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex flex-col sm:flex-row justify-between items-center gap-4">
                   <button
                     onClick={() => setPage(p => Math.max(1, p - 1))}
-                    disabled={page === 1 || isLoading}
+                    disabled={page === 1}
                     className="w-full sm:w-auto px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed disabled:hover:bg-gray-300 transition-colors"
                   >
                     Previous
@@ -843,7 +844,7 @@ function TicketsContent() {
                   
                   <button
                     onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                    disabled={page === totalPages || isLoading}
+                    disabled={page === totalPages}
                     className="w-full sm:w-auto px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed disabled:hover:bg-gray-300 transition-colors"
                   >
                     Next
@@ -865,16 +866,7 @@ function TicketsContent() {
 
 export default function TicketsPage() {
   return (
-    <Suspense fallback={
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-        <div className="max-w-7xl mx-auto px-4 py-8">
-          <div className="p-12 text-center">
-            <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-            <p className="mt-4 text-gray-500 dark:text-gray-400">Loading tickets...</p>
-          </div>
-        </div>
-      </div>
-    }>
+    <Suspense fallback={<TicketsListSkeleton />}>
       <TicketsContent />
     </Suspense>
   );
