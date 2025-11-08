@@ -5,12 +5,13 @@ import { auth } from "./lib/auth";
 export async function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
 
-  // Allow public routes
+  // Allow public routes and static files
   if (
     pathname.startsWith("/api/auth") ||
     pathname.startsWith("/login") ||
     pathname.startsWith("/_next") ||
-    pathname.startsWith("/favicon.ico")
+    // Allow all static files (PNG, SVG, ICO, etc.)
+    pathname.match(/\.(png|jpg|jpeg|gif|svg|webp|ico|xml|json)$/)
   ) {
     return NextResponse.next();
   }
@@ -36,8 +37,7 @@ export const config = {
      * Match all request paths except for the ones starting with:
      * - _next/static (static files)
      * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
      */
-    "/((?!_next/static|_next/image|favicon.ico).*)",
+    "/((?!_next/static|_next/image).*)",
   ],
 };
