@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useTicket, useTicketMessages } from '@/lib/hooks/queries/useTickets';
 import { useUser, useUserTicketStats, useUserRecentTickets, usePrefetchUser } from '@/lib/hooks/queries/useUsers';
 import { useGenerateTicketSummary } from '@/lib/hooks/mutations/useTicketMutations';
+import TicketDetailSkeleton from './skeleton';
 
 type Message = {
   id: string;
@@ -1032,17 +1033,12 @@ export default function TicketDetailPage() {
     generateSummary();
   };
   
+  // While loading, show the skeleton UI
   if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
-        <div className="text-center">
-          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-4"></div>
-          <p className="text-gray-500 dark:text-gray-400">Loading ticket...</p>
-        </div>
-      </div>
-    );
+    return <TicketDetailSkeleton />;
   }
   
+  // Show error only if we have an actual error or ticket doesn't exist after loading
   if (error || !ticket) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
