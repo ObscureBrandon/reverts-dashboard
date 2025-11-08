@@ -96,13 +96,48 @@ export async function searchMessages(params: MessageSearchParams) {
   return results;
 }
 
-export async function getMessageCount(query?: string) {
+export async function getMessageCount(params: {
+  query?: string;
+  staffOnly?: boolean;
+  ticketId?: number;
+  channelId?: bigint;
+  staffRoleIds?: bigint[];
+}) {
+  const { query, staffOnly = false, ticketId, channelId, staffRoleIds = [] } = params;
   const conditions = [eq(messages.isDeleted, false)];
   
   if (query) {
     conditions.push(ilike(messages.content, `%${query}%`));
   }
 
+  if (channelId) {
+    conditions.push(eq(messages.channelId, channelId));
+  }
+
+  // Add staff filter at SQL level using EXISTS subquery
+  if (staffOnly && staffRoleIds.length > 0) {
+    conditions.push(
+      sql`EXISTS (
+        SELECT 1 FROM ${userRoles} 
+        WHERE ${userRoles.userId} = ${messages.authorId} 
+        AND ${userRoles.roleId} = ANY(${sql.raw(`ARRAY[${staffRoleIds.join(',')}]::bigint[]`)})
+      )`
+    );
+  }
+
+  // If ticketId filter is needed, join with channels and tickets
+  if (ticketId !== undefined) {
+    const result = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(messages)
+      .leftJoin(channels, eq(messages.channelId, channels.channelId))
+      .leftJoin(tickets, eq(channels.channelId, tickets.channelId))
+      .where(and(...conditions, eq(tickets.id, ticketId)));
+    
+    return result[0]?.count ?? 0;
+  }
+
+  // Otherwise, simple query without joins
   const result = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(messages)
@@ -224,35 +259,41 @@ export async function getTickets(params: TicketListParams = {}) {
   if (sortBy === 'oldest') {
     orderByClause = asc(tickets.createdAt);
   } else if (sortBy === 'messages') {
-    // Sort by the message count subquery
-    orderByClause = sql`(
-      SELECT COUNT(*)::int 
-      FROM ${messages} 
-      WHERE ${messages.channelId} = ${tickets.channelId}
-      AND ${messages.isDeleted} = false
-    ) DESC`;
+    // Sort by the message count from the CTE
+    orderByClause = sql`COALESCE(message_counts.count, 0) DESC`;
   } else {
     // Default: newest
     orderByClause = desc(tickets.createdAt);
   }
 
+  // Use CTE to compute message counts once, then JOIN instead of N+1 subqueries
+  const messageCounts = db
+    .$with('message_counts')
+    .as(
+      db
+        .select({
+          channelId: messages.channelId,
+          count: sql<number>`COUNT(*)::int`.as('count'),
+        })
+        .from(messages)
+        .where(eq(messages.isDeleted, false))
+        .groupBy(messages.channelId)
+    );
+
   const results = await db
+    .with(messageCounts)
     .select({
       ticket: tickets,
       author: users,
       channel: channels,
       panel: panels,
-      messageCount: sql<number>`(
-        SELECT COUNT(*)::int 
-        FROM ${messages} 
-        WHERE ${messages.channelId} = ${tickets.channelId}
-        AND ${messages.isDeleted} = false
-      )`,
+      messageCount: sql<number>`COALESCE(${messageCounts.count}, 0)`,
     })
     .from(tickets)
     .leftJoin(users, eq(tickets.authorId, users.discordId))
     .leftJoin(channels, eq(tickets.channelId, channels.channelId))
     .leftJoin(panels, eq(tickets.panelId, panels.id))
+    .leftJoin(messageCounts, eq(tickets.channelId, messageCounts.channelId))
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(orderByClause)
     .limit(limit)

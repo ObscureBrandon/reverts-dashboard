@@ -53,6 +53,10 @@ export async function GET(
         color: r.role.color,
         position: r.role.position,
       })),
+    }, {
+      headers: {
+        'Cache-Control': 'public, s-maxage=120, stale-while-revalidate=300',
+      },
     });
   } catch (error) {
     console.error('User fetch error:', error);

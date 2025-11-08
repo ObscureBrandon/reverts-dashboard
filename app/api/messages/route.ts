@@ -62,7 +62,13 @@ export async function GET(request: NextRequest) {
     // Fetch mention data for all messages
     const mentions = await getMentionsForMessages(results);
     
-    const total = await getMessageCount(query);
+    const total = await getMessageCount({
+      query: isTranscriptMode ? undefined : query,
+      staffOnly,
+      ticketId: ticketId ? parseInt(ticketId) : undefined,
+      channelId: channelId ? BigInt(channelId) : undefined,
+      staffRoleIds,
+    });
     
     return NextResponse.json({
       messages: results.map(r => ({

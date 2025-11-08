@@ -10,20 +10,26 @@ export function Providers({ children }: { children: React.ReactNode }) {
       new QueryClient({
         defaultOptions: {
           queries: {
-            // How long data is considered fresh (won't refetch during this time)
+            // Align with HTTP cache headers - consider data fresh for 30s
             staleTime: 30 * 1000, // 30 seconds
-            // How long inactive data stays in cache
-            gcTime: 5 * 60 * 1000, // 5 minutes (formerly cacheTime)
-            // Disable automatic refetch on window focus (can enable later)
-            refetchOnWindowFocus: false,
-            // Retry failed requests once
+            // Keep inactive data in cache for 10 minutes (longer than stale-while-revalidate)
+            gcTime: 10 * 60 * 1000, // 10 minutes (formerly cacheTime)
+            // Enable refetch on window focus for real-time updates
+            refetchOnWindowFocus: true,
+            // Only retry failed requests once
             retry: 1,
-            // Don't retry on 404s
+            // Exponential backoff for retries
             retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
+            // Don't refetch on component mount if data is fresh
+            refetchOnMount: false,
+            // Enable network mode to handle offline scenarios
+            networkMode: 'online',
           },
           mutations: {
             // Retry mutations once on failure
             retry: 1,
+            // Use network-first approach for mutations
+            networkMode: 'online',
           },
         },
       })

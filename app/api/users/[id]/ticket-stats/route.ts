@@ -20,6 +20,10 @@ export async function GET(
     return NextResponse.json({
       open: stats.open,
       closed: stats.closed,
+    }, {
+      headers: {
+        'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=120',
+      },
     });
   } catch (error) {
     console.error('User ticket stats fetch error:', error);

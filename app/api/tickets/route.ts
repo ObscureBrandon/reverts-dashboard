@@ -50,6 +50,10 @@ export async function GET(request: NextRequest) {
           summaryModel: ticket.ticket.summaryModel,
           summaryTokensUsed: ticket.ticket.summaryTokensUsed,
         }
+      }, {
+        headers: {
+          'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300',
+        },
       });
     } catch (error) {
       console.error('Ticket fetch error:', error);
@@ -121,6 +125,10 @@ export async function GET(request: NextRequest) {
         page,
         limit,
         totalPages: Math.ceil(total / limit),
+      },
+    }, {
+      headers: {
+        'Cache-Control': 'public, s-maxage=30, stale-while-revalidate=120',
       },
     });
   } catch (error) {
