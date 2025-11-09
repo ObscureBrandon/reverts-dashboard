@@ -1,11 +1,16 @@
 'use client';
 
-import { useState, useCallback, Suspense, useRef, useLayoutEffect, useEffect } from 'react';
+import { useState, useCallback, Suspense, useRef, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useDebounce } from '@/lib/hooks/useDebounce';
 import { useMessages, usePrefetchMessages } from '@/lib/hooks/queries/useMessages';
-import { useUser, useUserTicketStats, useUserRecentTickets, usePrefetchUser } from '@/lib/hooks/queries/useUsers';
+import { usePrefetchUser } from '@/lib/hooks/queries/useUsers';
 import Link from 'next/link';
+import { Avatar } from '@/app/components/Avatar';
+import { roleColorToHex } from '@/app/components/utils';
+import { UserPopover } from '@/app/components/popovers/UserPopover';
+import { RolePopover } from '@/app/components/popovers/RolePopover';
+import { ChannelPopover } from '@/app/components/popovers/ChannelPopover';
 
 type Message = {
   id: string;
@@ -44,11 +49,26 @@ type UserRole = {
   position: number;
 };
 
-type ModalData = 
-  | { type: 'user'; id: string; data: { name: string; displayName: string | null; displayAvatar: string | null }; position: { x: number; y: number } }
-  | { type: 'role'; id: string; data: { name: string; color: number }; position: { x: number; y: number } }
-  | { type: 'channel'; id: string; data: { name: string }; position: { x: number; y: number } }
-  | null;
+type UserModalData = { 
+  type: 'user'; 
+  id: string; 
+  data: { name: string; displayName: string | null; displayAvatar: string | null }; 
+  position: { x: number; y: number } 
+};
+
+type RoleModalData = { 
+  type: 'role'; 
+  id: string; 
+  data: { name: string; color: number }; 
+  position: { x: number; y: number } 
+};
+
+type ChannelModalData = { 
+  type: 'channel'; 
+  id: string; 
+  data: { name: string }; 
+  position: { x: number; y: number } 
+};
 
 type SearchResponse = {
   messages: Message[];
@@ -61,424 +81,6 @@ type SearchResponse = {
   };
   guildId: string | null;
 };
-
-// Utility function to convert Discord role color integer to hex
-function roleColorToHex(color: number): string {
-  return '#' + color.toString(16).padStart(6, '0');
-}
-
-// Avatar component with fallback
-function Avatar({ 
-  src, 
-  name, 
-  size = 40,
-  onClick 
-}: { 
-  src: string | null; 
-  name: string; 
-  size?: number;
-  onClick?: (e: React.MouseEvent) => void;
-}) {
-  const [imageError, setImageError] = useState(false);
-  
-  const initials = name
-    .split(' ')
-    .map(word => word[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2);
-  
-  const getColorFromName = (name: string) => {
-    let hash = 0;
-    for (let i = 0; i < name.length; i++) {
-      hash = name.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    const hue = Math.abs(hash % 360);
-    return `hsl(${hue}, 60%, 50%)`;
-  };
-  
-  const baseClasses = "rounded-full flex items-center justify-center border-2 border-gray-200 dark:border-gray-700 flex-shrink-0";
-  const clickableClasses = onClick ? "cursor-pointer hover:opacity-80 transition-opacity" : "";
-  
-  if (!src || imageError) {
-    return (
-      <div 
-        className={`${baseClasses} ${clickableClasses} font-semibold text-white`}
-        style={{ 
-          width: `${size}px`, 
-          height: `${size}px`,
-          backgroundColor: getColorFromName(name),
-          fontSize: `${size * 0.4}px`
-        }}
-        onClick={onClick}
-      >
-        {initials}
-      </div>
-    );
-  }
-  
-  return (
-    <img 
-      src={src}
-      alt={`${name}'s avatar`}
-      className={`${baseClasses} ${clickableClasses}`}
-      style={{ width: `${size}px`, height: `${size}px` }}
-      onError={() => setImageError(true)}
-      onClick={onClick}
-    />
-  );
-}
-
-// Component to render info popover
-function MentionPopover({ modalData, onClose }: { modalData: ModalData; onClose: () => void }) {
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-  const popoverRef = useRef<HTMLDivElement>(null);
-  const [position, setPosition] = useState({ x: 0, y: 0 });
-  const [isPositioned, setIsPositioned] = useState(false);
-
-  // Use TanStack Query hooks for data fetching
-  const userId = modalData?.type === 'user' ? modalData.id : undefined;
-  
-  const { data: userData, isLoading: rolesLoading } = useUser(userId, {
-    enabled: modalData?.type === 'user',
-  });
-  
-  const { data: ticketStats, isLoading: statsLoading } = useUserTicketStats(userId, {
-    enabled: modalData?.type === 'user',
-  });
-  
-  const { data: recentTickets = [], isLoading: recentLoading } = useUserRecentTickets(userId, 5, {
-    enabled: modalData?.type === 'user',
-  });
-  
-  const ticketsLoading = statsLoading || recentLoading;
-  const userRoles = userData?.roles || [];
-
-  // Calculate optimal position after render based on actual popover dimensions
-  useLayoutEffect(() => {
-    if (!modalData || !popoverRef.current) return;
-    
-    // Reset positioning when new popover opens
-    if (modalData.type === 'user') {
-      setIsPositioned(false);
-    }
-
-    const popover = popoverRef.current;
-    const rect = popover.getBoundingClientRect();
-    const viewportPadding = 16; // Buffer from viewport edges
-    
-    let x = modalData.position.x;
-    let y = modalData.position.y + 10; // Default: show below with small gap
-
-    // Horizontal positioning
-    // Check if popover overflows right edge
-    if (x + rect.width > window.innerWidth - viewportPadding) {
-      // Align to right edge of viewport with padding
-      x = window.innerWidth - rect.width - viewportPadding;
-    }
-    
-    // Check if popover overflows left edge
-    if (x < viewportPadding) {
-      x = viewportPadding;
-    }
-
-    // Vertical positioning
-    // Check if popover overflows bottom edge
-    if (y + rect.height > window.innerHeight - viewportPadding) {
-      // Try to show above the mention instead
-      const yAbove = modalData.position.y - rect.height - 10;
-      if (yAbove >= viewportPadding) {
-        // Enough space above
-        y = yAbove;
-      } else {
-        // Not enough space above or below, align to bottom with padding
-        y = window.innerHeight - rect.height - viewportPadding;
-      }
-    }
-    
-    // Check if popover overflows top edge
-    if (y < viewportPadding) {
-      y = viewportPadding;
-    }
-
-    setPosition({ x, y });
-    setIsPositioned(true);
-  }, [modalData, ticketsLoading, rolesLoading, userRoles.length, recentTickets.length]);
-
-  if (!modalData) return null;
-
-  const copyToClipboard = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopiedId(text);
-      setTimeout(() => setCopiedId(null), 2000);
-    } catch (err) {
-      console.error('Failed to copy:', err);
-    }
-  };
-
-  return (
-    <>
-      <div 
-        className="fixed inset-0 z-40"
-        onClick={onClose}
-      />
-      
-      <div 
-        ref={popoverRef}
-        className={`fixed z-50 bg-white dark:bg-gray-800 rounded-lg shadow-2xl border border-gray-200 dark:border-gray-700 w-80 max-h-[90vh] overflow-y-auto transition-opacity duration-200 ${
-          isPositioned ? 'opacity-100' : 'opacity-0'
-        }`}
-        style={{
-          left: `${position.x}px`,
-          top: `${position.y}px`,
-        }}
-      >
-        <div className="p-4">
-          <div className="flex items-center justify-between mb-3 pb-3 border-b border-gray-200 dark:border-gray-700">
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-white uppercase tracking-wide">
-              {modalData.type === 'user' && 'User'}
-              {modalData.type === 'role' && 'Role'}
-              {modalData.type === 'channel' && 'Channel'}
-            </h3>
-            <button
-              onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-
-          <div className="space-y-3">
-            {modalData.type === 'user' && (
-              <>
-                <div className="flex items-center gap-3 pb-3 border-b border-gray-200 dark:border-gray-700">
-                  <Avatar 
-                    src={modalData.data.displayAvatar}
-                    name={modalData.data.displayName || modalData.data.name}
-                    size={64}
-                  />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-base font-semibold text-gray-900 dark:text-white truncate">
-                      {modalData.data.displayName || modalData.data.name}
-                    </p>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
-                      @{modalData.data.name}
-                    </p>
-                  </div>
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">User ID</label>
-                  <div className="flex items-center gap-2 mt-1">
-                    <p className="text-xs text-gray-900 dark:text-white font-mono bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded flex-1">
-                      {modalData.id}
-                    </p>
-                    <button
-                      onClick={() => copyToClipboard(modalData.id)}
-                      className="p-1.5 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
-                      title="Copy ID"
-                    >
-                      {copiedId === modalData.id ? (
-                        <svg className="w-3.5 h-3.5 text-green-600 dark:text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                        </svg>
-                      ) : (
-                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                        </svg>
-                      )}
-                    </button>
-                  </div>
-                </div>
-                
-                {/* Roles Section */}
-                <div>
-                  <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                    Roles
-                  </label>
-                  {rolesLoading ? (
-                    <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">Loading roles...</div>
-                  ) : userRoles.length > 0 ? (
-                    <div className="flex flex-wrap gap-1.5 mt-2">
-                      {userRoles.map(role => (
-                        <div
-                          key={role.id}
-                          className="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium bg-gray-100 dark:bg-gray-700/50 text-gray-700 dark:text-gray-300"
-                        >
-                          <div
-                            className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                            style={{ backgroundColor: role.color === 0 ? '#99AAB5' : roleColorToHex(role.color) }}
-                          />
-                          <span>{role.name}</span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">No roles</div>
-                  )}
-                </div>
-                
-                {/* Tickets Section */}
-                <div className="pt-3 border-t border-gray-200 dark:border-gray-700">
-                  <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                    Support Tickets
-                  </label>
-                  {ticketsLoading ? (
-                    <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">Loading tickets...</div>
-                  ) : ticketStats ? (
-                    <>
-                      <div className="flex gap-4 mt-2 mb-3">
-                        <div className="flex-1">
-                          <div className="text-2xl font-bold text-green-600 dark:text-green-400">
-                            {ticketStats.open}
-                          </div>
-                          <div className="text-xs text-gray-500 dark:text-gray-400">Open</div>
-                        </div>
-                        <div className="flex-1">
-                          <div className="text-2xl font-bold text-gray-600 dark:text-gray-400">
-                            {ticketStats.closed}
-                          </div>
-                          <div className="text-xs text-gray-500 dark:text-gray-400">Closed</div>
-                        </div>
-                      </div>
-                      
-                      {recentTickets.length > 0 && (
-                        <div className="space-y-1.5">
-                          <div className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                            Recent Tickets
-                          </div>
-                          {recentTickets.map(ticket => (
-                            <Link
-                              key={ticket.id}
-                              href={`/tickets/${ticket.id}`}
-                              className="block px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors group"
-                              onClick={onClose}
-                            >
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-sm font-medium text-blue-600 dark:text-blue-400 group-hover:underline">
-                                    #{ticket.sequence !== null ? ticket.sequence : ticket.id}
-                                  </span>
-                                  <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${
-                                    ticket.status === 'OPEN' 
-                                      ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
-                                      : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
-                                  }`}>
-                                    {ticket.status}
-                                  </span>
-                                </div>
-                                <span className="text-xs text-gray-400 dark:text-gray-500">
-                                  {new Date(ticket.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                                </span>
-                              </div>
-                            </Link>
-                          ))}
-                        </div>
-                      )}
-                      
-                      {(ticketStats.open > 0 || ticketStats.closed > 0) && (
-                        <Link
-                          href={`/tickets?author=${modalData.id}`}
-                          className="mt-3 flex items-center justify-center gap-1 px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm font-medium"
-                          onClick={onClose}
-                        >
-                          <span>View All Tickets</span>
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                          </svg>
-                        </Link>
-                      )}
-                    </>
-                  ) : (
-                    <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">No tickets found</div>
-                  )}
-                </div>
-              </>
-            )}
-
-            {modalData.type === 'role' && (
-              <>
-                <div>
-                  <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">Name</label>
-                  <p className="text-sm text-gray-900 dark:text-white mt-1">{modalData.data.name}</p>
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">Color</label>
-                  <div className="flex items-center gap-2 mt-1">
-                    <div 
-                      className="w-5 h-5 rounded border border-gray-300 dark:border-gray-600"
-                      style={{ backgroundColor: roleColorToHex(modalData.data.color) }}
-                    />
-                    <p className="text-xs text-gray-900 dark:text-white font-mono">
-                      {roleColorToHex(modalData.data.color)}
-                    </p>
-                  </div>
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">Role ID</label>
-                  <div className="flex items-center gap-2 mt-1">
-                    <p className="text-xs text-gray-900 dark:text-white font-mono bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded flex-1">
-                      {modalData.id}
-                    </p>
-                    <button
-                      onClick={() => copyToClipboard(modalData.id)}
-                      className="p-1.5 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
-                      title="Copy ID"
-                    >
-                      {copiedId === modalData.id ? (
-                        <svg className="w-3.5 h-3.5 text-green-600 dark:text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                        </svg>
-                      ) : (
-                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                        </svg>
-                      )}
-                    </button>
-                  </div>
-                </div>
-              </>
-            )}
-
-            {modalData.type === 'channel' && (
-              <>
-                <div>
-                  <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">Name</label>
-                  <p className="text-sm text-gray-900 dark:text-white mt-1">#{modalData.data.name}</p>
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">Channel ID</label>
-                  <div className="flex items-center gap-2 mt-1">
-                    <p className="text-xs text-gray-900 dark:text-white font-mono bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded flex-1">
-                      {modalData.id}
-                    </p>
-                    <button
-                      onClick={() => copyToClipboard(modalData.id)}
-                      className="p-1.5 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
-                      title="Copy ID"
-                    >
-                      {copiedId === modalData.id ? (
-                        <svg className="w-3.5 h-3.5 text-green-600 dark:text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                        </svg>
-                      ) : (
-                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                        </svg>
-                      )}
-                    </button>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-    </>
-  );
-}
 
 // Component to render a single mention
 function Mention({ 
@@ -607,7 +209,9 @@ function MessagesPageContent() {
   
   const [searchQuery, setSearchQuery] = useState(urlQuery || '');
   const [staffOnly, setStaffOnly] = useState(false);
-  const [modalData, setModalData] = useState<ModalData>(null);
+  const [userModalData, setUserModalData] = useState<UserModalData | null>(null);
+  const [roleModalData, setRoleModalData] = useState<RoleModalData | null>(null);
+  const [channelModalData, setChannelModalData] = useState<ChannelModalData | null>(null);
   const [page, setPage] = useState(1);
   
   const debouncedQuery = useDebounce(searchQuery, 150);
@@ -675,17 +279,17 @@ function MessagesPageContent() {
     if (type === 'user') {
       const userData = mentions.users[id];
       if (userData) {
-        setModalData({ type: 'user', id, data: userData, position });
+        setUserModalData({ type: 'user', id, data: userData, position });
       }
     } else if (type === 'role') {
       const roleData = mentions.roles[id];
       if (roleData) {
-        setModalData({ type: 'role', id, data: roleData, position });
+        setRoleModalData({ type: 'role', id, data: roleData, position });
       }
     } else if (type === 'channel') {
       const channelData = mentions.channels[id];
       if (channelData) {
-        setModalData({ type: 'channel', id, data: channelData, position });
+        setChannelModalData({ type: 'channel', id, data: channelData, position });
       }
     }
   }, [mentions]);
@@ -702,7 +306,7 @@ function MessagesPageContent() {
     e.stopPropagation();
     
     const rect = (e.target as HTMLElement).getBoundingClientRect();
-    setModalData({
+    setUserModalData({
       type: 'user',
       id: userId,
       data: {
@@ -719,7 +323,43 @@ function MessagesPageContent() {
   
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      <MentionPopover modalData={modalData} onClose={() => setModalData(null)} />
+      {/* Render three separate popovers */}
+      {userModalData && (
+        <UserPopover 
+          isOpen={true}
+          onClose={() => setUserModalData(null)}
+          triggerPosition={userModalData.position}
+          userData={{
+            id: userModalData.id,
+            name: userModalData.data.name,
+            displayName: userModalData.data.displayName,
+            displayAvatar: userModalData.data.displayAvatar,
+          }}
+        />
+      )}
+      {roleModalData && (
+        <RolePopover 
+          isOpen={true}
+          onClose={() => setRoleModalData(null)}
+          triggerPosition={roleModalData.position}
+          roleData={{
+            id: roleModalData.id,
+            name: roleModalData.data.name,
+            color: roleModalData.data.color,
+          }}
+        />
+      )}
+      {channelModalData && (
+        <ChannelPopover 
+          isOpen={true}
+          onClose={() => setChannelModalData(null)}
+          triggerPosition={channelModalData.position}
+          channelData={{
+            id: channelModalData.id,
+            name: channelModalData.data.name,
+          }}
+        />
+      )}
       <div className="max-w-7xl mx-auto px-4 py-8">
         <div className="flex items-center justify-between mb-2">
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white">

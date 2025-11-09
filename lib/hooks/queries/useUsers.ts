@@ -12,6 +12,9 @@ type UserData = {
   name: string;
   displayName: string | null;
   displayAvatar: string | null;
+  inGuild?: boolean;
+  isVerified?: boolean;
+  isVoiceVerified?: boolean;
   roles?: UserRole[];
 };
 
@@ -40,7 +43,12 @@ export function useUser(userId: string | undefined, options?: { enabled?: boolea
       if (!response.ok) {
         throw new Error('Failed to fetch user');
       }
-      return response.json() as Promise<UserData>;
+      const data = await response.json();
+      // API returns { user: {...}, roles: [...] }
+      return {
+        ...data.user,
+        roles: data.roles,
+      } as UserData;
     },
     enabled: options?.enabled !== false && !!userId,
     staleTime: 2 * 60 * 1000, // User data is fresh for 2 minutes
@@ -110,7 +118,12 @@ export function usePrefetchUser() {
         if (!response.ok) {
           throw new Error('Failed to fetch user');
         }
-        return response.json() as Promise<UserData>;
+        const data = await response.json();
+        // API returns { user: {...}, roles: [...] }
+        return {
+          ...data.user,
+          roles: data.roles,
+        } as UserData;
       },
       staleTime: 2 * 60 * 1000,
     });
