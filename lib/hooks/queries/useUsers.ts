@@ -30,6 +30,25 @@ type RecentTicket = {
   createdAt: string;
 };
 
+type UserPopoverData = {
+  user: {
+    id: string;
+    name: string;
+    displayName: string | null;
+    displayAvatar: string | null;
+    nick: string | null;
+    inGuild: boolean | null;
+    isVerified: boolean | null;
+    isVoiceVerified: boolean | null;
+  };
+  roles: UserRole[];
+  ticketStats: {
+    open: number;
+    closed: number;
+  };
+  recentTickets: RecentTicket[];
+};
+
 /**
  * Fetch user data with roles
  */
@@ -102,55 +121,45 @@ export function useUserRecentTickets(
 }
 
 /**
+ * Fetch all user popover data in a single request
+ * OPTIMIZED: Combines user details, roles, ticket stats, and recent tickets
+ * This prevents layout shift by loading all data at once
+ */
+export function useUserPopoverData(userId: string | undefined, options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: ['userPopoverData', userId],
+    queryFn: async () => {
+      if (!userId) throw new Error('User ID is required');
+      
+      const response = await fetch(`/api/users/${userId}/popover`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch user popover data');
+      }
+      return response.json() as Promise<UserPopoverData>;
+    },
+    enabled: options?.enabled !== false && !!userId,
+    staleTime: 1 * 60 * 1000, // Popover data fresh for 1 minute
+  });
+}
+
+/**
  * Prefetch user data and stats on hover
  * Use this to improve popover performance
- * OPTIMIZED: Uses new single-query ticket stats endpoint
+ * OPTIMIZED: Uses new single-query popover endpoint
  */
 export function usePrefetchUser() {
   const queryClient = useQueryClient();
 
-  const prefetchUser = (userId: string, limit: number = 5) => {
-    // Prefetch user data
+  const prefetchUser = (userId: string) => {
+    // Prefetch all popover data in a single request
     queryClient.prefetchQuery({
-      queryKey: ['user', userId],
+      queryKey: ['userPopoverData', userId],
       queryFn: async () => {
-        const response = await fetch(`/api/users/${userId}`);
+        const response = await fetch(`/api/users/${userId}/popover`);
         if (!response.ok) {
-          throw new Error('Failed to fetch user');
+          throw new Error('Failed to fetch user popover data');
         }
-        const data = await response.json();
-        // API returns { user: {...}, roles: [...] }
-        return {
-          ...data.user,
-          roles: data.roles,
-        } as UserData;
-      },
-      staleTime: 2 * 60 * 1000,
-    });
-
-    // Prefetch user ticket stats (optimized single call)
-    queryClient.prefetchQuery({
-      queryKey: ['userTicketStats', userId],
-      queryFn: async () => {
-        const response = await fetch(`/api/users/${userId}/ticket-stats`);
-        if (!response.ok) {
-          throw new Error('Failed to fetch ticket stats');
-        }
-        return response.json() as Promise<TicketStatsData>;
-      },
-      staleTime: 1 * 60 * 1000,
-    });
-
-    // Prefetch recent tickets
-    queryClient.prefetchQuery({
-      queryKey: ['userRecentTickets', userId, limit],
-      queryFn: async () => {
-        const response = await fetch(`/api/tickets?author=${userId}&limit=${limit}&sortBy=newest`);
-        if (!response.ok) {
-          throw new Error('Failed to fetch recent tickets');
-        }
-        const data = await response.json();
-        return (data.tickets || []) as RecentTicket[];
+        return response.json() as Promise<UserPopoverData>;
       },
       staleTime: 1 * 60 * 1000,
     });

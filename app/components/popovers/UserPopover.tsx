@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useUser, useUserTicketStats, useUserRecentTickets } from '@/lib/hooks/queries/useUsers';
 import { Avatar } from '../Avatar';
 import { roleColorToHex } from '../utils';
 import { PopoverWrapper, Position } from './PopoverWrapper';
@@ -14,31 +13,54 @@ export type UserPopoverData = {
   displayAvatar: string | null;
 };
 
+type UserRole = {
+  id: string;
+  name: string;
+  color: number;
+  position: number;
+};
+
+type RecentTicket = {
+  id: number;
+  sequence: number | null;
+  status: string | null;
+  createdAt: string;
+};
+
+type PopoverData = {
+  user: {
+    id: string;
+    name: string;
+    displayName: string | null;
+    displayAvatar: string | null;
+    nick: string | null;
+    inGuild: boolean | null;
+    isVerified: boolean | null;
+    isVoiceVerified: boolean | null;
+  };
+  roles: UserRole[];
+  ticketStats: {
+    open: number;
+    closed: number;
+  };
+  recentTickets: RecentTicket[];
+};
+
 type UserPopoverProps = {
   isOpen: boolean;
   onClose: () => void;
   triggerPosition: Position | null;
   userData: UserPopoverData;
+  popoverData: PopoverData;
 };
 
-export function UserPopover({ isOpen, onClose, triggerPosition, userData }: UserPopoverProps) {
+export function UserPopover({ isOpen, onClose, triggerPosition, userData, popoverData }: UserPopoverProps) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   
-  // Use TanStack Query hooks for data fetching
-  const { data: userDetails, isLoading: rolesLoading } = useUser(userData.id, {
-    enabled: isOpen,
-  });
-  
-  const { data: ticketStats, isLoading: statsLoading } = useUserTicketStats(userData.id, {
-    enabled: isOpen,
-  });
-  
-  const { data: recentTickets = [], isLoading: recentLoading } = useUserRecentTickets(userData.id, 5, {
-    enabled: isOpen,
-  });
-  
-  const ticketsLoading = statsLoading || recentLoading;
-  const userRoles = userDetails?.roles || [];
+  const userRoles = popoverData.roles || [];
+  const ticketStats = popoverData.ticketStats;
+  const recentTickets = popoverData.recentTickets || [];
+  const userDetails = popoverData.user;
 
   const copyToClipboard = async (text: string) => {
     try {
@@ -56,7 +78,7 @@ export function UserPopover({ isOpen, onClose, triggerPosition, userData }: User
       onClose={onClose}
       triggerPosition={triggerPosition}
       title="User"
-      dependencies={[ticketsLoading, rolesLoading, userRoles.length, recentTickets.length]}
+      dependencies={[userRoles.length, recentTickets.length]}
     >
       <div className="flex items-center gap-3 pb-3 border-b border-gray-200 dark:border-gray-700">
         <Avatar 
@@ -122,9 +144,7 @@ export function UserPopover({ isOpen, onClose, triggerPosition, userData }: User
         <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
           Roles
         </label>
-        {rolesLoading ? (
-          <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">Loading roles...</div>
-        ) : userRoles.length > 0 ? (
+        {userRoles.length > 0 ? (
           <div className="flex flex-wrap gap-1.5 mt-2">
             {userRoles.map(role => (
               <div
@@ -149,9 +169,7 @@ export function UserPopover({ isOpen, onClose, triggerPosition, userData }: User
         <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
           Support Tickets
         </label>
-        {ticketsLoading ? (
-          <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">Loading tickets...</div>
-        ) : ticketStats ? (
+        {ticketStats ? (
           <>
             <div className="flex gap-4 mt-2 mb-3">
               <div className="flex-1">

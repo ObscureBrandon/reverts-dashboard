@@ -1,6 +1,6 @@
 import { useLayoutEffect, useState, RefObject } from 'react';
 
-export type Position = { x: number; y: number };
+export type Position = { x: number; y: number; triggerWidth?: number; triggerHeight?: number };
 
 export function usePopoverPosition(
   popoverRef: RefObject<HTMLDivElement | null>,
@@ -20,39 +20,104 @@ export function usePopoverPosition(
     const popover = popoverRef.current;
     const rect = popover.getBoundingClientRect();
     const viewportPadding = 16; // Buffer from viewport edges
+    const gap = 8; // Gap between trigger and popover
+    
+    // Get trigger dimensions if provided
+    const triggerWidth = triggerPosition.triggerWidth || 0;
+    const triggerHeight = triggerPosition.triggerHeight || 0;
     
     let x = triggerPosition.x;
-    let y = triggerPosition.y + 10; // Default: show below with small gap
+    let y = triggerPosition.y;
+    let placement: 'bottom' | 'top' | 'right' | 'left' = 'bottom';
 
-    // Horizontal positioning
-    // Check if popover overflows right edge
+    // Try positioning to the right first if we have trigger dimensions
+    if (triggerWidth > 0) {
+      const xRight = triggerPosition.x + triggerWidth + gap;
+      const yAlignTop = triggerPosition.y;
+      
+      // Check if there's enough space on the right
+      if (xRight + rect.width <= window.innerWidth - viewportPadding) {
+        x = xRight;
+        y = yAlignTop;
+        placement = 'right';
+        
+        // Adjust vertical position to keep popover in viewport
+        if (y + rect.height > window.innerHeight - viewportPadding) {
+          y = window.innerHeight - rect.height - viewportPadding;
+        }
+        if (y < viewportPadding) {
+          y = viewportPadding;
+        }
+      } else {
+        // Try below if right doesn't work
+        const yBelow = triggerPosition.y + triggerHeight + gap;
+        const xAlignLeft = triggerPosition.x;
+        
+        if (yBelow + rect.height <= window.innerHeight - viewportPadding) {
+          x = xAlignLeft;
+          y = yBelow;
+          placement = 'bottom';
+        } else {
+          // Try above
+          const yAbove = triggerPosition.y - rect.height - gap;
+          if (yAbove >= viewportPadding) {
+            x = xAlignLeft;
+            y = yAbove;
+            placement = 'top';
+          } else {
+            // Last resort: try left
+            const xLeft = triggerPosition.x - rect.width - gap;
+            if (xLeft >= viewportPadding) {
+              x = xLeft;
+              y = yAlignTop;
+              placement = 'left';
+              
+              // Adjust vertical position
+              if (y + rect.height > window.innerHeight - viewportPadding) {
+                y = window.innerHeight - rect.height - viewportPadding;
+              }
+              if (y < viewportPadding) {
+                y = viewportPadding;
+              }
+            } else {
+              // Fallback: position below with constraints
+              x = xAlignLeft;
+              y = yBelow;
+              placement = 'bottom';
+            }
+          }
+        }
+      }
+    } else {
+      // Fallback to old behavior for mentions (no trigger dimensions)
+      y = triggerPosition.y + gap;
+      
+      // Vertical positioning
+      if (y + rect.height > window.innerHeight - viewportPadding) {
+        const yAbove = triggerPosition.y - rect.height - gap;
+        if (yAbove >= viewportPadding) {
+          y = yAbove;
+          placement = 'top';
+        } else {
+          y = window.innerHeight - rect.height - viewportPadding;
+        }
+      }
+    }
+
+    // Horizontal positioning constraints (apply to all placements)
     if (x + rect.width > window.innerWidth - viewportPadding) {
-      // Align to right edge of viewport with padding
       x = window.innerWidth - rect.width - viewportPadding;
     }
-    
-    // Check if popover overflows left edge
     if (x < viewportPadding) {
       x = viewportPadding;
     }
-
-    // Vertical positioning
-    // Check if popover overflows bottom edge
-    if (y + rect.height > window.innerHeight - viewportPadding) {
-      // Try to show above the mention instead
-      const yAbove = triggerPosition.y - rect.height - 10;
-      if (yAbove >= viewportPadding) {
-        // Enough space above
-        y = yAbove;
-      } else {
-        // Not enough space above or below, align to bottom with padding
-        y = window.innerHeight - rect.height - viewportPadding;
-      }
-    }
     
-    // Check if popover overflows top edge
+    // Final vertical constraints
     if (y < viewportPadding) {
       y = viewportPadding;
+    }
+    if (y + rect.height > window.innerHeight - viewportPadding) {
+      y = window.innerHeight - rect.height - viewportPadding;
     }
 
     setPosition({ x, y });

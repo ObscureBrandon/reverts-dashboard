@@ -4,17 +4,46 @@ import { useState, Suspense, useEffect } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useTickets, usePrefetchTickets, usePrefetchTicketDetail } from '@/lib/hooks/queries/useTickets';
-import { useUser, usePrefetchUser } from '@/lib/hooks/queries/useUsers';
+import { useUser, usePrefetchUser, useUserPopoverData } from '@/lib/hooks/queries/useUsers';
 import { usePanels } from '@/lib/hooks/queries/usePanels';
 import TicketsListSkeleton from './skeleton';
 import { Avatar } from '@/app/components/Avatar';
 import { UserPopover } from '@/app/components/popovers/UserPopover';
+import { LoadingSpinner } from '@/app/components/LoadingSpinner';
 
 type UserModalData = { 
   type: 'user'; 
   id: string; 
   data: { name: string; displayName: string | null; displayAvatar: string | null }; 
-  position: { x: number; y: number } 
+  position: { x: number; y: number; triggerWidth?: number; triggerHeight?: number };
+  popoverData?: {
+    user: {
+      id: string;
+      name: string;
+      displayName: string | null;
+      displayAvatar: string | null;
+      nick: string | null;
+      inGuild: boolean | null;
+      isVerified: boolean | null;
+      isVoiceVerified: boolean | null;
+    };
+    roles: Array<{
+      id: string;
+      name: string;
+      color: number;
+      position: number;
+    }>;
+    ticketStats: {
+      open: number;
+      closed: number;
+    };
+    recentTickets: Array<{
+      id: number;
+      sequence: number | null;
+      status: string | null;
+      createdAt: string;
+    }>;
+  };
 };
 
 function TicketsContent() {
@@ -60,6 +89,20 @@ function TicketsContent() {
 
   // Modal state for user popover
   const [modalData, setModalData] = useState<UserModalData | null>(null);
+  const [loadingUserId, setLoadingUserId] = useState<string | null>(null);
+
+  // Fetch popover data when loading
+  const { data: popoverData, isFetching: isPopoverFetching } = useUserPopoverData(loadingUserId || undefined, {
+    enabled: !!loadingUserId,
+  });
+
+  // When popover data is loaded, show the popover
+  useEffect(() => {
+    if (loadingUserId && popoverData && modalData?.id === loadingUserId) {
+      setModalData(prev => prev ? { ...prev, popoverData } : null);
+      setLoadingUserId(null);
+    }
+  }, [popoverData, loadingUserId, modalData?.id]);
 
   // Prefetch next/previous pages when data loads
   useEffect(() => {
@@ -110,7 +153,13 @@ function TicketsContent() {
     e.preventDefault();
     e.stopPropagation();
     
-    const rect = (e.target as HTMLElement).getBoundingClientRect();
+    // Find the avatar element (img or div) within the clicked container
+    const container = e.currentTarget as HTMLElement;
+    const avatarElement = container.querySelector('img, div[class*="rounded-full"]') as HTMLElement;
+    const rect = avatarElement ? avatarElement.getBoundingClientRect() : container.getBoundingClientRect();
+    
+    // Set loading state and store position
+    setLoadingUserId(userId);
     setModalData({
       type: 'user',
       id: userId,
@@ -121,7 +170,9 @@ function TicketsContent() {
       },
       position: {
         x: rect.left,
-        y: rect.bottom,
+        y: rect.top,
+        triggerWidth: rect.width,
+        triggerHeight: rect.height,
       },
     });
   };
@@ -129,6 +180,7 @@ function TicketsContent() {
   // Handler for closing popover
   const handleCloseModal = () => {
     setModalData(null);
+    setLoadingUserId(null);
   };
   
   // Show loading skeleton while data is being fetched
@@ -342,6 +394,9 @@ function TicketsContent() {
                                   </div>
                                 )}
                               </div>
+                              {loadingUserId === ticket.author.id && isPopoverFetching && (
+                                <LoadingSpinner size="sm" />
+                              )}
                             </div>
                           ) : (
                             <span className="text-sm text-gray-500 dark:text-gray-400">Unknown</span>
@@ -442,6 +497,9 @@ function TicketsContent() {
                         <span className="text-sm text-gray-700 dark:text-gray-300">
                           {ticket.author.displayName || ticket.author.name}
                         </span>
+                        {loadingUserId === ticket.author.id && isPopoverFetching && (
+                          <LoadingSpinner size="sm" />
+                        )}
                       </div>
                     )}
                     
@@ -492,8 +550,8 @@ function TicketsContent() {
         </div>
       </div>
 
-      {/* User Popover */}
-      {modalData && (
+      {/* User Popover - only show when data is loaded */}
+      {modalData && modalData.popoverData && (
         <UserPopover 
           isOpen={true}
           onClose={handleCloseModal}
@@ -504,6 +562,7 @@ function TicketsContent() {
             displayName: modalData.data.displayName,
             displayAvatar: modalData.data.displayAvatar,
           }}
+          popoverData={modalData.popoverData}
         />
       )}
     </div>

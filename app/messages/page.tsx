@@ -4,13 +4,14 @@ import { useState, useCallback, Suspense, useRef, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useDebounce } from '@/lib/hooks/useDebounce';
 import { useMessages, usePrefetchMessages } from '@/lib/hooks/queries/useMessages';
-import { usePrefetchUser } from '@/lib/hooks/queries/useUsers';
+import { usePrefetchUser, useUserPopoverData } from '@/lib/hooks/queries/useUsers';
 import Link from 'next/link';
 import { Avatar } from '@/app/components/Avatar';
 import { roleColorToHex } from '@/app/components/utils';
 import { UserPopover } from '@/app/components/popovers/UserPopover';
 import { RolePopover } from '@/app/components/popovers/RolePopover';
 import { ChannelPopover } from '@/app/components/popovers/ChannelPopover';
+import { LoadingSpinner } from '@/app/components/LoadingSpinner';
 
 type Message = {
   id: string;
@@ -53,21 +54,49 @@ type UserModalData = {
   type: 'user'; 
   id: string; 
   data: { name: string; displayName: string | null; displayAvatar: string | null }; 
-  position: { x: number; y: number } 
+  position: { x: number; y: number; triggerWidth?: number; triggerHeight?: number };
+  popoverData?: {
+    user: {
+      id: string;
+      name: string;
+      displayName: string | null;
+      displayAvatar: string | null;
+      nick: string | null;
+      inGuild: boolean | null;
+      isVerified: boolean | null;
+      isVoiceVerified: boolean | null;
+    };
+    roles: Array<{
+      id: string;
+      name: string;
+      color: number;
+      position: number;
+    }>;
+    ticketStats: {
+      open: number;
+      closed: number;
+    };
+    recentTickets: Array<{
+      id: number;
+      sequence: number | null;
+      status: string | null;
+      createdAt: string;
+    }>;
+  };
 };
 
 type RoleModalData = { 
   type: 'role'; 
   id: string; 
   data: { name: string; color: number }; 
-  position: { x: number; y: number } 
+  position: { x: number; y: number; triggerWidth?: number; triggerHeight?: number } 
 };
 
 type ChannelModalData = { 
   type: 'channel'; 
   id: string; 
   data: { name: string }; 
-  position: { x: number; y: number } 
+  position: { x: number; y: number; triggerWidth?: number; triggerHeight?: number } 
 };
 
 type SearchResponse = {
@@ -213,6 +242,7 @@ function MessagesPageContent() {
   const [roleModalData, setRoleModalData] = useState<RoleModalData | null>(null);
   const [channelModalData, setChannelModalData] = useState<ChannelModalData | null>(null);
   const [page, setPage] = useState(1);
+  const [loadingUserId, setLoadingUserId] = useState<string | null>(null);
   
   const debouncedQuery = useDebounce(searchQuery, 150);
   
@@ -244,6 +274,19 @@ function MessagesPageContent() {
 
   // Prefetch user data on hover
   const { prefetchUser } = usePrefetchUser();
+
+  // Fetch popover data when loading
+  const { data: popoverData, isFetching: isPopoverFetching } = useUserPopoverData(loadingUserId || undefined, {
+    enabled: !!loadingUserId,
+  });
+
+  // When popover data is loaded, show the popover
+  useEffect(() => {
+    if (loadingUserId && popoverData && userModalData?.id === loadingUserId) {
+      setUserModalData(prev => prev ? { ...prev, popoverData } : null);
+      setLoadingUserId(null);
+    }
+  }, [popoverData, loadingUserId, userModalData?.id]);
 
   // Prefetch next/previous pages when data loads
   useEffect(() => {
@@ -279,6 +322,8 @@ function MessagesPageContent() {
     if (type === 'user') {
       const userData = mentions.users[id];
       if (userData) {
+        // Set loading state and fetch popover data
+        setLoadingUserId(id);
         setUserModalData({ type: 'user', id, data: userData, position });
       }
     } else if (type === 'role') {
@@ -305,7 +350,13 @@ function MessagesPageContent() {
     e.preventDefault();
     e.stopPropagation();
     
-    const rect = (e.target as HTMLElement).getBoundingClientRect();
+    // Find the avatar element (img or div) within the clicked container
+    const container = e.currentTarget as HTMLElement;
+    const avatarElement = container.querySelector('img, div[class*="rounded-full"]') as HTMLElement;
+    const rect = avatarElement ? avatarElement.getBoundingClientRect() : container.getBoundingClientRect();
+    
+    // Set loading state and store position
+    setLoadingUserId(userId);
     setUserModalData({
       type: 'user',
       id: userId,
@@ -316,7 +367,9 @@ function MessagesPageContent() {
       },
       position: {
         x: rect.left,
-        y: rect.bottom,
+        y: rect.top,
+        triggerWidth: rect.width,
+        triggerHeight: rect.height,
       },
     });
   }, []);
@@ -324,10 +377,13 @@ function MessagesPageContent() {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       {/* Render three separate popovers */}
-      {userModalData && (
+      {userModalData && userModalData.popoverData && (
         <UserPopover 
           isOpen={true}
-          onClose={() => setUserModalData(null)}
+          onClose={() => {
+            setUserModalData(null);
+            setLoadingUserId(null);
+          }}
           triggerPosition={userModalData.position}
           userData={{
             id: userModalData.id,
@@ -335,6 +391,7 @@ function MessagesPageContent() {
             displayName: userModalData.data.displayName,
             displayAvatar: userModalData.data.displayAvatar,
           }}
+          popoverData={userModalData.popoverData}
         />
       )}
       {roleModalData && (
@@ -456,20 +513,8 @@ function MessagesPageContent() {
                     <div className="flex items-start justify-between mb-3 flex-wrap gap-2">
                       <div className="flex items-center gap-3 flex-wrap">
                         {msg.author && (
-                          <div
-                            onClick={(e) => handleUserClick(
-                              e,
-                              msg.author!.id,
-                              msg.author!.name,
-                              msg.author!.displayName,
-                              msg.author!.displayAvatar
-                            )}
-                            onMouseEnter={() => prefetchUser(msg.author!.id)}
-                          >
-                            <Avatar 
-                              src={msg.author.displayAvatar}
-                              name={msg.author.displayName || msg.author.name}
-                              size={40}
+                          <div className="flex items-center gap-2">
+                            <div
                               onClick={(e) => handleUserClick(
                                 e,
                                 msg.author!.id,
@@ -477,7 +522,24 @@ function MessagesPageContent() {
                                 msg.author!.displayName,
                                 msg.author!.displayAvatar
                               )}
-                            />
+                              onMouseEnter={() => prefetchUser(msg.author!.id)}
+                            >
+                              <Avatar 
+                                src={msg.author.displayAvatar}
+                                name={msg.author.displayName || msg.author.name}
+                                size={40}
+                                onClick={(e) => handleUserClick(
+                                  e,
+                                  msg.author!.id,
+                                  msg.author!.name,
+                                  msg.author!.displayName,
+                                  msg.author!.displayAvatar
+                                )}
+                              />
+                            </div>
+                            {loadingUserId === msg.author.id && isPopoverFetching && (
+                              <LoadingSpinner size="sm" />
+                            )}
                           </div>
                         )}
                         <div className="flex flex-col">

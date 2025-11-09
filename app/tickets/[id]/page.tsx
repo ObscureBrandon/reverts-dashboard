@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useTicket, useTicketMessages } from '@/lib/hooks/queries/useTickets';
-import { usePrefetchUser } from '@/lib/hooks/queries/useUsers';
+import { usePrefetchUser, useUserPopoverData } from '@/lib/hooks/queries/useUsers';
 import { useGenerateTicketSummary } from '@/lib/hooks/mutations/useTicketMutations';
 import TicketDetailSkeleton from './skeleton';
 import { Avatar } from '@/app/components/Avatar';
@@ -12,6 +12,7 @@ import { roleColorToHex } from '@/app/components/utils';
 import { UserPopover } from '@/app/components/popovers/UserPopover';
 import { RolePopover } from '@/app/components/popovers/RolePopover';
 import { ChannelPopover } from '@/app/components/popovers/ChannelPopover';
+import { LoadingSpinner } from '@/app/components/LoadingSpinner';
 
 type Message = {
   id: string;
@@ -73,21 +74,49 @@ type UserModalData = {
   type: 'user'; 
   id: string; 
   data: { name: string; displayName: string | null; displayAvatar: string | null }; 
-  position: { x: number; y: number } 
+  position: { x: number; y: number; triggerWidth?: number; triggerHeight?: number };
+  popoverData?: {
+    user: {
+      id: string;
+      name: string;
+      displayName: string | null;
+      displayAvatar: string | null;
+      nick: string | null;
+      inGuild: boolean | null;
+      isVerified: boolean | null;
+      isVoiceVerified: boolean | null;
+    };
+    roles: Array<{
+      id: string;
+      name: string;
+      color: number;
+      position: number;
+    }>;
+    ticketStats: {
+      open: number;
+      closed: number;
+    };
+    recentTickets: Array<{
+      id: number;
+      sequence: number | null;
+      status: string | null;
+      createdAt: string;
+    }>;
+  };
 };
 
 type RoleModalData = { 
   type: 'role'; 
   id: string; 
   data: { name: string; color: number }; 
-  position: { x: number; y: number } 
+  position: { x: number; y: number; triggerWidth?: number; triggerHeight?: number } 
 };
 
 type ChannelModalData = { 
   type: 'channel'; 
   id: string; 
   data: { name: string }; 
-  position: { x: number; y: number } 
+  position: { x: number; y: number; triggerWidth?: number; triggerHeight?: number } 
 };
 
 // Sparkles Icon component for AI Summary
@@ -589,6 +618,7 @@ export default function TicketDetailPage() {
   const [userModalData, setUserModalData] = useState<UserModalData | null>(null);
   const [roleModalData, setRoleModalData] = useState<RoleModalData | null>(null);
   const [channelModalData, setChannelModalData] = useState<ChannelModalData | null>(null);
+  const [loadingUserId, setLoadingUserId] = useState<string | null>(null);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
@@ -597,6 +627,19 @@ export default function TicketDetailPage() {
   const { data: messagesData, isLoading: messagesLoading, error: messagesError } = useTicketMessages(ticketId);
   const { mutate: generateSummary, isPending: generatingSummary, error: summaryMutationError } = useGenerateTicketSummary(ticketId);
   const { prefetchUser } = usePrefetchUser();
+
+  // Fetch popover data when loading
+  const { data: popoverData, isFetching: isPopoverFetching } = useUserPopoverData(loadingUserId || undefined, {
+    enabled: !!loadingUserId,
+  });
+
+  // When popover data is loaded, show the popover
+  useEffect(() => {
+    if (loadingUserId && popoverData && userModalData?.id === loadingUserId) {
+      setUserModalData(prev => prev ? { ...prev, popoverData } : null);
+      setLoadingUserId(null);
+    }
+  }, [popoverData, loadingUserId, userModalData?.id]);
   
   // Extract data from hook responses
   const ticket = ticketData?.ticket || null;
@@ -620,6 +663,8 @@ export default function TicketDetailPage() {
     if (type === 'user') {
       const userData = mentions.users[id];
       if (userData) {
+        // Set loading state and fetch popover data
+        setLoadingUserId(id);
         setUserModalData({ type: 'user', id, data: userData, position });
       }
     } else if (type === 'role') {
@@ -672,10 +717,13 @@ export default function TicketDetailPage() {
   
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col">
-      {userModalData && (
+      {userModalData && userModalData.popoverData && (
         <UserPopover 
           isOpen={true}
-          onClose={() => setUserModalData(null)}
+          onClose={() => {
+            setUserModalData(null);
+            setLoadingUserId(null);
+          }}
           triggerPosition={userModalData.position}
           userData={{
             id: userModalData.id,
@@ -683,6 +731,7 @@ export default function TicketDetailPage() {
             displayName: userModalData.data.displayName,
             displayAvatar: userModalData.data.displayAvatar,
           }}
+          popoverData={userModalData.popoverData}
         />
       )}
       
@@ -779,15 +828,22 @@ export default function TicketDetailPage() {
                       displayName: ticket.author!.displayName,
                       displayAvatar: ticket.author!.displayAvatar
                     };
-                    const rect = (e.target as HTMLElement).getBoundingClientRect();
+                    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                    setLoadingUserId(ticket.author!.id);
                     setUserModalData({ 
                       type: 'user', 
                       id: ticket.author!.id, 
                       data: userData, 
-                      position: { x: rect.left, y: rect.bottom } 
+                      position: { 
+                        x: rect.left, 
+                        y: rect.top,
+                        triggerWidth: rect.width,
+                        triggerHeight: rect.height
+                      } 
                     });
                   }}
                 />
+                {loadingUserId === ticket.author.id && isPopoverFetching && <LoadingSpinner size="sm" />}
                 <span>
                   Created by <span className="font-medium">{ticket.author.displayName || ticket.author.name}</span>
                 </span>
@@ -934,26 +990,35 @@ export default function TicketDetailPage() {
                           // Full message with avatar
                           <div className="flex gap-3">
                             {msg.author && (
-                              <Avatar 
-                                src={msg.author.displayAvatar}
-                                name={msg.author.displayName || msg.author.name}
-                                size={40}
-                                onClick={(e) => {
-                                  // Try to get user data from mentions, fallback to message author data
-                                  const userData = mentions.users[msg.author!.id] || {
-                                    name: msg.author!.name,
-                                    displayName: msg.author!.displayName,
-                                    displayAvatar: msg.author!.displayAvatar
-                                  };
-                                  const rect = (e.target as HTMLElement).getBoundingClientRect();
-                                  setUserModalData({ 
-                                    type: 'user', 
-                                    id: msg.author!.id, 
-                                    data: userData, 
-                                    position: { x: rect.left, y: rect.bottom } 
-                                  });
-                                }}
-                              />
+                              <>
+                                <Avatar 
+                                  src={msg.author.displayAvatar}
+                                  name={msg.author.displayName || msg.author.name}
+                                  size={40}
+                                  onClick={(e) => {
+                                    // Try to get user data from mentions, fallback to message author data
+                                    const userData = mentions.users[msg.author!.id] || {
+                                      name: msg.author!.name,
+                                      displayName: msg.author!.displayName,
+                                      displayAvatar: msg.author!.displayAvatar
+                                    };
+                                    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                    setLoadingUserId(msg.author!.id);
+                                    setUserModalData({ 
+                                      type: 'user', 
+                                      id: msg.author!.id, 
+                                      data: userData, 
+                                      position: { 
+                                        x: rect.left, 
+                                        y: rect.top,
+                                        triggerWidth: rect.width,
+                                        triggerHeight: rect.height
+                                      } 
+                                    });
+                                  }}
+                                />
+                                {loadingUserId === msg.author.id && isPopoverFetching && <LoadingSpinner size="sm" />}
+                              </>
                             )}
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 mb-1 flex-wrap">
