@@ -243,6 +243,7 @@ function MessagesPageContent() {
   const [channelModalData, setChannelModalData] = useState<ChannelModalData | null>(null);
   const [page, setPage] = useState(1);
   const [loadingUserId, setLoadingUserId] = useState<string | null>(null);
+  const [loadingElementKey, setLoadingElementKey] = useState<string | null>(null);
   
   const debouncedQuery = useDebounce(searchQuery, 150);
   
@@ -285,6 +286,7 @@ function MessagesPageContent() {
     if (loadingUserId && popoverData && userModalData?.id === loadingUserId) {
       setUserModalData(prev => prev ? { ...prev, popoverData } : null);
       setLoadingUserId(null);
+      setLoadingElementKey(null);
     }
   }, [popoverData, loadingUserId, userModalData?.id]);
 
@@ -345,7 +347,8 @@ function MessagesPageContent() {
     userId: string,
     userName: string,
     displayName: string | null,
-    displayAvatar: string | null
+    displayAvatar: string | null,
+    elementKey: string
   ) => {
     e.preventDefault();
     e.stopPropagation();
@@ -357,6 +360,7 @@ function MessagesPageContent() {
     
     // Set loading state and store position
     setLoadingUserId(userId);
+    setLoadingElementKey(elementKey);
     setUserModalData({
       type: 'user',
       id: userId,
@@ -383,6 +387,7 @@ function MessagesPageContent() {
           onClose={() => {
             setUserModalData(null);
             setLoadingUserId(null);
+            setLoadingElementKey(null);
           }}
           triggerPosition={userModalData.position}
           userData={{
@@ -514,13 +519,14 @@ function MessagesPageContent() {
                       <div className="flex items-center gap-3 flex-wrap">
                         {msg.author && (
                           <div className="flex items-center gap-2">
-                            <div
+                            <div className="relative"
                               onClick={(e) => handleUserClick(
                                 e,
                                 msg.author!.id,
                                 msg.author!.name,
                                 msg.author!.displayName,
-                                msg.author!.displayAvatar
+                                msg.author!.displayAvatar,
+                                `msg-${msg.id}`
                               )}
                               onMouseEnter={() => prefetchUser(msg.author!.id)}
                             >
@@ -533,13 +539,16 @@ function MessagesPageContent() {
                                   msg.author!.id,
                                   msg.author!.name,
                                   msg.author!.displayName,
-                                  msg.author!.displayAvatar
+                                  msg.author!.displayAvatar,
+                                  `msg-${msg.id}`
                                 )}
                               />
+                              {loadingUserId === msg.author.id && isPopoverFetching && loadingElementKey === `msg-${msg.id}` && (
+                                <div className="absolute inset-0 flex items-center justify-center bg-white/80 dark:bg-gray-900/80 rounded-full">
+                                  <LoadingSpinner size="sm" />
+                                </div>
+                              )}
                             </div>
-                            {loadingUserId === msg.author.id && isPopoverFetching && (
-                              <LoadingSpinner size="sm" />
-                            )}
                           </div>
                         )}
                         <div className="flex flex-col">

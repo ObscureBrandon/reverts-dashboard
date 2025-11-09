@@ -619,6 +619,7 @@ export default function TicketDetailPage() {
   const [roleModalData, setRoleModalData] = useState<RoleModalData | null>(null);
   const [channelModalData, setChannelModalData] = useState<ChannelModalData | null>(null);
   const [loadingUserId, setLoadingUserId] = useState<string | null>(null);
+  const [loadingElementKey, setLoadingElementKey] = useState<string | null>(null);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
@@ -638,6 +639,7 @@ export default function TicketDetailPage() {
     if (loadingUserId && popoverData && userModalData?.id === loadingUserId) {
       setUserModalData(prev => prev ? { ...prev, popoverData } : null);
       setLoadingUserId(null);
+      setLoadingElementKey(null);
     }
   }, [popoverData, loadingUserId, userModalData?.id]);
   
@@ -723,6 +725,7 @@ export default function TicketDetailPage() {
           onClose={() => {
             setUserModalData(null);
             setLoadingUserId(null);
+            setLoadingElementKey(null);
           }}
           triggerPosition={userModalData.position}
           userData={{
@@ -817,33 +820,40 @@ export default function TicketDetailPage() {
           <div className="flex flex-wrap gap-4 text-sm text-gray-600 dark:text-gray-400">
             {ticket.author && (
               <div className="flex items-center gap-2">
-                <Avatar 
-                  src={ticket.author.displayAvatar}
-                  name={ticket.author.displayName || ticket.author.name}
-                  size={24}
-                  onClick={(e) => {
-                    // Try to get user data from mentions, fallback to ticket author data
-                    const userData = mentions.users[ticket.author!.id] || {
-                      name: ticket.author!.name,
-                      displayName: ticket.author!.displayName,
-                      displayAvatar: ticket.author!.displayAvatar
-                    };
-                    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                    setLoadingUserId(ticket.author!.id);
-                    setUserModalData({ 
-                      type: 'user', 
-                      id: ticket.author!.id, 
-                      data: userData, 
-                      position: { 
-                        x: rect.left, 
-                        y: rect.top,
-                        triggerWidth: rect.width,
-                        triggerHeight: rect.height
-                      } 
-                    });
-                  }}
-                />
-                {loadingUserId === ticket.author.id && isPopoverFetching && <LoadingSpinner size="sm" />}
+                <div className="relative">
+                  <Avatar 
+                    src={ticket.author.displayAvatar}
+                    name={ticket.author.displayName || ticket.author.name}
+                    size={24}
+                    onClick={(e) => {
+                      // Try to get user data from mentions, fallback to ticket author data
+                      const userData = mentions.users[ticket.author!.id] || {
+                        name: ticket.author!.name,
+                        displayName: ticket.author!.displayName,
+                        displayAvatar: ticket.author!.displayAvatar
+                      };
+                      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                      setLoadingUserId(ticket.author!.id);
+                      setLoadingElementKey('ticket-author');
+                      setUserModalData({ 
+                        type: 'user', 
+                        id: ticket.author!.id, 
+                        data: userData, 
+                        position: { 
+                          x: rect.left, 
+                          y: rect.top,
+                          triggerWidth: rect.width,
+                          triggerHeight: rect.height
+                        } 
+                      });
+                    }}
+                  />
+                  {loadingUserId === ticket.author.id && isPopoverFetching && loadingElementKey === 'ticket-author' && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-white/80 dark:bg-gray-900/80 rounded-full">
+                      <LoadingSpinner size="sm" />
+                    </div>
+                  )}
+                </div>
                 <span>
                   Created by <span className="font-medium">{ticket.author.displayName || ticket.author.name}</span>
                 </span>
@@ -991,33 +1001,40 @@ export default function TicketDetailPage() {
                           <div className="flex gap-3">
                             {msg.author && (
                               <>
-                                <Avatar 
-                                  src={msg.author.displayAvatar}
-                                  name={msg.author.displayName || msg.author.name}
-                                  size={40}
-                                  onClick={(e) => {
-                                    // Try to get user data from mentions, fallback to message author data
-                                    const userData = mentions.users[msg.author!.id] || {
-                                      name: msg.author!.name,
-                                      displayName: msg.author!.displayName,
-                                      displayAvatar: msg.author!.displayAvatar
-                                    };
-                                    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                                    setLoadingUserId(msg.author!.id);
-                                    setUserModalData({ 
-                                      type: 'user', 
-                                      id: msg.author!.id, 
-                                      data: userData, 
-                                      position: { 
-                                        x: rect.left, 
-                                        y: rect.top,
-                                        triggerWidth: rect.width,
-                                        triggerHeight: rect.height
-                                      } 
-                                    });
-                                  }}
-                                />
-                                {loadingUserId === msg.author.id && isPopoverFetching && <LoadingSpinner size="sm" />}
+                                <div className="relative flex-shrink-0">
+                                  <Avatar 
+                                    src={msg.author.displayAvatar}
+                                    name={msg.author.displayName || msg.author.name}
+                                    size={40}
+                                    onClick={(e) => {
+                                      // Try to get user data from mentions, fallback to message author data
+                                      const userData = mentions.users[msg.author!.id] || {
+                                        name: msg.author!.name,
+                                        displayName: msg.author!.displayName,
+                                        displayAvatar: msg.author!.displayAvatar
+                                      };
+                                      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                      setLoadingUserId(msg.author!.id);
+                                      setLoadingElementKey(`msg-${msg.id}`);
+                                      setUserModalData({ 
+                                        type: 'user', 
+                                        id: msg.author!.id, 
+                                        data: userData, 
+                                        position: { 
+                                          x: rect.left, 
+                                          y: rect.top,
+                                          triggerWidth: rect.width,
+                                          triggerHeight: rect.height
+                                        } 
+                                      });
+                                    }}
+                                  />
+                                  {loadingUserId === msg.author.id && isPopoverFetching && loadingElementKey === `msg-${msg.id}` && (
+                                    <div className="absolute inset-0 flex items-center justify-center bg-white/80 dark:bg-gray-900/80 rounded-full">
+                                      <LoadingSpinner size="sm" />
+                                    </div>
+                                  )}
+                                </div>
                               </>
                             )}
                             <div className="flex-1 min-w-0">

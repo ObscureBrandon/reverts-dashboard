@@ -90,6 +90,7 @@ function TicketsContent() {
   // Modal state for user popover
   const [modalData, setModalData] = useState<UserModalData | null>(null);
   const [loadingUserId, setLoadingUserId] = useState<string | null>(null);
+  const [loadingElementKey, setLoadingElementKey] = useState<string | null>(null);
 
   // Fetch popover data when loading
   const { data: popoverData, isFetching: isPopoverFetching } = useUserPopoverData(loadingUserId || undefined, {
@@ -101,6 +102,7 @@ function TicketsContent() {
     if (loadingUserId && popoverData && modalData?.id === loadingUserId) {
       setModalData(prev => prev ? { ...prev, popoverData } : null);
       setLoadingUserId(null);
+      setLoadingElementKey(null);
     }
   }, [popoverData, loadingUserId, modalData?.id]);
 
@@ -148,7 +150,8 @@ function TicketsContent() {
     userId: string,
     userName: string,
     displayName: string | null,
-    displayAvatar: string | null
+    displayAvatar: string | null,
+    elementKey: string
   ) => {
     e.preventDefault();
     e.stopPropagation();
@@ -158,8 +161,9 @@ function TicketsContent() {
     const avatarElement = container.querySelector('img, div[class*="rounded-full"]') as HTMLElement;
     const rect = avatarElement ? avatarElement.getBoundingClientRect() : container.getBoundingClientRect();
     
-    // Set loading state and store position
+    // Set loading state and store unique key for spinner identification
     setLoadingUserId(userId);
+    setLoadingElementKey(elementKey);
     setModalData({
       type: 'user',
       id: userId,
@@ -181,6 +185,7 @@ function TicketsContent() {
   const handleCloseModal = () => {
     setModalData(null);
     setLoadingUserId(null);
+    setLoadingElementKey(null);
   };
   
   // Show loading skeleton while data is being fetched
@@ -375,15 +380,23 @@ function TicketsContent() {
                                 ticket.author!.id,
                                 ticket.author!.name,
                                 ticket.author!.displayName,
-                                ticket.author!.displayAvatar
+                                ticket.author!.displayAvatar,
+                                `table-${ticket.id}`
                               )}
                               onMouseEnter={() => prefetchUser(ticket.author!.id)}
                             >
-                              <Avatar 
-                                src={ticket.author.displayAvatar}
-                                name={ticket.author.displayName || ticket.author.name}
-                                size={32}
-                              />
+                              <div className="relative">
+                                <Avatar 
+                                  src={ticket.author.displayAvatar}
+                                  name={ticket.author.displayName || ticket.author.name}
+                                  size={32}
+                                />
+                                {loadingUserId === ticket.author.id && isPopoverFetching && loadingElementKey === `table-${ticket.id}` && (
+                                  <div className="absolute inset-0 flex items-center justify-center bg-white/80 dark:bg-gray-900/80 rounded-full">
+                                    <LoadingSpinner size="sm" />
+                                  </div>
+                                )}
+                              </div>
                               <div>
                                 <div className="text-sm font-medium text-gray-900 dark:text-white">
                                   {ticket.author.displayName || ticket.author.name}
@@ -394,9 +407,6 @@ function TicketsContent() {
                                   </div>
                                 )}
                               </div>
-                              {loadingUserId === ticket.author.id && isPopoverFetching && (
-                                <LoadingSpinner size="sm" />
-                              )}
                             </div>
                           ) : (
                             <span className="text-sm text-gray-500 dark:text-gray-400">Unknown</span>
@@ -485,21 +495,26 @@ function TicketsContent() {
                           ticket.author!.id,
                           ticket.author!.name,
                           ticket.author!.displayName,
-                          ticket.author!.displayAvatar
+                          ticket.author!.displayAvatar,
+                          `card-${ticket.id}`
                         )}
                         onMouseEnter={() => prefetchUser(ticket.author!.id)}
                       >
-                        <Avatar 
-                          src={ticket.author.displayAvatar}
-                          name={ticket.author.displayName || ticket.author.name}
-                          size={24}
-                        />
+                        <div className="relative">
+                          <Avatar 
+                            src={ticket.author.displayAvatar}
+                            name={ticket.author.displayName || ticket.author.name}
+                            size={24}
+                          />
+                          {loadingUserId === ticket.author.id && isPopoverFetching && loadingElementKey === `card-${ticket.id}` && (
+                            <div className="absolute inset-0 flex items-center justify-center bg-white/80 dark:bg-gray-900/80 rounded-full">
+                              <LoadingSpinner size="sm" />
+                            </div>
+                          )}
+                        </div>
                         <span className="text-sm text-gray-700 dark:text-gray-300">
                           {ticket.author.displayName || ticket.author.name}
                         </span>
-                        {loadingUserId === ticket.author.id && isPopoverFetching && (
-                          <LoadingSpinner size="sm" />
-                        )}
                       </div>
                     )}
                     
