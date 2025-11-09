@@ -1001,7 +1001,7 @@ export default function TicketDetailPage() {
                           <div className="flex gap-3">
                             {msg.author && (
                               <>
-                                <div className="relative flex-shrink-0">
+                                <div className="relative flex-shrink-0 self-start">
                                   <Avatar 
                                     src={msg.author.displayAvatar}
                                     name={msg.author.displayName || msg.author.name}
