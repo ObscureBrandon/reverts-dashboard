@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { Avatar } from '../../components/Avatar';
 import { roleColorToHex } from '../../components/utils';
-import { useUserPopoverData } from '@/lib/hooks/queries/useUsers';
+import { useUserPopoverData, useUserSupervisors } from '@/lib/hooks/queries/useUsers';
 
 
 type Props = {
@@ -48,6 +48,13 @@ export default function UserPageClient({ userId }: Props) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   
   const { data, isLoading, error } = useUserPopoverData(userId);
+
+  const {
+  data: supervisorsData,
+  isLoading: supervisorsLoading,
+  error: supervisorsError,
+} = useUserSupervisors(userId);
+
 
   const copyToClipboard = async (text: string) => {
     try {
@@ -265,7 +272,70 @@ export default function UserPageClient({ userId }: Props) {
                 </div>
               </div>
             )}
-            
+            {/* Supervisors (contextual) */}
+            <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+             <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">
+               Supervisors
+             </h3>
+
+              {supervisorsLoading && (
+                <div className="text-sm text-gray-500 dark:text-gray-400">
+                  Loading supervisors…
+               </div>
+             )}
+
+             {supervisorsError && (
+               <div className="text-sm text-red-500">
+                 Failed to load supervisors
+               </div>
+             )}
+
+              {!supervisorsLoading && supervisorsData && (
+                <div className="space-y-3">
+                  {/* Present */}
+                  {supervisorsData.presentSupervisor && (
+                    <div className="flex items-center gap-3">
+                      <Avatar
+                       src={supervisorsData.presentSupervisor.supervisor.displayAvatar}
+                       name={
+                          supervisorsData.presentSupervisor.supervisor.displayName ||
+                          supervisorsData.presentSupervisor.supervisor.name
+                       }
+                       size={36}
+                      />
+                     <div>
+                       <div className="text-sm font-medium text-gray-900 dark:text-white">
+                          {supervisorsData.presentSupervisor.supervisor.displayName ||
+                            supervisorsData.presentSupervisor.supervisor.name}
+                       </div>
+                       <div className="text-xs text-gray-500 dark:text-gray-400">
+                         Present supervisor
+                       </div>
+                      </div>
+                    </div>
+                  )}
+
+                 {/* Past */}
+                  {supervisorsData.pastSupervisors.length > 0 && (
+                   <div className="space-y-2">
+                     {supervisorsData.pastSupervisors.map(rel => (
+                        <div key={rel.relationId} className="flex items-center gap-3">
+                          <Avatar
+                            src={rel.supervisor.displayAvatar}
+                            name={rel.supervisor.displayName || rel.supervisor.name}
+                            size={32}
+                          />
+                          <div className="text-sm text-gray-700 dark:text-gray-300">
+                            {rel.supervisor.displayName || rel.supervisor.name}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             {(ticketStats.open > 0 || ticketStats.closed > 0) && (
               <Link
                 href={`/tickets?author=${userId}`}
