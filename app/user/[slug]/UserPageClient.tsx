@@ -316,22 +316,32 @@ export default function UserPageClient({ userId }: Props) {
                   )}
 
                  {/* Past */}
-                  {supervisorsData.pastSupervisors.length > 0 && (
-                   <div className="space-y-2">
-                     {supervisorsData.pastSupervisors.map(rel => (
-                        <div key={rel.relationId} className="flex items-center gap-3">
-                          <Avatar
-                            src={rel.supervisor.displayAvatar}
-                            name={rel.supervisor.displayName || rel.supervisor.name}
-                            size={32}
-                          />
-                          <div className="text-sm text-gray-700 dark:text-gray-300">
-                            {rel.supervisor.displayName || rel.supervisor.name}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                {supervisorsData.pastSupervisors.length > 0 && (
+                  <div className="space-y-2">
+                  {supervisorsData.pastSupervisors.map(rel => {
+                  if (!rel.supervisor) return null;
+
+                      const name =
+                      rel.supervisor.displayName ||
+                      rel.supervisor.name ||
+                     'Unknown user';
+
+                    return (
+                     < div key={rel.relationId} className="flex items-center gap-3">
+          <Avatar
+            src={rel.supervisor.displayAvatar ?? undefined}
+            name={name}
+            size={32}
+          />
+          <div className="text-sm text-gray-700 dark:text-gray-300">
+            {name}
+          </div>
+        </div>
+      );
+    })}
+  </div>
+)}
+
                 </div>
               )}
             </div>
