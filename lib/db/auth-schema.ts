@@ -1,5 +1,12 @@
 import { pgTable, text, boolean, timestamp, unique, foreignKey } from "drizzle-orm/pg-core";
-
+import {
+  serial,
+  bigint,
+  index,
+  uniqueIndex,
+} from "drizzle-orm/pg-core";
+import { users } from "./bot-schema";
+import { eq } from "drizzle-orm";
 /**
  * Auth Schema - Dashboard-owned tables
  * 
@@ -67,3 +74,40 @@ export const authVerification = pgTable("auth_verification", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
+
+/**
+ * UserSupervisor
+ * Represents historical and current supervisor relationships for users
+ */
+export const userSupervisors = pgTable(
+  "UserSupervisor",
+  {
+    id: serial("id").primaryKey(),
+
+    userId: bigint("user_id", { mode: "bigint" }).notNull(),
+
+    supervisorId: bigint("supervisor_id", { mode: "bigint" }).notNull(),
+
+    active: boolean("active").notNull().default(true),
+
+    createdAt: timestamp("created_at", {
+      precision: 3,
+      withTimezone: false,
+    })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    userIdx: index("UserSupervisor_user_id_idx").on(table.userId),
+
+    supervisorIdx: index("UserSupervisor_supervisor_id_idx").on(
+      table.supervisorId
+    ),
+
+    uniqueActiveSupervisorPerUser: uniqueIndex(
+      "unique_active_supervisor_per_user"
+    )
+      .on(table.userId, table.supervisorId)
+      .where(eq((table.active), true)),
+  })
+);

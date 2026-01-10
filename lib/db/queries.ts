@@ -1,6 +1,8 @@
 import { db } from './index';
 import { messages, users, channels, tickets, userRoles, roles, panels } from './schema';
 import { eq, and, like, inArray, sql, desc, asc, ilike, or, isNotNull } from 'drizzle-orm';
+import { userSupervisors} from './schema';
+
 
 export type MessageSearchParams = {
   query?: string;
@@ -489,3 +491,30 @@ export async function getUserTicketStats(userId: bigint) {
     closed: (stats?.closedCount || 0) + (stats?.deletedCount || 0),
   };
 }
+
+export async function getUserSupervisorRelations(userId: bigint) {
+  return db
+    .select({
+      relationId: userSupervisors.id,
+      active: userSupervisors.active,
+      startedAt: userSupervisors.createdAt,
+
+      supervisor: {
+        discordId: users.discordId,
+        name: users.name,
+        displayName: users.displayName,
+        displayAvatar: users.displayAvatar,
+      },
+    })
+    .from(userSupervisors)
+    .innerJoin(
+      users,
+      eq(userSupervisors.supervisorId, users.discordId)
+    )
+    .where(eq(userSupervisors.userId, userId))
+    .orderBy(
+      desc(userSupervisors.active),       // active first
+      desc(userSupervisors.createdAt)     // newest first
+    );
+}
+
