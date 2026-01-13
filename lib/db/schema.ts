@@ -8,7 +8,7 @@
  * All existing imports remain unchanged - this maintains backward compatibility.
  */
 
-import { relations } from 'drizzle-orm';
+import { relations, sql } from 'drizzle-orm';
 
 // Re-export auth tables (Dashboard-owned)
 export * from './auth-schema';
@@ -26,6 +26,13 @@ import {
   userRoles, 
   roles 
 } from './bot-schema';
+import {
+  pgTable,
+  bigint,
+  integer,
+  timestamp,
+  boolean,
+} from "drizzle-orm/pg-core";
 
 // Relations for better TypeScript inference
 export const usersRelations = relations(users, ({ many }) => ({
@@ -82,3 +89,20 @@ export const userRolesRelations = relations(userRoles, ({ one }) => ({
 export const rolesRelations = relations(roles, ({ many }) => ({
   userRoles: many(userRoles),
 }));
+
+export const supportNotifications = pgTable("SupportNotification", {
+  id: integer("id").primaryKey().default(sql`nextval('SupportNotification_id_seq')`),
+
+  userId: bigint("user_id", { mode: "bigint" }).notNull(),
+  messageId: bigint("message_id", { mode: "bigint" }).notNull(),
+  channelId: bigint("channel_id", { mode: "bigint" }).notNull(),
+
+  assignedById: bigint("assigned_by_id", { mode: "bigint" }),
+  assignedAt: timestamp("assigned_at"),
+
+  assignmentStatusId: integer("assignment_status_id").notNull(),
+
+  createdAt: timestamp("created_at").notNull(),
+  active: boolean("active").notNull(),
+});
+

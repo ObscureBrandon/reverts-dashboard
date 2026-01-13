@@ -1,5 +1,5 @@
 import { db } from './index';
-import { messages, users, channels, tickets, userRoles, roles, panels } from './schema';
+import { messages, users, channels, tickets, userRoles, roles, panels, supportNotifications } from './schema';
 import { eq, and, like, inArray, sql, desc, asc, ilike, or, isNotNull } from 'drizzle-orm';
 import { userSupervisors} from './schema';
 
@@ -518,3 +518,24 @@ export async function getUserSupervisorRelations(userId: bigint) {
     );
 }
 
+export async function getUserSupportStatus(userId: bigint) {
+  const result = await db
+    .select({
+      id: supportNotifications.id,
+      active: supportNotifications.active,
+      assignedAt: supportNotifications.assignedAt,
+      createdAt: supportNotifications.createdAt,
+      channelId: supportNotifications.channelId,
+      assignedById: supportNotifications.assignedById,
+    })
+    .from(supportNotifications)
+    .where(eq(supportNotifications.userId, userId))
+    .orderBy(
+      desc(supportNotifications.active),       // active first
+      desc(isNotNull(supportNotifications.assignedAt)), // assigned before waiting
+      desc(supportNotifications.createdAt)     // newest first
+    )
+    .limit(1);
+
+  return result[0] ?? null;
+}

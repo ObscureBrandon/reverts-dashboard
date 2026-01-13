@@ -211,3 +211,19 @@ export const authSession = pgTable("auth_session", {
 		}),
 	unique("auth_session_token_unique").on(table.token),
 ]);
+
+export const supportNotifications = pgTable("SupportNotification", {
+  id: integer("id").primaryKey().default(sql`nextval('SupportNotification_id_seq')`),
+
+  userId: bigint("user_id", { mode: "bigint" }).notNull(),
+  messageId: bigint("message_id", { mode: "bigint" }).notNull(),
+  channelId: bigint("channel_id", { mode: "bigint" }).notNull(),
+
+  assignedById: bigint("assigned_by_id", { mode: "bigint" }),
+  assignedAt: timestamp("assigned_at"),
+
+  assignmentStatusId: integer("assignment_status_id").notNull(),
+
+  createdAt: timestamp("created_at").notNull(),
+  active: boolean("active").notNull(),
+});
