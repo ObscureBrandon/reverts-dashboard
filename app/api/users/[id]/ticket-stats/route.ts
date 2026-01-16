@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getUserTicketStats } from '@/lib/db/queries';
-import { requireAuth } from '@/lib/auth-helpers';
+import { requireAuth } from '@/lib/auth-helpers.server';
 
 export async function GET(
   request: NextRequest,

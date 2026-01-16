@@ -1,37 +1,56 @@
 import { NextResponse } from "next/server";
 import { getUserSupportStatus } from "@/lib/db/queries";
-import { requireAuth } from '@/lib/auth-helpers';
+import { requireAuth } from '@/lib/auth-helpers.server';
 
+type SupportState = 'none' | 'pending' | 'active' | 'resolved' | 'archived';
+
+function mapSupportPresentation(state: SupportState) {
+  switch (state) {
+    case "pending":
+      return { label: "Pending", tone: "yellow" };
+    case "active":
+      return { label: "Active", tone: "blue" };
+    case "resolved":
+      return { label: "Resolved", tone: "green" };
+    case "archived":
+      return { label: "Archived", tone: "gray" };
+    case "none":
+      return { label: "Never requested support", tone: "gray" };
+  }
+}
 
 export async function GET(
-  // Require authentication
-
-
   _req: Request,
   context: { params: Promise<{ id: string }> }
 ) {
-    const { session, error } = await requireAuth();
+  const { error } = await requireAuth();
   if (error) return error;
-    const { id } = await context.params;
+
+  const { id } = await context.params;
+
   try {
     const userId = BigInt(id);
-
     const row = await getUserSupportStatus(userId);
 
-    let state: "waiting" | "assigned" | "resolved";
+    let state: SupportState;
 
     if (!row) {
-      state = "resolved";
-    } else if (!row.active) {
+      state = "none";
+    } else if (!row.active && !row.assignedAt) {
+      state = "archived";
+    } else if (!row.active && row.assignedAt) {
       state = "resolved";
     } else if (row.assignedAt) {
-      state = "assigned";
+      state = "active";
     } else {
-      state = "waiting";
+      state = "pending";
     }
+
+    const presentation = mapSupportPresentation(state);
 
     return NextResponse.json({
       state,
+      ...presentation,
       data: row
         ? {
             id: row.id,
