@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { searchMessages, getMessageCount, getStaffRoles, getMentionsForMessages } from '@/lib/db/queries';
-import { requireAuth } from '@/lib/auth-helpers.server';
+import { requireAuth } from '@/lib/auth-helpers';
 
 // In-memory cache for staff role IDs (refresh every 5 minutes)
 let staffRoleCache: { ids: bigint[]; timestamp: number } | null = null;

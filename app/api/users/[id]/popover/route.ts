@@ -3,7 +3,7 @@ import { db } from '@/lib/db';
 import { users, tickets } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { getUserRoles, getUserTicketStats, getTickets } from '@/lib/db/queries';
-import { requireAuth } from '@/lib/auth-helpers.server';
+import { requireAuth } from '@/lib/auth-helpers';
 
 /**
  * Combined endpoint for user popover data

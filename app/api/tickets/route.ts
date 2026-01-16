@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getTickets, getTicketCount, getTicketById } from '@/lib/db/queries';
-import { requireAuth } from '@/lib/auth-helpers.server';
+import { requireAuth } from '@/lib/auth-helpers';
 
 export async function GET(request: NextRequest) {
   // Require authentication

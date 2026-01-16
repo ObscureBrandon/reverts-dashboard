@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getUserSupportStatus } from "@/lib/db/queries";
-import { requireAuth } from '@/lib/auth-helpers.server';
+import { requireAuth } from '@/lib/auth-helpers';
 
 type SupportState = 'none' | 'pending' | 'active' | 'resolved' | 'archived';
 

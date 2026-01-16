@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getAllPanels } from '@/lib/db/queries';
-import { requireAuth } from '@/lib/auth-helpers.server';
+import { requireAuth } from '@/lib/auth-helpers';
 
 export async function GET() {
   // Require authentication
