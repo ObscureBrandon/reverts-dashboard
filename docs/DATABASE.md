@@ -11,7 +11,7 @@ The database uses PostgreSQL with two categories of tables:
 | Auth | 4 tables (`auth_*`) | Dashboard | Drizzle |
 | Bot | 18 tables | Discord Bot | Prisma |
 
-All tables are defined in [`lib/db/schema.ts`](../lib/db/schema.ts).
+All tables are defined in [`src/lib/db/schema.ts`](../src/lib/db/schema.ts).
 
 ---
 
@@ -300,7 +300,7 @@ Stored roles during jail.
 
 ### Message Search
 
-The main search function in `lib/db/queries.ts`:
+The main search function in `src/lib/db/queries.ts`:
 
 ```typescript
 searchMessages({

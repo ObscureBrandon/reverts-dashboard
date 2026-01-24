@@ -77,22 +77,25 @@ bun run db:migrate  # Apply database indexes
 ## Project Structure
 
 ```
-app/                  # Next.js App Router
-├── api/              # API routes
-├── login/            # Login page
-└── messages/         # Message search UI
+src/
+├── app/                  # Next.js App Router
+│   ├── api/              # API routes
+│   ├── components/       # React components
+│   ├── login/            # Login page
+│   ├── messages/         # Message search UI
+│   └── tickets/          # Ticket pages
+│
+└── lib/
+    ├── db/
+    │   ├── schema.ts     # All 22 tables (auth + bot)
+    │   ├── queries.ts    # Query functions
+    │   └── index.ts      # DB connection
+    ├── hooks/            # React hooks
+    └── auth.ts           # Auth configuration
 
-lib/
-├── db/
-│   ├── schema.ts     # All 22 tables (auth + bot)
-│   ├── queries.ts    # Query functions
-│   └── index.ts      # DB connection
-├── auth.ts           # Auth configuration
-└── hooks/            # React hooks
-
-docs/                 # Documentation
-drizzle/              # Auth migrations
-migrations/           # Performance indexes
+docs/                     # Documentation
+drizzle/                  # Auth migrations
+migrations/               # Performance indexes
 ```
 
 ## Database

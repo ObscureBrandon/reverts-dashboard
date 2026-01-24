@@ -20,7 +20,7 @@ The Reverts Dashboard is a Next.js frontend for searching and analyzing Discord 
 │           └────────────────┼─────────────────┘              │
 │                            │                                │
 │  ┌─────────────────────────▼────────────────────────────┐  │
-│  │              Drizzle ORM (lib/db/)                    │  │
+│  │              Drizzle ORM (src/lib/db/)                 │  │
 │  │  ┌────────────┐  ┌────────────┐  ┌────────────────┐  │  │
 │  │  │  schema.ts │  │ queries.ts │  │    index.ts    │  │  │
 │  │  │ 22 tables  │  │  search    │  │  connection    │  │  │
@@ -59,35 +59,31 @@ The Reverts Dashboard is a Next.js frontend for searching and analyzing Discord 
 
 ```
 reverts-dashboard/
-├── app/                          # Next.js App Router
-│   ├── api/                      # API Routes
-│   │   ├── auth/[...all]/        # Auth endpoints
-│   │   ├── messages/             # Message search API
-│   │   ├── tickets/              # Ticket API
-│   │   └── users/                # User lookup API
-│   ├── login/                    # Login page
-│   ├── messages/                 # Message search UI
-│   ├── layout.tsx                # Root layout
-│   ├── page.tsx                  # Home (redirects to /messages)
-│   └── globals.css               # Global styles
-│
-├── lib/                          # Shared utilities
-│   ├── db/
-│   │   ├── schema.ts             # Drizzle schema (all tables)
-│   │   ├── queries.ts            # Query functions
-│   │   └── index.ts              # DB connection
-│   ├── hooks/
-│   │   └── useDebounce.ts        # Debounce hook
-│   ├── auth.ts                   # Server auth config
-│   ├── auth-client.ts            # Client auth hooks
-│   └── auth-helpers.ts           # Auth utilities
-│
-├── drizzle/                      # Migrations
-│   ├── 0000_initial_auth_tables.sql
-│   └── meta/
-│
-├── migrations/                   # Performance indexes
-│   └── 001_add_search_indexes.sql
+├── src/                          # Source code
+│   ├── app/                      # Next.js App Router
+│   │   ├── api/                  # API Routes
+│   │   │   ├── auth/[...all]/    # Auth endpoints
+│   │   │   ├── messages/         # Message search API
+│   │   │   ├── tickets/          # Ticket API
+│   │   │   └── users/            # User lookup API
+│   │   ├── components/           # React components
+│   │   ├── login/                # Login page
+│   │   ├── messages/             # Message search UI
+│   │   ├── tickets/              # Ticket pages
+│   │   ├── layout.tsx            # Root layout
+│   │   ├── page.tsx              # Home page
+│   │   └── globals.css           # Global styles
+│   │
+│   └── lib/                      # Shared utilities
+│       ├── db/
+│       │   ├── schema.ts         # Drizzle schema (all 22 tables)
+│       │   ├── queries.ts        # Query functions
+│       │   └── index.ts          # DB connection
+│       ├── hooks/                # React hooks
+│       ├── ai/                   # AI utilities
+│       ├── auth.ts               # Server auth config
+│       ├── auth-client.ts        # Client auth hooks
+│       └── auth-helpers.ts       # Auth utilities
 │
 ├── docs/                         # Documentation
 │   ├── ARCHITECTURE.md           # This file
@@ -98,11 +94,18 @@ reverts-dashboard/
 │   ├── DEPLOYMENT.md             # Deployment guide
 │   └── DEVELOPMENT.md            # Dev patterns
 │
-├── middleware.ts                 # Route protection
+├── drizzle/                      # Auth migrations
+│   ├── 0000_initial_auth_tables.sql
+│   └── meta/
+│
+├── migrations/                   # Performance indexes
+│   └── 001_add_search_indexes.sql
+│
+├── public/                       # Static assets
 ├── drizzle.config.ts             # Drizzle Kit config
 ├── next.config.ts                # Next.js config
-├── package.json                  # Dependencies
-└── tsconfig.json                 # TypeScript config
+├── tsconfig.json                 # TypeScript config
+└── package.json                  # Dependencies
 ```
 
 ## Key Design Decisions
@@ -118,7 +121,7 @@ reverts-dashboard/
 
 ### Unified Schema File
 
-All 22 tables are defined in a single `lib/db/schema.ts`:
+All 22 tables are defined in a single `src/lib/db/schema.ts`:
 - **Auth tables** (4) - Dashboard-owned, Drizzle migrations
 - **Bot tables** (18) - Bot-owned via Prisma, dashboard has read/write access
 

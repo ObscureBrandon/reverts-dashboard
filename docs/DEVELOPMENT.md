@@ -76,7 +76,7 @@ export async function GET(request: NextRequest) {
 
 ### Adding New Database Queries
 
-1. Add query function to `lib/db/queries.ts`:
+1. Add query function to `src/lib/db/queries.ts`:
 
 ```typescript
 export async function getExampleData(params: { id: number }) {
