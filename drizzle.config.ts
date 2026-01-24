@@ -1,27 +1,23 @@
 import type { Config } from 'drizzle-kit';
 
 /**
- * Drizzle Config - Auth Tables Only
+ * Drizzle Config - Auth Tables Migrations Only
  * 
- * IMPORTANT: This config is for auth table migrations ONLY.
+ * IMPORTANT: The tablesFilter ensures drizzle-kit only manages auth_* tables.
  * 
- * The dashboard database has two types of tables:
- * 1. Auth tables (auth_*) - Managed by this dashboard using Drizzle
- * 2. Bot tables (User, Message, Ticket, etc.) - Managed by the bot using Prisma
+ * Schema Structure:
+ * - lib/db/schema.ts contains ALL tables (auth + bot) for runtime queries
+ * - Drizzle-kit migrations only affect auth_* tables (tablesFilter)
+ * - Bot tables (User, Message, Ticket, etc.) are managed by bot's Prisma
  * 
- * Migration Strategy:
- * - DO NOT use `drizzle-kit generate` or `drizzle-kit push` for schema diffing
- *   (these will try to drop bot tables since they're not in auth-schema.ts)
- * - ONLY use `drizzle-kit migrate` to apply manually written migrations
- * - For auth table changes, write migrations manually in drizzle/ folder
- * 
- * Runtime Queries:
- * - lib/db/schema.ts exports BOTH auth and bot schemas for type-safe queries
- * - This config file only affects drizzle-kit tooling, not runtime behavior
+ * Migration Commands:
+ * - `drizzle-kit generate` - Generate migrations for auth_* tables only
+ * - `drizzle-kit migrate` - Apply migrations
+ * - DO NOT use `drizzle-kit push` (use explicit migrations instead)
  */
 
 export default {
-  schema: './lib/db/auth-schema.ts',
+  schema: './lib/db/schema.ts',
   out: './drizzle',
   dialect: 'postgresql',
   dbCredentials: {
