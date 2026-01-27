@@ -6,13 +6,14 @@ export async function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
 
   // Allow public routes and static files
-  if (
+  if ((pathname !== "/") && (
     pathname.startsWith("/api/auth") ||
     pathname.startsWith("/login") ||
     pathname.startsWith("/_next") ||
     // Allow all static files (PNG, SVG, ICO, etc.)
     pathname.match(/\.(png|jpg|jpeg|gif|svg|webp|ico|xml|json)$/)
-  ) {
+  )) {
+    console.log("folewjfwef??");
     return NextResponse.next();
   }
 
