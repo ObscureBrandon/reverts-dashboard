@@ -1,0 +1,194 @@
+'use client';
+
+import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Input } from '@/components/ui/input';
+import { Table } from '@tanstack/react-table';
+import { Columns3, Search, X } from 'lucide-react';
+
+export type ViewPreset = 'all' | 'priority' | 'newThisWeek';
+export type QuickFilter = 'needs-support' | 'new-reverts' | 'inactive' | 'left-server';
+
+export type FilterState = {
+  query: string;
+  assignmentStatus: string;
+  relationToIslam: string;
+  roleId: string;
+  inGuild: string;
+  // For new reverts filter (created in last 30 days)
+  createdAfter?: string;
+};
+
+interface DataTableToolbarProps {
+  filters: FilterState;
+  onFiltersChange: (filters: FilterState) => void;
+  onSearch: (query: string) => void;
+  activeView: ViewPreset;
+  onViewChange: (view: ViewPreset) => void;
+  activeQuickFilters: Set<QuickFilter>;
+  onQuickFilterToggle: (filter: QuickFilter) => void;
+  table: Table<any>;
+}
+
+const viewPresets: { id: ViewPreset; label: string }[] = [
+  { id: 'all', label: 'All Users' },
+  { id: 'priority', label: 'Priority Queue' },
+  { id: 'newThisWeek', label: 'New This Week' },
+];
+
+const quickFilters: { id: QuickFilter; label: string; color: string }[] = [
+  { id: 'needs-support', label: 'Needs Support', color: 'bg-red-100 text-red-700 border-red-200 dark:bg-red-950 dark:text-red-400 dark:border-red-900' },
+  { id: 'new-reverts', label: 'New Reverts', color: 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-400 dark:border-emerald-900' },
+  { id: 'inactive', label: 'Inactive', color: 'bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-700' },
+  { id: 'left-server', label: 'Left Server', color: 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-950 dark:text-amber-400 dark:border-amber-900' },
+];
+
+const columnLabels: Record<string, string> = {
+  user: 'User',
+  relationToIslam: 'Relation to Islam',
+  status: 'Status',
+  currentAssignmentStatus: 'Assignment',
+  topRoles: 'Roles',
+  createdAt: 'Joined',
+};
+
+export function DataTableToolbar({
+  filters,
+  onFiltersChange,
+  onSearch,
+  activeView,
+  onViewChange,
+  activeQuickFilters,
+  onQuickFilterToggle,
+  table,
+}: DataTableToolbarProps) {
+  const hasActiveFilters = 
+    filters.assignmentStatus !== 'all' ||
+    filters.relationToIslam !== 'all' ||
+    filters.roleId !== 'all' ||
+    filters.inGuild !== 'all' ||
+    filters.createdAfter ||
+    activeQuickFilters.size > 0;
+
+  const clearAllFilters = () => {
+    onFiltersChange({
+      query: filters.query,
+      assignmentStatus: 'all',
+      relationToIslam: 'all',
+      roleId: 'all',
+      inGuild: 'all',
+      createdAfter: undefined,
+    });
+    // Clear quick filters by toggling them off
+    activeQuickFilters.forEach(filter => onQuickFilterToggle(filter));
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* View Preset Tabs */}
+      <div className="flex items-center gap-1 p-1 bg-muted/50 rounded-lg w-fit">
+        {viewPresets.map((preset) => (
+          <button
+            key={preset.id}
+            onClick={() => onViewChange(preset.id)}
+            className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+              activeView === preset.id
+                ? 'bg-background text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {preset.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Search, Quick Filters and Column Toggle Row */}
+      <div className="flex items-center gap-4 flex-wrap">
+        {/* Search */}
+        <div className="relative flex-1 min-w-[200px] max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search by name..."
+            value={filters.query}
+            onChange={(e) => onSearch(e.target.value)}
+            className="pl-9 bg-background h-9"
+          />
+        </div>
+
+        {/* Quick Filter Chips */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {quickFilters.map((filter) => {
+            const isActive = activeQuickFilters.has(filter.id);
+            return (
+              <button
+                key={filter.id}
+                onClick={() => onQuickFilterToggle(filter.id)}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-full border transition-all ${
+                  isActive
+                    ? filter.color
+                    : 'bg-background text-muted-foreground border-border hover:border-foreground/30'
+                }`}
+              >
+                {isActive && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-current" />
+                )}
+                {filter.label}
+                {isActive && (
+                  <X className="h-3 w-3 ml-0.5 opacity-70" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="flex items-center gap-2 ml-auto">
+          {/* Column visibility toggle */}
+          <DropdownMenu modal={false}>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="h-9 gap-1.5">
+                <Columns3 className="h-3.5 w-3.5" />
+                Columns
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              {table
+                .getAllColumns()
+                .filter((column) => column.getCanHide())
+                .map((column) => {
+                  return (
+                    <DropdownMenuCheckboxItem
+                      key={column.id}
+                      checked={column.getIsVisible()}
+                      onCheckedChange={(value) =>
+                        column.toggleVisibility(!!value)
+                      }
+                    >
+                      {columnLabels[column.id] || column.id}
+                    </DropdownMenuCheckboxItem>
+                  );
+                })}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {/* Clear All */}
+          {hasActiveFilters && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={clearAllFilters}
+              className="text-muted-foreground hover:text-foreground h-9"
+            >
+              <X className="h-3.5 w-3.5 mr-1" />
+              Clear all
+            </Button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

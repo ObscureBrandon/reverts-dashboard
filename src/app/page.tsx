@@ -14,7 +14,51 @@ export default function Home() {
             </p>
           </div>
 
-          <div className="grid md:grid-cols-2 gap-6">
+          <div className="grid md:grid-cols-3 gap-6">
+            <Link
+              href="/users"
+              className="group block p-8 bg-white dark:bg-gray-800 rounded-lg shadow-md hover:shadow-xl transition-all duration-200 border-2 border-transparent hover:border-emerald-500"
+            >
+              <div className="flex items-center mb-4">
+                <svg
+                  className="w-10 h-10 text-emerald-500 mr-3"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z"
+                  />
+                </svg>
+                <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+                  Users
+                </h2>
+              </div>
+              <p className="text-gray-600 dark:text-gray-400 mb-4">
+                View and manage community members. Filter by role, assignment
+                status, and more.
+              </p>
+              <div className="text-emerald-500 group-hover:text-emerald-600 font-medium flex items-center">
+                Manage Users
+                <svg
+                  className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M13 7l5 5m0 0l-5 5m5-5H6"
+                  />
+                </svg>
+              </div>
+            </Link>
+
             <Link
               href="/tickets"
               className="group block p-8 bg-white dark:bg-gray-800 rounded-lg shadow-md hover:shadow-xl transition-all duration-200 border-2 border-transparent hover:border-blue-500"
@@ -39,8 +83,7 @@ export default function Home() {
               </div>
               <p className="text-gray-600 dark:text-gray-400 mb-4">
                 View all support tickets with filtering and sorting options.
-                Browse open, closed, and deleted tickets in a table or grid
-                view.
+                Browse open, closed, and deleted tickets.
               </p>
               <div className="text-blue-500 group-hover:text-blue-600 font-medium flex items-center">
                 Browse Tickets
@@ -84,7 +127,7 @@ export default function Home() {
               </div>
               <p className="text-gray-600 dark:text-gray-400 mb-4">
                 Search through all messages across tickets. Filter by staff
-                members, search for specific content, and view message details.
+                members and search for specific content.
               </p>
               <div className="text-purple-500 group-hover:text-purple-600 font-medium flex items-center">
                 Search Messages

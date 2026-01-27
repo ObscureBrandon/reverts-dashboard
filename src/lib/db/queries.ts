@@ -1,6 +1,20 @@
+import { and, asc, desc, eq, ilike, inArray, isNotNull, or, sql } from 'drizzle-orm';
 import { db } from './index';
-import { messages, users, channels, tickets, userRoles, roles, panels } from './schema';
-import { eq, and, like, inArray, sql, desc, asc, ilike, or, isNotNull } from 'drizzle-orm';
+import {
+    assignmentStatuses,
+    channels,
+    infractions,
+    messages,
+    panels,
+    roles,
+    shahadas,
+    supervisionNeeds,
+    tickets,
+    userRoles,
+    users,
+    userSupervisorEntries,
+    userSupervisors
+} from './schema';
 
 export type MessageSearchParams = {
   query?: string;
@@ -489,3 +503,414 @@ export async function getUserTicketStats(userId: bigint) {
     closed: (stats?.closedCount || 0) + (stats?.deletedCount || 0),
   };
 }
+
+// ============================================================================
+// USER MANAGEMENT QUERIES
+// ============================================================================
+
+
+/**
+ * Get all roles for filter dropdown (non-deleted roles)
+ */
+export async function getAllRoles() {
+  return db
+    .select({
+      id: roles.roleId,
+      name: roles.name,
+      color: roles.color,
+      position: roles.position,
+    })
+    .from(roles)
+    .where(eq(roles.deleted, false))
+    .orderBy(desc(roles.position));
+}
+
+export type UserSearchParams = {
+  query?: string;
+  assignmentStatus?: 'NEEDS_SUPPORT' | 'INACTIVE' | 'SELF_SUFFICIENT' | 'PAUSED' | 'NOT_READY';
+  relationToIslam?: string;
+  inGuild?: boolean;
+  verified?: boolean;
+  voiceVerified?: boolean;
+  roleId?: bigint;
+  sortBy?: 'name' | 'createdAt';
+  sortOrder?: 'asc' | 'desc';
+  limit?: number;
+  offset?: number;
+};
+
+/**
+ * Search users with filters for the users list
+ * Searches display_name first, then name
+ */
+export async function searchUsers(params: UserSearchParams) {
+  const {
+    query,
+    assignmentStatus,
+    relationToIslam,
+    inGuild,
+    verified,
+    voiceVerified,
+    roleId,
+    sortBy = 'createdAt',
+    sortOrder = 'desc',
+    limit = 50,
+    offset = 0,
+  } = params;
+
+  const conditions = [];
+
+  // Search query - prioritize display_name, include name
+  if (query) {
+    conditions.push(
+      or(
+        ilike(users.displayName, `%${query}%`),
+        ilike(users.name, `%${query}%`)
+      )
+    );
+  }
+
+  // Filter by relation to Islam
+  if (relationToIslam) {
+    conditions.push(eq(users.relationToIslam, relationToIslam));
+  }
+
+  // Filter by in guild status
+  if (inGuild !== undefined) {
+    conditions.push(eq(users.inGuild, inGuild));
+  }
+
+  // Filter by verification status
+  if (verified !== undefined) {
+    conditions.push(eq(users.isVerified, verified));
+  }
+
+  if (voiceVerified !== undefined) {
+    conditions.push(eq(users.isVoiceVerified, voiceVerified));
+  }
+
+  // Filter by role - user must have this role
+  if (roleId) {
+    conditions.push(
+      sql`EXISTS (
+        SELECT 1 FROM ${userRoles} 
+        WHERE ${userRoles.userId} = ${users.discordId} 
+        AND ${userRoles.roleId} = ${roleId}
+      )`
+    );
+  }
+
+  // Filter by current assignment status (active only)
+  if (assignmentStatus) {
+    conditions.push(
+      sql`EXISTS (
+        SELECT 1 FROM ${assignmentStatuses}
+        WHERE ${assignmentStatuses.userId} = ${users.discordId}
+        AND ${assignmentStatuses.active} = true
+        AND ${assignmentStatuses.status} = ${assignmentStatus}
+      )`
+    );
+  }
+
+  // Build sort order
+  const orderByClause = sortBy === 'name'
+    ? (sortOrder === 'asc' ? asc(sql`COALESCE(${users.displayName}, ${users.name})`) : desc(sql`COALESCE(${users.displayName}, ${users.name})`))
+    : (sortOrder === 'asc' ? asc(users.createdAt) : desc(users.createdAt));
+
+  // Main query with subqueries for current assignment status and top roles
+  const results = await db
+    .select({
+      user: users,
+      currentAssignmentStatus: sql<string | null>`(
+        SELECT ${assignmentStatuses.status}
+        FROM ${assignmentStatuses}
+        WHERE ${assignmentStatuses.userId} = ${users.discordId}
+        AND ${assignmentStatuses.active} = true
+        ORDER BY ${assignmentStatuses.createdAt} DESC
+        LIMIT 1
+      )`,
+    })
+    .from(users)
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .orderBy(orderByClause)
+    .limit(limit)
+    .offset(offset);
+
+  // Batch fetch top 3 roles for all users in results
+  const userIds = results.map(r => r.user.discordId);
+  
+  let userRolesMap: Record<string, Array<{ id: string; name: string; color: number }>> = {};
+  
+  if (userIds.length > 0) {
+    const rolesData = await db
+      .select({
+        userId: userRoles.userId,
+        roleId: roles.roleId,
+        roleName: roles.name,
+        roleColor: roles.color,
+        rolePosition: roles.position,
+      })
+      .from(userRoles)
+      .innerJoin(roles, eq(userRoles.roleId, roles.roleId))
+      .where(and(
+        inArray(userRoles.userId, userIds),
+        eq(roles.deleted, false)
+      ))
+      .orderBy(desc(roles.position));
+
+    // Group by user, take top 3
+    for (const row of rolesData) {
+      const key = row.userId.toString();
+      if (!userRolesMap[key]) {
+        userRolesMap[key] = [];
+      }
+      if (userRolesMap[key].length < 3) {
+        userRolesMap[key].push({
+          id: row.roleId.toString(),
+          name: row.roleName,
+          color: row.roleColor,
+        });
+      }
+    }
+  }
+
+  return results.map(r => ({
+    ...r,
+    topRoles: userRolesMap[r.user.discordId.toString()] || [],
+  }));
+}
+
+/**
+ * Get total user count for pagination
+ */
+export async function getUserCount(params: Omit<UserSearchParams, 'sortBy' | 'sortOrder' | 'limit' | 'offset'>) {
+  const {
+    query,
+    assignmentStatus,
+    relationToIslam,
+    inGuild,
+    verified,
+    voiceVerified,
+    roleId,
+  } = params;
+
+  const conditions = [];
+
+  if (query) {
+    conditions.push(
+      or(
+        ilike(users.displayName, `%${query}%`),
+        ilike(users.name, `%${query}%`)
+      )
+    );
+  }
+
+  if (relationToIslam) {
+    conditions.push(eq(users.relationToIslam, relationToIslam));
+  }
+
+  if (inGuild !== undefined) {
+    conditions.push(eq(users.inGuild, inGuild));
+  }
+
+  if (verified !== undefined) {
+    conditions.push(eq(users.isVerified, verified));
+  }
+
+  if (voiceVerified !== undefined) {
+    conditions.push(eq(users.isVoiceVerified, voiceVerified));
+  }
+
+  if (roleId) {
+    conditions.push(
+      sql`EXISTS (
+        SELECT 1 FROM ${userRoles} 
+        WHERE ${userRoles.userId} = ${users.discordId} 
+        AND ${userRoles.roleId} = ${roleId}
+      )`
+    );
+  }
+
+  if (assignmentStatus) {
+    conditions.push(
+      sql`EXISTS (
+        SELECT 1 FROM ${assignmentStatuses}
+        WHERE ${assignmentStatuses.userId} = ${users.discordId}
+        AND ${assignmentStatuses.active} = true
+        AND ${assignmentStatuses.status} = ${assignmentStatus}
+      )`
+    );
+  }
+
+  const result = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(users)
+    .where(conditions.length > 0 ? and(...conditions) : undefined);
+
+  return result[0]?.count ?? 0;
+}
+
+// ============================================================================
+// USER PROFILE QUERIES
+// ============================================================================
+
+/**
+ * Get shahadas for a user (when they took shahada)
+ */
+export async function getUserShahadas(userId: bigint) {
+  return db
+    .select({
+      id: shahadas.id,
+      createdAt: shahadas.createdAt,
+      supervisorId: shahadas.supervisorId,
+      supervisorName: users.name,
+      supervisorDisplayName: users.displayName,
+      supervisorAvatar: users.displayAvatar,
+    })
+    .from(shahadas)
+    .leftJoin(users, eq(shahadas.supervisorId, users.discordId))
+    .where(eq(shahadas.userId, userId))
+    .orderBy(desc(shahadas.createdAt));
+}
+
+/**
+ * Get current supervisors for a user
+ */
+export async function getUserSupervisors(userId: bigint) {
+  return db
+    .select({
+      id: userSupervisors.id,
+      supervisorId: userSupervisors.supervisorId,
+      active: userSupervisors.active,
+      createdAt: userSupervisors.createdAt,
+      supervisorName: users.name,
+      supervisorDisplayName: users.displayName,
+      supervisorAvatar: users.displayAvatar,
+    })
+    .from(userSupervisors)
+    .leftJoin(users, eq(userSupervisors.supervisorId, users.discordId))
+    .where(eq(userSupervisors.userId, userId))
+    .orderBy(desc(userSupervisors.createdAt));
+}
+
+/**
+ * Get assignment status history for a user
+ */
+export async function getUserAssignmentHistory(userId: bigint) {
+  const addedByUsers = db
+    .select()
+    .from(users)
+    .as('added_by_users');
+  
+  const resolvedByUsers = db
+    .select()
+    .from(users)
+    .as('resolved_by_users');
+
+  return db
+    .select({
+      id: assignmentStatuses.id,
+      status: assignmentStatuses.status,
+      priority: assignmentStatuses.priority,
+      notes: assignmentStatuses.notes,
+      active: assignmentStatuses.active,
+      createdAt: assignmentStatuses.createdAt,
+      resolvedAt: assignmentStatuses.resolvedAt,
+      addedById: assignmentStatuses.addedById,
+      addedByName: sql<string | null>`(
+        SELECT name FROM "User" WHERE discord_id = ${assignmentStatuses.addedById}
+      )`,
+      resolvedById: assignmentStatuses.resolvedById,
+      resolvedByName: sql<string | null>`(
+        SELECT name FROM "User" WHERE discord_id = ${assignmentStatuses.resolvedById}
+      )`,
+    })
+    .from(assignmentStatuses)
+    .where(eq(assignmentStatuses.userId, userId))
+    .orderBy(desc(assignmentStatuses.createdAt));
+}
+
+/**
+ * Get supervision needs for a user
+ */
+export async function getUserSupervisionNeeds(userId: bigint) {
+  return db
+    .select({
+      id: supervisionNeeds.id,
+      needType: supervisionNeeds.needType,
+      severity: supervisionNeeds.severity,
+      notes: supervisionNeeds.notes,
+      createdAt: supervisionNeeds.createdAt,
+      resolvedAt: supervisionNeeds.resolvedAt,
+      addedById: supervisionNeeds.addedBy,
+      addedByName: sql<string | null>`(
+        SELECT name FROM "User" WHERE discord_id = ${supervisionNeeds.addedBy}
+      )`,
+    })
+    .from(supervisionNeeds)
+    .where(eq(supervisionNeeds.userId, userId))
+    .orderBy(desc(supervisionNeeds.createdAt));
+}
+
+/**
+ * Get infractions for a user
+ */
+export async function getUserInfractions(userId: bigint) {
+  return db
+    .select({
+      id: infractions.id,
+      type: infractions.type,
+      status: infractions.status,
+      reason: infractions.reason,
+      hidden: infractions.hidden,
+      jumpUrl: infractions.jumpUrl,
+      expiresAt: infractions.expiresAt,
+      createdAt: infractions.createdAt,
+      moderatorId: infractions.moderatorId,
+      moderatorName: sql<string | null>`(
+        SELECT name FROM "User" WHERE discord_id = ${infractions.moderatorId}
+      )`,
+      pardonedById: infractions.pardonedById,
+      pardonedAt: infractions.pardonedAt,
+      pardonReason: infractions.pardonReason,
+    })
+    .from(infractions)
+    .where(eq(infractions.userId, userId))
+    .orderBy(desc(infractions.createdAt));
+}
+
+/**
+ * Get supervisor entries/notes for a user
+ */
+export async function getUserSupervisorEntries(userId: bigint) {
+  return db
+    .select({
+      id: userSupervisorEntries.id,
+      note: userSupervisorEntries.note,
+      createdAt: userSupervisorEntries.createdAt,
+      supervisorId: userSupervisorEntries.supervisorId,
+      supervisorName: sql<string | null>`(
+        SELECT name FROM "User" WHERE discord_id = ${userSupervisorEntries.supervisorId}
+      )`,
+      supervisorDisplayName: sql<string | null>`(
+        SELECT display_name FROM "User" WHERE discord_id = ${userSupervisorEntries.supervisorId}
+      )`,
+    })
+    .from(userSupervisorEntries)
+    .where(eq(userSupervisorEntries.userId, userId))
+    .orderBy(desc(userSupervisorEntries.createdAt));
+}
+
+/**
+ * Get distinct relation_to_islam values for filter dropdown
+ */
+export async function getDistinctRelationsToIslam() {
+  const result = await db
+    .selectDistinct({ relationToIslam: users.relationToIslam })
+    .from(users)
+    .where(isNotNull(users.relationToIslam))
+    .orderBy(asc(users.relationToIslam));
+  
+  return result.map(r => r.relationToIslam).filter(Boolean) as string[];
+}
+
