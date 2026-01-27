@@ -97,6 +97,7 @@ export type UserDetails = {
     relationToIslam: string | null;
     gender: string | null;
     age: string | null;
+    referralSource: string | null;
     region: string | null;
     religiousAffiliation: string | null;
     wantsDiscussion: string | null;

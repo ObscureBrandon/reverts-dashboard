@@ -78,7 +78,7 @@ function formatDate(dateStr: string): string {
   });
 }
 
-function getInitials(name: string | null): string {
+function getInitials(name: string | null | undefined): string {
   if (!name) return '?';
   return name
     .split(' ')
