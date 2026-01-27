@@ -824,7 +824,7 @@ function PanelContent({
             <CollapsibleSection
               title="Revert Journey"
               icon={<Heart className="h-4 w-4" />}
-              defaultOpen={true}
+              defaultOpen={!isMobile}
             >
               <RevertJourneySection
                 shahadas={data.shahadas}
