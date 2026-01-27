@@ -212,27 +212,46 @@ function MiniAvatar({ src, name }: { src?: string | null; name?: string | null }
 
 function UserDetailsSkeleton() {
   return (
-    <div className="p-4 space-y-6">
-      {/* Header skeleton */}
-      <div className="flex items-center gap-4">
-        <Skeleton className="h-16 w-16 rounded-full" />
-        <div className="space-y-2 flex-1">
-          <Skeleton className="h-5 w-32" />
-          <Skeleton className="h-4 w-24" />
+    <>
+      {/* Header skeleton - matches UserHeader structure */}
+      <div className="p-4 border-b border-border sticky top-0 bg-background z-10">
+        <div className="flex items-start gap-4">
+          <Skeleton className="h-16 w-16 rounded-full" />
+          <div className="flex-1 min-w-0">
+            <Skeleton className="h-5 w-32" />
+            <Skeleton className="h-4 w-24 mt-1" />
+            <div className="flex flex-wrap items-center gap-1.5 mt-2">
+              <Skeleton className="h-5 w-16 rounded-full" />
+              <Skeleton className="h-5 w-14 rounded-full" />
+            </div>
+          </div>
         </div>
       </div>
       
-      {/* Sections skeleton */}
-      {[1, 2, 3, 4].map((i) => (
-        <div key={i} className="space-y-3">
-          <Skeleton className="h-4 w-24" />
-          <div className="space-y-2">
-            <Skeleton className="h-8 w-full" />
-            <Skeleton className="h-8 w-3/4" />
+      {/* Scrollable content area - matches collapsed sections on mobile */}
+      <div className="flex-1 overflow-y-auto overscroll-contain">
+        {/* Section headers skeleton - 6 collapsed sections */}
+        {['Profile', 'Roles', 'Revert Journey', 'Supervisor Notes', 'Moderation', 'Tickets'].map((section, i) => (
+          <div key={i} className="border-b border-border last:border-b-0">
+            <div className="w-full flex items-center justify-between px-4 py-3 min-h-[44px]">
+              <div className="flex items-center gap-2">
+                <Skeleton className="h-4 w-4" />
+                <Skeleton className="h-4 w-20" />
+              </div>
+              <Skeleton className="h-4 w-4" />
+            </div>
           </div>
+        ))}
+      </div>
+
+      {/* Footer skeleton - matches TimelineFooter */}
+      <div className="p-4 border-t border-border bg-muted/30">
+        <div className="flex items-center gap-2">
+          <Skeleton className="h-4 w-4" />
+          <Skeleton className="h-4 w-40" />
         </div>
-      ))}
-    </div>
+      </div>
+    </>
   );
 }
 
