@@ -1,19 +1,19 @@
 import { and, asc, desc, eq, ilike, inArray, isNotNull, or, sql } from 'drizzle-orm';
 import { db } from './index';
 import {
-    assignmentStatuses,
-    channels,
-    infractions,
-    messages,
-    panels,
-    roles,
-    shahadas,
-    supervisionNeeds,
-    tickets,
-    userRoles,
-    users,
-    userSupervisorEntries,
-    userSupervisors
+  assignmentStatuses,
+  channels,
+  infractions,
+  messages,
+  panels,
+  roles,
+  shahadas,
+  supervisionNeeds,
+  tickets,
+  userRoles,
+  users,
+  userSupervisorEntries,
+  userSupervisors
 } from './schema';
 
 export type MessageSearchParams = {
@@ -533,6 +533,7 @@ export type UserSearchParams = {
   verified?: boolean;
   voiceVerified?: boolean;
   roleId?: bigint;
+  supervisorId?: bigint;
   sortBy?: 'name' | 'createdAt';
   sortOrder?: 'asc' | 'desc';
   limit?: number;
@@ -552,6 +553,7 @@ export async function searchUsers(params: UserSearchParams) {
     verified,
     voiceVerified,
     roleId,
+    supervisorId,
     sortBy = 'createdAt',
     sortOrder = 'desc',
     limit = 50,
@@ -608,6 +610,18 @@ export async function searchUsers(params: UserSearchParams) {
         WHERE ${assignmentStatuses.userId} = ${users.discordId}
         AND ${assignmentStatuses.active} = true
         AND ${assignmentStatuses.status} = ${assignmentStatus}
+      )`
+    );
+  }
+
+  // Filter by supervisor (for "Assigned to Me" filter)
+  if (supervisorId) {
+    conditions.push(
+      sql`EXISTS (
+        SELECT 1 FROM ${userSupervisors}
+        WHERE ${userSupervisors.userId} = ${users.discordId}
+        AND ${userSupervisors.supervisorId} = ${supervisorId}
+        AND ${userSupervisors.active} = true
       )`
     );
   }
@@ -692,6 +706,7 @@ export async function getUserCount(params: Omit<UserSearchParams, 'sortBy' | 'so
     verified,
     voiceVerified,
     roleId,
+    supervisorId,
   } = params;
 
   const conditions = [];
@@ -738,6 +753,18 @@ export async function getUserCount(params: Omit<UserSearchParams, 'sortBy' | 'so
         WHERE ${assignmentStatuses.userId} = ${users.discordId}
         AND ${assignmentStatuses.active} = true
         AND ${assignmentStatuses.status} = ${assignmentStatus}
+      )`
+    );
+  }
+
+  // Filter by supervisor (for "Assigned to Me" filter)
+  if (supervisorId) {
+    conditions.push(
+      sql`EXISTS (
+        SELECT 1 FROM ${userSupervisors}
+        WHERE ${userSupervisors.userId} = ${users.discordId}
+        AND ${userSupervisors.supervisorId} = ${supervisorId}
+        AND ${userSupervisors.active} = true
       )`
     );
   }

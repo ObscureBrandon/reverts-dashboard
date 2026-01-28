@@ -1,5 +1,8 @@
 import { requireAuth } from '@/lib/auth-helpers';
+import { db } from '@/lib/db';
 import { getUserCount, searchUsers } from '@/lib/db/queries';
+import { authAccount } from '@/lib/db/schema';
+import { eq } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 
 export async function GET(request: NextRequest) {
@@ -19,6 +22,7 @@ export async function GET(request: NextRequest) {
     const verifiedParam = searchParams.get('verified');
     const voiceVerifiedParam = searchParams.get('voiceVerified');
     const roleIdParam = searchParams.get('roleId');
+    const assignedToMeParam = searchParams.get('assignedToMe');
     const sortBy = (searchParams.get('sortBy') || 'createdAt') as 'name' | 'createdAt';
     const sortOrder = (searchParams.get('sortOrder') || 'desc') as 'asc' | 'desc';
     const page = parseInt(searchParams.get('page') || '1');
@@ -30,6 +34,20 @@ export async function GET(request: NextRequest) {
     const verified = verifiedParam === 'true' ? true : verifiedParam === 'false' ? false : undefined;
     const voiceVerified = voiceVerifiedParam === 'true' ? true : voiceVerifiedParam === 'false' ? false : undefined;
     const roleId = roleIdParam ? BigInt(roleIdParam) : undefined;
+    
+    // Get the current user's Discord ID if assignedToMe filter is active
+    let supervisorId: bigint | undefined;
+    if (assignedToMeParam === 'true' && session?.user?.id) {
+      const account = await db
+        .select({ accountId: authAccount.accountId })
+        .from(authAccount)
+        .where(eq(authAccount.userId, session.user.id))
+        .limit(1);
+      
+      if (account.length > 0) {
+        supervisorId = BigInt(account[0].accountId);
+      }
+    }
 
     const params = {
       query,
@@ -39,6 +57,7 @@ export async function GET(request: NextRequest) {
       verified,
       voiceVerified,
       roleId,
+      supervisorId,
       sortBy,
       sortOrder,
       limit,

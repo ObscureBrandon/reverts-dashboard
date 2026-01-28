@@ -4,6 +4,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useSession } from '@/lib/auth-client';
 import { usePrefetchUserDetails } from '@/lib/hooks/queries/useUserDetails';
 import { usePrefetchUsersTable, UserListItem, useUsersTable } from '@/lib/hooks/queries/useUsersTable';
+import { cn } from '@/lib/utils';
 import { useDebouncedCallback } from '@tanstack/react-pacer';
 import { SortingState, VisibilityState } from '@tanstack/react-table';
 import Link from 'next/link';
@@ -261,16 +262,14 @@ export default function UsersPage() {
     // Apply quick filters
     if (activeQuickFilters.has('needs-support')) {
       apiParams.assignmentStatus = 'NEEDS_SUPPORT';
-    } else if (activeQuickFilters.has('inactive')) {
-      apiParams.assignmentStatus = 'INACTIVE';
     }
 
     if (activeQuickFilters.has('new-reverts')) {
       apiParams.relationToIslam = 'Revert Muslim';
     }
 
-    if (activeQuickFilters.has('left-server')) {
-      apiParams.inGuild = false;
+    if (activeQuickFilters.has('assigned-to-me')) {
+      apiParams.assignedToMe = true;
     }
 
     // Apply manual filters (except if quick filters override them)
@@ -321,77 +320,83 @@ export default function UsersPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-semibold text-foreground tracking-tight">
-                Users
-              </h1>
-              <p className="text-muted-foreground mt-1">
-                Manage and view all community members
+      {/* Main content - adds margin when panel is open to make room */}
+      <div className={cn(
+        "transition-[margin] duration-300 ease-in-out",
+        panelOpen && "lg:mr-[420px]"
+      )}>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          {/* Header */}
+          <div className="mb-8">
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-2xl font-semibold text-foreground tracking-tight">
+                  Users
+                </h1>
+                <p className="text-muted-foreground mt-1">
+                  Manage and view all community members
+                </p>
+              </div>
+              <div className="flex items-center gap-4">
+                <Link
+                  href="/"
+                  className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Home
+                </Link>
+                <Link
+                  href="/tickets"
+                  className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Tickets
+                </Link>
+                <Link
+                  href="/messages"
+                  className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Messages
+                </Link>
+              </div>
+            </div>
+          </div>
+
+          {/* Error state */}
+          {error && (
+            <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 mb-6">
+              <p className="text-destructive text-sm">
+                Failed to load users. Please try again.
               </p>
             </div>
-            <div className="flex items-center gap-4">
-              <Link
-                href="/"
-                className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-              >
-                Home
-              </Link>
-              <Link
-                href="/tickets"
-                className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-              >
-                Tickets
-              </Link>
-              <Link
-                href="/messages"
-                className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-              >
-                Messages
-              </Link>
-            </div>
-          </div>
-        </div>
-
-        {/* Error state */}
-        {error && (
-          <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 mb-6">
-            <p className="text-destructive text-sm">
-              Failed to load users. Please try again.
-            </p>
-          </div>
-        )}
-
-        {/* Data Table */}
-        <DataTable
-          columns={columns}
-          data={data?.users || []}
-          isLoading={isLoading}
-          isFetching={isFetching}
-          pagination={data?.pagination}
-          onPageChange={handlePageChange}
-          columnVisibility={columnVisibility}
-          onColumnVisibilityChange={setColumnVisibility}
-          sorting={sorting}
-          onSortingChange={handleSortingChange}
-          onRowClick={handleRowClick}
-          onRowHoverStart={handleRowHover}
-          renderToolbar={(table) => (
-            <DataTableToolbar
-              filters={filters}
-              onFiltersChange={handleFiltersChange}
-              onSearch={handleSearch}
-              activeView={activeView}
-              onViewChange={handleViewChange}
-              activeQuickFilters={activeQuickFilters}
-              onQuickFilterToggle={handleQuickFilterToggle}
-              table={table}
-            />
           )}
-        />
+
+          {/* Data Table */}
+          <DataTable
+            columns={columns}
+            data={data?.users || []}
+            isLoading={isLoading}
+            isFetching={isFetching}
+            pagination={data?.pagination}
+            onPageChange={handlePageChange}
+            columnVisibility={columnVisibility}
+            onColumnVisibilityChange={setColumnVisibility}
+            sorting={sorting}
+            onSortingChange={handleSortingChange}
+            onRowClick={handleRowClick}
+            onRowHoverStart={handleRowHover}
+            renderToolbar={(table) => (
+              <DataTableToolbar
+                filters={filters}
+                onFiltersChange={handleFiltersChange}
+                onSearch={handleSearch}
+                activeView={activeView}
+                onViewChange={handleViewChange}
+                activeQuickFilters={activeQuickFilters}
+                onQuickFilterToggle={handleQuickFilterToggle}
+                table={table}
+              />
+            )}
+          />
+        </div>
       </div>
 
       {/* User Details Side Panel */}

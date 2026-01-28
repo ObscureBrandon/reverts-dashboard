@@ -8,12 +8,6 @@ import {
   DrawerDescription,
   DrawerTitle,
 } from '@/components/ui/drawer';
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetTitle,
-} from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   useUserDetails,
@@ -47,7 +41,8 @@ import {
   UserX,
   Users,
   Venus,
-  VolumeX
+  VolumeX,
+  X
 } from 'lucide-react';
 import * as React from 'react';
 import { useCallback, useState } from 'react';
@@ -892,6 +887,7 @@ interface UserDetailsPanelProps {
 
 export function UserDetailsPanel({ userId, open, onOpenChange }: UserDetailsPanelProps) {
   const { data, isLoading, error } = useUserDetails(userId);
+  const closeButtonRef = React.useRef<HTMLButtonElement>(null);
   
   // Detect mobile
   const [isMobile, setIsMobile] = useState(false);
@@ -902,6 +898,31 @@ export function UserDetailsPanel({ userId, open, onOpenChange }: UserDetailsPane
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
+
+  // Escape key to close panel
+  React.useEffect(() => {
+    if (!open || isMobile) return;
+    
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onOpenChange(false);
+      }
+    };
+    
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [open, isMobile, onOpenChange]);
+
+  // Focus close button when panel opens
+  React.useEffect(() => {
+    if (open && !isMobile && closeButtonRef.current) {
+      // Small delay to ensure the panel is visible before focusing
+      const timer = setTimeout(() => {
+        closeButtonRef.current?.focus();
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [open, isMobile]);
 
   // Mobile: Use Drawer with swipe gestures
   if (isMobile) {
@@ -920,23 +941,30 @@ export function UserDetailsPanel({ userId, open, onOpenChange }: UserDetailsPane
     );
   }
 
-  // Desktop/Tablet: Use Sheet from right (non-modal so table remains interactive)
+  // Desktop/Tablet: Use fixed positioned panel with slide animation
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} modal={false}>
-      <SheetContent 
-        side="right" 
-        className="w-[420px] sm:max-w-[420px] flex flex-col p-0 overflow-hidden"
-        showOverlay={false}
-        showCloseButton={true}
+    <div
+      role="dialog"
+      aria-modal="false"
+      aria-label="User details"
+      className={cn(
+        'fixed top-0 right-0 h-full w-[420px] bg-background border-l border-border shadow-lg',
+        'flex flex-col overflow-hidden z-50',
+        'transform transition-transform duration-300 ease-in-out',
+        open ? 'translate-x-0' : 'translate-x-full'
+      )}
+    >
+      {/* Close button */}
+      <button
+        ref={closeButtonRef}
+        onClick={() => onOpenChange(false)}
+        className="absolute top-4 right-4 z-20 p-1.5 rounded-md bg-muted/80 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+        aria-label="Close panel"
       >
-        {/* Visually hidden title for accessibility */}
-        <VisuallyHidden.Root>
-          <SheetTitle>User Details</SheetTitle>
-          <SheetDescription>Detailed information about the selected user</SheetDescription>
-        </VisuallyHidden.Root>
+        <X className="h-4 w-4" />
+      </button>
 
-        <PanelContent data={data} isLoading={isLoading} error={error} isMobile={isMobile} />
-      </SheetContent>
-    </Sheet>
+      <PanelContent data={data} isLoading={isLoading} error={error} isMobile={isMobile} />
+    </div>
   );
 }

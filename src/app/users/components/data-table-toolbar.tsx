@@ -12,7 +12,7 @@ import { Table } from '@tanstack/react-table';
 import { Columns3, Search, X } from 'lucide-react';
 
 export type ViewPreset = 'all' | 'priority' | 'newThisWeek';
-export type QuickFilter = 'needs-support' | 'new-reverts' | 'inactive' | 'left-server';
+export type QuickFilter = 'needs-support' | 'new-reverts' | 'assigned-to-me';
 
 export type FilterState = {
   query: string;
@@ -44,8 +44,7 @@ const viewPresets: { id: ViewPreset; label: string }[] = [
 const quickFilters: { id: QuickFilter; label: string; color: string }[] = [
   { id: 'needs-support', label: 'Needs Support', color: 'bg-red-100 text-red-700 border-red-200 dark:bg-red-950 dark:text-red-400 dark:border-red-900' },
   { id: 'new-reverts', label: 'New Reverts', color: 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-400 dark:border-emerald-900' },
-  { id: 'inactive', label: 'Inactive', color: 'bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-700' },
-  { id: 'left-server', label: 'Left Server', color: 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-950 dark:text-amber-400 dark:border-amber-900' },
+  { id: 'assigned-to-me', label: 'Assigned to Me', color: 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-400 dark:border-blue-900' },
 ];
 
 const columnLabels: Record<string, string> = {

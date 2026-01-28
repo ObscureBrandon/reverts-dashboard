@@ -25,6 +25,7 @@ export type UsersTableParams = {
   verified?: boolean;
   voiceVerified?: boolean;
   roleId?: string;
+  assignedToMe?: boolean;
   sortBy?: 'name' | 'createdAt';
   sortOrder?: 'asc' | 'desc';
   page?: number;
@@ -51,6 +52,7 @@ async function fetchUsers(params: UsersTableParams): Promise<UsersResponse> {
   if (params.verified !== undefined) searchParams.set('verified', String(params.verified));
   if (params.voiceVerified !== undefined) searchParams.set('voiceVerified', String(params.voiceVerified));
   if (params.roleId) searchParams.set('roleId', params.roleId);
+  if (params.assignedToMe) searchParams.set('assignedToMe', 'true');
   if (params.sortBy) searchParams.set('sortBy', params.sortBy);
   if (params.sortOrder) searchParams.set('sortOrder', params.sortOrder);
   if (params.page) searchParams.set('page', String(params.page));
