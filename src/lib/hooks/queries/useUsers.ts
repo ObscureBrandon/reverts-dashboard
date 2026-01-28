@@ -1,53 +1,56 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+'use client'
+
+import { api } from '@/lib/eden'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 
 type UserRole = {
-  id: string;
-  name: string;
-  color: number;
-  position: number;
-};
+  id: string
+  name: string
+  color: number
+  position: number
+}
 
 type UserData = {
-  id: string;
-  name: string;
-  displayName: string | null;
-  displayAvatar: string | null;
-  inGuild?: boolean;
-  isVerified?: boolean;
-  isVoiceVerified?: boolean;
-  roles?: UserRole[];
-};
+  id: string
+  name: string
+  displayName: string | null
+  displayAvatar: string | null
+  inGuild?: boolean
+  isVerified?: boolean
+  isVoiceVerified?: boolean
+  roles?: UserRole[]
+}
 
 type TicketStatsData = {
-  open: number;
-  closed: number;
-};
+  open: number
+  closed: number
+}
 
 type RecentTicket = {
-  id: number;
-  sequence: number | null;
-  status: string | null;
-  createdAt: string;
-};
+  id: number
+  sequence: number | null
+  status: string | null
+  createdAt: string
+}
 
 type UserPopoverData = {
   user: {
-    id: string;
-    name: string;
-    displayName: string | null;
-    displayAvatar: string | null;
-    nick: string | null;
-    inGuild: boolean | null;
-    isVerified: boolean | null;
-    isVoiceVerified: boolean | null;
-  };
-  roles: UserRole[];
+    id: string
+    name: string
+    displayName: string | null
+    displayAvatar: string | null
+    nick: string | null
+    inGuild: boolean | null
+    isVerified: boolean | null
+    isVoiceVerified: boolean | null
+  }
+  roles: UserRole[]
   ticketStats: {
-    open: number;
-    closed: number;
-  };
-  recentTickets: RecentTicket[];
-};
+    open: number
+    closed: number
+  }
+  recentTickets: RecentTicket[]
+}
 
 /**
  * Fetch user data with roles
@@ -56,22 +59,23 @@ export function useUser(userId: string | undefined, options?: { enabled?: boolea
   return useQuery({
     queryKey: ['user', userId],
     queryFn: async () => {
-      if (!userId) throw new Error('User ID is required');
-      
-      const response = await fetch(`/api/users/${userId}`);
-      if (!response.ok) {
-        throw new Error('Failed to fetch user');
+      if (!userId) throw new Error('User ID is required')
+
+      const { data, error } = await api.users({ id: userId }).get()
+
+      if (error) {
+        throw new Error('Failed to fetch user')
       }
-      const data = await response.json();
+
       // API returns { user: {...}, roles: [...] }
       return {
         ...data.user,
         roles: data.roles,
-      } as UserData;
+      } as UserData
     },
     enabled: options?.enabled !== false && !!userId,
     staleTime: 2 * 60 * 1000, // User data is fresh for 2 minutes
-  });
+  })
 }
 
 /**
@@ -82,17 +86,19 @@ export function useUserTicketStats(userId: string | undefined, options?: { enabl
   return useQuery({
     queryKey: ['userTicketStats', userId],
     queryFn: async () => {
-      if (!userId) throw new Error('User ID is required');
-      
-      const response = await fetch(`/api/users/${userId}/ticket-stats`);
-      if (!response.ok) {
-        throw new Error('Failed to fetch ticket stats');
+      if (!userId) throw new Error('User ID is required')
+
+      const { data, error } = await api.users({ id: userId })['ticket-stats'].get()
+
+      if (error) {
+        throw new Error('Failed to fetch ticket stats')
       }
-      return response.json() as Promise<TicketStatsData>;
+
+      return data as TicketStatsData
     },
     enabled: options?.enabled !== false && !!userId,
     staleTime: 1 * 60 * 1000, // Ticket stats fresh for 1 minute
-  });
+  })
 }
 
 /**
@@ -106,18 +112,25 @@ export function useUserRecentTickets(
   return useQuery({
     queryKey: ['userRecentTickets', userId, limit],
     queryFn: async () => {
-      if (!userId) throw new Error('User ID is required');
-      
-      const response = await fetch(`/api/tickets?author=${userId}&limit=${limit}&sortBy=newest`);
-      if (!response.ok) {
-        throw new Error('Failed to fetch recent tickets');
+      if (!userId) throw new Error('User ID is required')
+
+      const { data, error } = await api.tickets.get({
+        query: {
+          author: userId,
+          limit: String(limit),
+          sortBy: 'newest',
+        },
+      })
+
+      if (error) {
+        throw new Error('Failed to fetch recent tickets')
       }
-      const data = await response.json();
-      return (data.tickets || []) as RecentTicket[];
+
+      return (data.tickets || []) as RecentTicket[]
     },
     enabled: options?.enabled !== false && !!userId,
     staleTime: 1 * 60 * 1000, // Recent tickets fresh for 1 minute
-  });
+  })
 }
 
 /**
@@ -129,17 +142,19 @@ export function useUserPopoverData(userId: string | undefined, options?: { enabl
   return useQuery({
     queryKey: ['userPopoverData', userId],
     queryFn: async () => {
-      if (!userId) throw new Error('User ID is required');
-      
-      const response = await fetch(`/api/users/${userId}/popover`);
-      if (!response.ok) {
-        throw new Error('Failed to fetch user popover data');
+      if (!userId) throw new Error('User ID is required')
+
+      const { data, error } = await api.users({ id: userId }).popover.get()
+
+      if (error) {
+        throw new Error('Failed to fetch user popover data')
       }
-      return response.json() as Promise<UserPopoverData>;
+
+      return data as UserPopoverData
     },
     enabled: options?.enabled !== false && !!userId,
     staleTime: 1 * 60 * 1000, // Popover data fresh for 1 minute
-  });
+  })
 }
 
 /**
@@ -148,22 +163,24 @@ export function useUserPopoverData(userId: string | undefined, options?: { enabl
  * OPTIMIZED: Uses new single-query popover endpoint
  */
 export function usePrefetchUser() {
-  const queryClient = useQueryClient();
+  const queryClient = useQueryClient()
 
   const prefetchUser = (userId: string) => {
     // Prefetch all popover data in a single request
     queryClient.prefetchQuery({
       queryKey: ['userPopoverData', userId],
       queryFn: async () => {
-        const response = await fetch(`/api/users/${userId}/popover`);
-        if (!response.ok) {
-          throw new Error('Failed to fetch user popover data');
+        const { data, error } = await api.users({ id: userId }).popover.get()
+
+        if (error) {
+          throw new Error('Failed to fetch user popover data')
         }
-        return response.json() as Promise<UserPopoverData>;
+
+        return data as UserPopoverData
       },
       staleTime: 1 * 60 * 1000,
-    });
-  };
+    })
+  }
 
-  return { prefetchUser };
+  return { prefetchUser }
 }

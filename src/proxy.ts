@@ -13,7 +13,6 @@ export async function proxy(request: NextRequest) {
     // Allow all static files (PNG, SVG, ICO, etc.)
     pathname.match(/\.(png|jpg|jpeg|gif|svg|webp|ico|xml|json)$/)
   )) {
-    console.log("folewjfwef??");
     return NextResponse.next();
   }
 
