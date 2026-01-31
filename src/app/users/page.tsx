@@ -424,6 +424,7 @@ export default function UsersPage() {
                 activeQuickFilters={activeQuickFilters}
                 onQuickFilterToggle={handleQuickFilterToggle}
                 table={table}
+                isFetching={isFetching}
               />
             )}
           />

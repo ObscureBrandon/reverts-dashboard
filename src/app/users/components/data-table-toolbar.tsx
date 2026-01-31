@@ -2,14 +2,15 @@
 
 import { Button } from '@/components/ui/button';
 import {
-    DropdownMenu,
-    DropdownMenuCheckboxItem,
-    DropdownMenuContent,
-    DropdownMenuTrigger,
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Table } from '@tanstack/react-table';
-import { Columns3, Search, X } from 'lucide-react';
+import { Columns3, Loader2, Search, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 export type ViewPreset = 'all' | 'staff';
 export type QuickFilter = 'needs-support' | 'has-shahada' | 'has-support' | 'assigned-to-me';
@@ -31,6 +32,7 @@ interface DataTableToolbarProps {
   activeQuickFilters: Set<QuickFilter>;
   onQuickFilterToggle: (filter: QuickFilter) => void;
   table: Table<any>;
+  isFetching?: boolean;
 }
 
 const viewPresets: { id: ViewPreset; label: string }[] = [
@@ -65,7 +67,23 @@ export function DataTableToolbar({
   activeQuickFilters,
   onQuickFilterToggle,
   table,
+  isFetching,
 }: DataTableToolbarProps) {
+  // Track which filter was last clicked to show spinner only on that button
+  const [pendingFilter, setPendingFilter] = useState<QuickFilter | null>(null);
+
+  // Clear pending state when fetching completes
+  useEffect(() => {
+    if (!isFetching) {
+      setPendingFilter(null);
+    }
+  }, [isFetching]);
+
+  const handleQuickFilterClick = (filter: QuickFilter) => {
+    setPendingFilter(filter);
+    onQuickFilterToggle(filter);
+  };
+
   const hasActiveFilters = 
     filters.assignmentStatus !== 'all' ||
     filters.relationToIslam !== 'all' ||
@@ -122,10 +140,11 @@ export function DataTableToolbar({
           <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-2 sm:flex-wrap">
             {quickFilters.map((filter) => {
               const isActive = activeQuickFilters.has(filter.id);
+              const isPending = pendingFilter === filter.id && isFetching;
               return (
                 <button
                   key={filter.id}
-                  onClick={() => onQuickFilterToggle(filter.id)}
+                  onClick={() => handleQuickFilterClick(filter.id)}
                   className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md border transition-all ${
                     isActive
                       ? filter.color
@@ -133,7 +152,11 @@ export function DataTableToolbar({
                   }`}
                 >
                   {isActive && (
-                    <span className="w-1.5 h-1.5 rounded-full bg-current" />
+                    isPending ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <span className="w-1.5 h-1.5 rounded-full bg-current" />
+                    )
                   )}
                   {filter.label}
                   {isActive && (
