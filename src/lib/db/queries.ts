@@ -1147,3 +1147,96 @@ export async function getStaffCount(params: { query?: string }) {
   return result[0]?.count ?? 0;
 }
 
+/**
+ * Get detailed staff member information including their supervisees with status
+ * Used for the staff details side panel
+ */
+export async function getStaffDetails(staffId: bigint) {
+  // Fetch staff user basic info
+  const staffResult = await db
+    .select()
+    .from(users)
+    .where(eq(users.discordId, staffId))
+    .limit(1);
+
+  if (!staffResult[0]) {
+    return null;
+  }
+
+  const staffUser = staffResult[0];
+
+  // Fetch supervisees with their assignment status and avatar
+  const superviseesData = await db
+    .select({
+      userId: userSupervisors.userId,
+      userName: users.name,
+      userDisplayName: users.displayName,
+      userAvatar: users.displayAvatar,
+      inGuild: users.inGuild,
+      isVerified: users.isVerified,
+      assignedAt: userSupervisors.createdAt,
+      currentAssignmentStatus: sql<string | null>`(
+        SELECT ${assignmentStatuses.status}
+        FROM ${assignmentStatuses}
+        WHERE ${assignmentStatuses.userId} = ${users.discordId}
+        AND ${assignmentStatuses.active} = true
+        ORDER BY ${assignmentStatuses.createdAt} DESC
+        LIMIT 1
+      )`,
+    })
+    .from(userSupervisors)
+    .innerJoin(users, eq(userSupervisors.userId, users.discordId))
+    .where(and(
+      eq(userSupervisors.supervisorId, staffId),
+      eq(userSupervisors.active, true)
+    ))
+    .orderBy(asc(users.displayName));
+
+  // Fetch staff roles
+  const rolesData = await db
+    .select({
+      roleId: roles.roleId,
+      roleName: roles.name,
+      roleColor: roles.color,
+      rolePosition: roles.position,
+    })
+    .from(userRoles)
+    .innerJoin(roles, eq(userRoles.roleId, roles.roleId))
+    .where(and(
+      eq(userRoles.userId, staffId),
+      eq(roles.deleted, false)
+    ))
+    .orderBy(desc(roles.position));
+
+  return {
+    staff: {
+      id: staffUser.discordId.toString(),
+      name: staffUser.name,
+      displayName: staffUser.displayName,
+      displayAvatar: staffUser.displayAvatar,
+      inGuild: staffUser.inGuild,
+      isVerified: staffUser.isVerified,
+      isVoiceVerified: staffUser.isVoiceVerified,
+    },
+    supervisees: superviseesData.map(s => ({
+      id: s.userId.toString(),
+      name: s.userName,
+      displayName: s.userDisplayName,
+      displayAvatar: s.userAvatar,
+      inGuild: s.inGuild,
+      isVerified: s.isVerified,
+      assignmentStatus: s.currentAssignmentStatus,
+      assignedAt: s.assignedAt.toISOString(),
+    })),
+    roles: rolesData.map(r => ({
+      id: r.roleId.toString(),
+      name: r.roleName,
+      color: r.roleColor,
+      position: r.rolePosition,
+    })),
+    stats: {
+      totalSupervisees: superviseesData.length,
+      needsSupport: superviseesData.filter(s => s.currentAssignmentStatus === 'NEEDS_SUPPORT').length,
+    },
+  };
+}

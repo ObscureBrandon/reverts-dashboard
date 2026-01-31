@@ -1,6 +1,7 @@
 import { db } from '@/lib/db'
 import {
   getStaffCount,
+  getStaffDetails,
   getTickets,
   getUserAssignmentHistory,
   getUserCount,
@@ -165,6 +166,26 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
     } catch (err) {
       console.error('Error fetching staff:', err)
       throw new Error('Failed to fetch staff')
+    }
+  }, { auth: true })
+
+  // GET /users/:id/staff-details - Get staff member details with supervisees
+  .get('/:id/staff-details', async ({ params, set }) => {
+    try {
+      const staffId = BigInt(params.id)
+      const result = await getStaffDetails(staffId)
+
+      if (!result) {
+        set.status = 404
+        return { error: 'Staff member not found' }
+      }
+
+      set.headers['Cache-Control'] = 'public, s-maxage=120, stale-while-revalidate=300'
+
+      return result
+    } catch (err) {
+      console.error('Error fetching staff details:', err)
+      throw new Error('Failed to fetch staff details')
     }
   }, { auth: true })
 

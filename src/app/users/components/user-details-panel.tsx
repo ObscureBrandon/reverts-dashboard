@@ -828,12 +828,14 @@ function PanelContent({
   data, 
   isLoading, 
   error, 
-  isMobile 
+  isMobile,
+  breadcrumb,
 }: { 
   data: UserDetails | undefined; 
   isLoading: boolean; 
   error: Error | null;
   isMobile: boolean;
+  breadcrumb?: React.ReactNode;
 }) {
   return (
     <>
@@ -847,6 +849,12 @@ function PanelContent({
 
       {data && (
         <>
+          {/* Breadcrumb for stacked navigation */}
+          {breadcrumb && (
+            <div className="px-4 pt-4 pb-2 border-b border-border bg-muted/30">
+              {breadcrumb}
+            </div>
+          )}
           <UserHeader user={data.user} />
           
           <div className="flex-1 overflow-y-auto overscroll-contain">
@@ -942,9 +950,10 @@ interface UserDetailsPanelProps {
   userId: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  breadcrumb?: React.ReactNode;
 }
 
-export function UserDetailsPanel({ userId, open, onOpenChange }: UserDetailsPanelProps) {
+export function UserDetailsPanel({ userId, open, onOpenChange, breadcrumb }: UserDetailsPanelProps) {
   const { data, isLoading, error } = useUserDetails(userId);
   const closeButtonRef = React.useRef<HTMLButtonElement>(null);
   
@@ -994,7 +1003,7 @@ export function UserDetailsPanel({ userId, open, onOpenChange }: UserDetailsPane
             <DrawerDescription>Detailed information about the selected user</DrawerDescription>
           </VisuallyHidden.Root>
 
-          <PanelContent data={data} isLoading={isLoading} error={error} isMobile={isMobile} />
+          <PanelContent data={data} isLoading={isLoading} error={error} isMobile={isMobile} breadcrumb={breadcrumb} />
         </DrawerContent>
       </Drawer>
     );
@@ -1024,7 +1033,7 @@ export function UserDetailsPanel({ userId, open, onOpenChange }: UserDetailsPane
         <X className="h-4 w-4" />
       </button>
 
-      <PanelContent data={data} isLoading={isLoading} error={error} isMobile={isMobile} />
+      <PanelContent data={data} isLoading={isLoading} error={error} isMobile={isMobile} breadcrumb={breadcrumb} />
     </div>
   );
 }

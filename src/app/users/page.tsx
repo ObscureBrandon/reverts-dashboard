@@ -2,7 +2,8 @@
 
 import { Skeleton } from '@/components/ui/skeleton';
 import { useSession } from '@/lib/auth-client';
-import { useStaffTable } from '@/lib/hooks/queries/useStaffTable';
+import { useStaffDetails } from '@/lib/hooks/queries/useStaffDetails';
+import { StaffListItem, useStaffTable } from '@/lib/hooks/queries/useStaffTable';
 import { usePrefetchUserDetails } from '@/lib/hooks/queries/useUserDetails';
 import { usePrefetchUsersTable, UserListItem, useUsersTable } from '@/lib/hooks/queries/useUsersTable';
 import { cn } from '@/lib/utils';
@@ -15,6 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { columns, staffColumns, viewColumnDefaults } from './components/columns';
 import { DataTable } from './components/data-table';
 import { DataTableToolbar, FilterState, QuickFilter, ViewPreset } from './components/data-table-toolbar';
+import { PanelBreadcrumb, StaffDetailsPanel } from './components/staff-details-panel';
 import { UserDetailsPanel } from './components/user-details-panel';
 
 // URL search params schema
@@ -32,7 +34,8 @@ const searchParamsSchema = {
   sort: parseAsString.withDefault('createdAt'),
   order: parseAsStringLiteral(orderOptions).withDefault('desc'),
   filters: parseAsArrayOf(parseAsString).withDefault([]),
-  user: parseAsString,
+  staff: parseAsString,  // Selected staff member ID (staff view)
+  user: parseAsString,   // Selected user ID (or supervisee when drilling down)
 };
 
 // Loading skeleton component
@@ -118,8 +121,16 @@ export default function UsersPage() {
   const activeView = params.view as ViewPreset;
   const sorting: SortingState = [{ id: params.sort, desc: params.order === 'desc' }];
   const activeQuickFilters = new Set(params.filters as QuickFilter[]);
+  
+  // Panel state from URL
+  const selectedStaffId = params.staff;
   const selectedUserId = params.user;
-  const panelOpen = !!params.user;
+  const staffPanelOpen = !!params.staff;
+  const userPanelOpen = !!params.user;
+  const panelOpen = staffPanelOpen || userPanelOpen;
+  
+  // Fetch staff details for breadcrumb when viewing a user from staff panel
+  const { data: staffDetailsData } = useStaffDetails(selectedStaffId);
 
   // Track if we've ever loaded data (to prevent full-page skeleton on view switches)
   const hasInitiallyLoaded = useRef(false);
@@ -238,9 +249,16 @@ export default function UsersPage() {
     }
   }, [setParams]);
 
-  // Handler for row click - opens user details panel
+  // Handler for row click - opens user details panel (all users view)
+  // Clear staff param to prevent stacking from main table
   const handleRowClick = useCallback((user: UserListItem) => {
-    setParams({ user: user.id });
+    setParams({ staff: null, user: user.id });
+  }, [setParams]);
+
+  // Handler for staff row click - opens staff details panel (staff view)
+  // Clear user param to replace any existing panel (not stack)
+  const handleStaffRowClick = useCallback((staff: StaffListItem) => {
+    setParams({ staff: staff.id, user: null });
   }, [setParams]);
 
   // Handler for row hover - prefetches user details
@@ -248,11 +266,34 @@ export default function UsersPage() {
     prefetchUserDetails(user.id);
   }, [prefetchUserDetails]);
 
-  // Handler for panel close
-  const handlePanelOpenChange = useCallback((open: boolean) => {
+  // Handler for user panel close (or back navigation from stacked panel)
+  const handleUserPanelOpenChange = useCallback((open: boolean) => {
     if (!open) {
-      setParams({ user: null });
+      // If we were viewing a user from staff panel, just clear user (keep staff)
+      // Otherwise clear both
+      if (selectedStaffId) {
+        setParams({ user: null });
+      } else {
+        setParams({ user: null });
+      }
     }
+  }, [setParams, selectedStaffId]);
+
+  // Handler for staff panel close
+  const handleStaffPanelOpenChange = useCallback((open: boolean) => {
+    if (!open) {
+      setParams({ staff: null, user: null });
+    }
+  }, [setParams]);
+
+  // Handler for clicking a supervisee in staff panel → opens user panel stacked
+  const handleSuperviseeClick = useCallback((userId: string) => {
+    setParams({ user: userId });
+  }, [setParams]);
+
+  // Handler for back navigation in breadcrumb
+  const handleBackToStaff = useCallback(() => {
+    setParams({ user: null });
   }, [setParams]);
 
   // Build query params for API based on all filters
@@ -427,9 +468,9 @@ export default function UsersPage() {
             onColumnVisibilityChange={setColumnVisibility}
             sorting={sorting}
             onSortingChange={handleSortingChange}
-            onRowClick={isStaffView ? undefined : handleRowClick}
+            onRowClick={isStaffView ? handleStaffRowClick as any : handleRowClick}
             onRowHoverStart={isStaffView ? undefined : handleRowHover}
-            selectedRowId={isStaffView ? null : selectedUserId}
+            selectedRowId={isStaffView ? selectedStaffId : selectedUserId}
             getRowId={(row) => row.id}
             renderToolbar={(table) => (
               <DataTableToolbar
@@ -448,11 +489,28 @@ export default function UsersPage() {
         </div>
       </div>
 
+      {/* Staff Details Side Panel - renders regardless of view, hidden when user panel is open */}
+      <StaffDetailsPanel
+        staffId={selectedStaffId}
+        open={staffPanelOpen && !userPanelOpen}
+        onOpenChange={handleStaffPanelOpenChange}
+        onSuperviseeClick={handleSuperviseeClick}
+      />
+
       {/* User Details Side Panel */}
+      {/* Shows breadcrumb only when opened from staff panel (both staff and user params set) */}
       <UserDetailsPanel
         userId={selectedUserId}
-        open={panelOpen}
-        onOpenChange={handlePanelOpenChange}
+        open={userPanelOpen}
+        onOpenChange={handleUserPanelOpenChange}
+        breadcrumb={
+          selectedStaffId && staffDetailsData ? (
+            <PanelBreadcrumb
+              staffName={staffDetailsData.staff.displayName || staffDetailsData.staff.name || 'Staff'}
+              onBack={handleBackToStaff}
+            />
+          ) : undefined
+        }
       />
     </div>
   );
