@@ -10,7 +10,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Table } from '@tanstack/react-table';
 import { Columns3, Loader2, Search, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 export type ViewPreset = 'all' | 'staff';
 export type QuickFilter = 'needs-support' | 'has-shahada' | 'has-support' | 'assigned-to-me';
@@ -72,12 +72,34 @@ export function DataTableToolbar({
   // Track which filter was last clicked to show spinner only on that button
   const [pendingFilter, setPendingFilter] = useState<QuickFilter | null>(null);
 
+  // Refs for measuring tab positions for sliding underline
+  const tabsContainerRef = useRef<HTMLDivElement>(null);
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const [underlineStyle, setUnderlineStyle] = useState({ left: 0, width: 0 });
+
   // Clear pending state when fetching completes
   useEffect(() => {
     if (!isFetching) {
       setPendingFilter(null);
     }
   }, [isFetching]);
+
+  // Update underline position when active view changes
+  useLayoutEffect(() => {
+    const activeIndex = viewPresets.findIndex(p => p.id === activeView);
+    const activeTab = tabRefs.current[activeIndex];
+    const container = tabsContainerRef.current;
+    
+    if (activeTab && container) {
+      const containerRect = container.getBoundingClientRect();
+      const tabRect = activeTab.getBoundingClientRect();
+      // Add padding offset (12px = px-3)
+      setUnderlineStyle({
+        left: tabRect.left - containerRect.left + 12,
+        width: tabRect.width - 24, // subtract horizontal padding
+      });
+    }
+  }, [activeView]);
 
   const handleQuickFilterClick = (filter: QuickFilter) => {
     setPendingFilter(filter);
@@ -106,20 +128,29 @@ export function DataTableToolbar({
   return (
     <div className="space-y-4">
       {/* View Preset Tabs */}
-      <div className="flex items-center gap-1 p-1 bg-muted/50 rounded-lg w-fit">
-        {viewPresets.map((preset) => (
+      <div ref={tabsContainerRef} className="flex items-center gap-1 relative">
+        {viewPresets.map((preset, index) => (
           <button
             key={preset.id}
+            ref={(el) => { tabRefs.current[index] = el; }}
             onClick={() => onViewChange(preset.id)}
-            className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+            className={`px-3 py-2 text-sm font-medium transition-colors ${
               activeView === preset.id
-                ? 'bg-background text-foreground shadow-sm'
+                ? 'text-foreground'
                 : 'text-muted-foreground hover:text-foreground'
             }`}
           >
             {preset.label}
           </button>
         ))}
+        {/* Sliding underline */}
+        <span 
+          className="absolute bottom-0 h-0.5 bg-emerald-500 rounded-full transition-all duration-300 ease-out"
+          style={{
+            left: underlineStyle.left,
+            width: underlineStyle.width,
+          }}
+        />
       </div>
 
       {/* Search, Quick Filters and Column Toggle Row */}

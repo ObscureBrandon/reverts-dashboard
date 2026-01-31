@@ -11,7 +11,7 @@ import { SortingState, VisibilityState } from '@tanstack/react-table';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { parseAsArrayOf, parseAsInteger, parseAsString, parseAsStringLiteral, useQueryStates } from 'nuqs';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { columns, staffColumns, viewColumnDefaults } from './components/columns';
 import { DataTable } from './components/data-table';
 import { DataTableToolbar, FilterState, QuickFilter, ViewPreset } from './components/data-table-toolbar';
@@ -120,6 +120,9 @@ export default function UsersPage() {
   const activeQuickFilters = new Set(params.filters as QuickFilter[]);
   const selectedUserId = params.user;
   const panelOpen = !!params.user;
+
+  // Track if we've ever loaded data (to prevent full-page skeleton on view switches)
+  const hasInitiallyLoaded = useRef(false);
 
   const filters: FilterState = {
     query: searchInput,
@@ -337,8 +340,19 @@ export default function UsersPage() {
     }
   }, [isStaffView, usersQuery.data?.pagination, prefetchPage, queryParams]);
 
-  // Show skeleton while checking session OR loading initial data
-  const showInitialLoading = isSessionLoading || (isLoading && !data);
+  // Mark as initially loaded once we have data from either view
+  useEffect(() => {
+    if (data && !hasInitiallyLoaded.current) {
+      hasInitiallyLoaded.current = true;
+    }
+  }, [data]);
+
+  // Only show full-page skeleton on initial visit (before any data has loaded)
+  // After initial load, view switches will show table skeleton only
+  const showInitialLoading = isSessionLoading || (!hasInitiallyLoaded.current && isLoading && !data);
+  
+  // For view switches: show table skeleton when loading new view data
+  const isViewSwitching = hasInitiallyLoaded.current && isLoading && !data;
   
   if (showInitialLoading) {
     return <UsersLoading />;
@@ -364,26 +378,27 @@ export default function UsersPage() {
                 <h1 className="text-2xl font-semibold text-foreground tracking-tight">
                   Users
                 </h1>
-                <p className="text-muted-foreground mt-1">
+                <div className="h-1 w-12 bg-emerald-500 rounded-full mt-2" />
+                <p className="text-muted-foreground mt-2">
                   Manage and view all community members
                 </p>
               </div>
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-6">
                 <Link
                   href="/"
-                  className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                  className="text-sm text-muted-foreground hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors"
                 >
                   Home
                 </Link>
                 <Link
                   href="/tickets"
-                  className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                  className="text-sm text-muted-foreground hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors"
                 >
                   Tickets
                 </Link>
                 <Link
                   href="/messages"
-                  className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                  className="text-sm text-muted-foreground hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors"
                 >
                   Messages
                 </Link>
@@ -404,7 +419,7 @@ export default function UsersPage() {
           <DataTable
             columns={isStaffView ? staffColumns : columns}
             data={tableData as any}
-            isLoading={isLoading}
+            isLoading={isLoading || isViewSwitching}
             isFetching={isFetching}
             pagination={data?.pagination}
             onPageChange={handlePageChange}
@@ -414,6 +429,8 @@ export default function UsersPage() {
             onSortingChange={handleSortingChange}
             onRowClick={isStaffView ? undefined : handleRowClick}
             onRowHoverStart={isStaffView ? undefined : handleRowHover}
+            selectedRowId={isStaffView ? null : selectedUserId}
+            getRowId={(row) => row.id}
             renderToolbar={(table) => (
               <DataTableToolbar
                 filters={filters}
