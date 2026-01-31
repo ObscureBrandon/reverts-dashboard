@@ -117,31 +117,33 @@ export function DataTableToolbar({
           />
         </div>
 
-        {/* Quick Filter Chips - 2-column grid on mobile, flex on desktop */}
-        <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-2 sm:flex-wrap">
-          {quickFilters.map((filter) => {
-            const isActive = activeQuickFilters.has(filter.id);
-            return (
-              <button
-                key={filter.id}
-                onClick={() => onQuickFilterToggle(filter.id)}
-                className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md border transition-all ${
-                  isActive
-                    ? filter.color
-                    : 'bg-background text-muted-foreground border-border hover:border-foreground/30'
-                }`}
-              >
-                {isActive && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-current" />
-                )}
-                {filter.label}
-                {isActive && (
-                  <X className="h-3 w-3 ml-0.5 opacity-70" />
-                )}
-              </button>
-            );
-          })}
-        </div>
+        {/* Quick Filter Chips - only show for non-staff views */}
+        {activeView !== 'staff' && (
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-2 sm:flex-wrap">
+            {quickFilters.map((filter) => {
+              const isActive = activeQuickFilters.has(filter.id);
+              return (
+                <button
+                  key={filter.id}
+                  onClick={() => onQuickFilterToggle(filter.id)}
+                  className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md border transition-all ${
+                    isActive
+                      ? filter.color
+                      : 'bg-background text-muted-foreground border-border hover:border-foreground/30'
+                  }`}
+                >
+                  {isActive && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-current" />
+                  )}
+                  {filter.label}
+                  {isActive && (
+                    <X className="h-3 w-3 ml-0.5 opacity-70" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         <div className="flex items-center gap-2 ml-auto">
           {/* Column visibility toggle */}
