@@ -1,5 +1,6 @@
 import { db } from '@/lib/db'
 import {
+  getStaffCount,
   getTickets,
   getUserAssignmentHistory,
   getUserCount,
@@ -10,6 +11,7 @@ import {
   getUserSupervisorEntries,
   getUserSupervisors,
   getUserTicketStats,
+  searchStaffWithSupervisees,
   searchUsers
 } from '@/lib/db/queries'
 import { authAccount, users } from '@/lib/db/schema'
@@ -32,6 +34,8 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
       const voiceVerifiedParam = query.voiceVerified
       const roleIdParam = query.roleId
       const assignedToMeParam = query.assignedToMe
+      const hasShahadaParam = query.hasShahada
+      const hasSupportParam = query.hasSupport
       const sortBy = (query.sortBy || 'createdAt') as 'name' | 'createdAt'
       const sortOrder = (query.sortOrder || 'desc') as 'asc' | 'desc'
       const page = parseInt(query.page || '1')
@@ -43,6 +47,8 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
       const verified = verifiedParam === 'true' ? true : verifiedParam === 'false' ? false : undefined
       const voiceVerified = voiceVerifiedParam === 'true' ? true : voiceVerifiedParam === 'false' ? false : undefined
       const roleId = roleIdParam ? BigInt(roleIdParam) : undefined
+      const hasShahada = hasShahadaParam === 'true' ? true : undefined
+      const hasSupport = hasSupportParam === 'true' ? true : undefined
 
       // Get the current user's Discord ID if assignedToMe filter is active
       let supervisorId: bigint | undefined
@@ -67,6 +73,8 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
         voiceVerified,
         roleId,
         supervisorId,
+        hasShahada,
+        hasSupport,
         sortBy,
         sortOrder,
         limit,
@@ -108,6 +116,55 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
     } catch (err) {
       console.error('Error fetching users:', err)
       throw new Error('Failed to fetch users')
+    }
+  }, { auth: true })
+
+  // GET /users/staff - Get staff members with supervisees
+  .get('/staff', async ({ query }) => {
+    try {
+      const q = query.q || undefined
+      const sortBy = (query.sortBy || 'superviseeCount') as 'name' | 'superviseeCount'
+      const sortOrder = (query.sortOrder || 'desc') as 'asc' | 'desc'
+      const page = parseInt(query.page || '1')
+      const limit = Math.min(parseInt(query.limit || '50'), 100)
+      const offset = (page - 1) * limit
+
+      const params = {
+        query: q,
+        sortBy,
+        sortOrder,
+        limit,
+        offset,
+      }
+
+      // Fetch staff and count in parallel
+      const [staffResult, total] = await Promise.all([
+        searchStaffWithSupervisees(params),
+        getStaffCount({ query: q }),
+      ])
+
+      const totalPages = Math.ceil(total / limit)
+
+      return {
+        staff: staffResult.map(result => ({
+          id: result.user.discordId.toString(),
+          name: result.user.name,
+          displayName: result.user.displayName,
+          displayAvatar: result.user.displayAvatar,
+          superviseeCount: result.superviseeCount,
+          supervisees: result.supervisees,
+          topRoles: result.topRoles,
+        })),
+        pagination: {
+          total,
+          page,
+          limit,
+          totalPages,
+        },
+      }
+    } catch (err) {
+      console.error('Error fetching staff:', err)
+      throw new Error('Failed to fetch staff')
     }
   }, { auth: true })
 

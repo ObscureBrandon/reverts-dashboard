@@ -9,6 +9,7 @@ A Next.js dashboard for searching and analyzing Discord server messages with tic
 - 👥 **Staff Filtering** — Filter to staff-only messages
 - 🔐 **Discord Auth** — OAuth login with moderator role verification
 - ⚡ **Optimized** — Trigram indexes for 10-100x faster queries
+- 🔒 **Type-Safe API** — End-to-end types with ElysiaJS + Eden
 
 ## Quick Start
 
@@ -47,6 +48,7 @@ NEXT_PUBLIC_BETTER_AUTH_URL="http://localhost:3000"
 | Layer | Technology |
 |-------|------------|
 | Framework | Next.js 16 (App Router) |
+| API | ElysiaJS + Eden (type-safe) |
 | UI | React 19, TailwindCSS 4 |
 | Database | PostgreSQL + Drizzle ORM |
 | Auth | better-auth + Discord OAuth |
@@ -58,7 +60,7 @@ NEXT_PUBLIC_BETTER_AUTH_URL="http://localhost:3000"
 |----------|-------------|
 | [Architecture](./docs/ARCHITECTURE.md) | System design and project structure |
 | [Database](./docs/DATABASE.md) | Schema reference (22 tables) |
-| [API](./docs/API.md) | REST API endpoints |
+| [API](./docs/API.md) | REST API endpoints with Eden examples |
 | [Performance](./docs/PERFORMANCE.md) | Optimization guide |
 | [Authentication](./docs/AUTHENTICATION.md) | Discord OAuth setup |
 | [Deployment](./docs/DEPLOYMENT.md) | Production deployment |
@@ -79,24 +81,43 @@ bun run db:migrate  # Apply database indexes
 ```
 src/
 ├── app/                  # Next.js App Router
-│   ├── api/              # API routes
+│   ├── api/[[...slugs]]/ # ElysiaJS catch-all handler
 │   ├── components/       # React components
 │   ├── login/            # Login page
 │   ├── messages/         # Message search UI
-│   └── tickets/          # Ticket pages
+│   ├── tickets/          # Ticket pages
+│   └── users/            # User management UI
 │
 └── lib/
     ├── db/
     │   ├── schema.ts     # All 22 tables (auth + bot)
     │   ├── queries.ts    # Query functions
     │   └── index.ts      # DB connection
-    ├── hooks/            # React hooks
+    ├── elysia/           # ElysiaJS modules
+    │   ├── auth.ts       # Auth macro plugin
+    │   └── routes/       # API route modules
+    ├── hooks/            # React Query hooks
+    ├── eden.ts           # Eden treaty client
     └── auth.ts           # Auth configuration
 
 docs/                     # Documentation
 drizzle/                  # Auth migrations
 migrations/               # Performance indexes
 ```
+
+## API Architecture
+
+The API uses **ElysiaJS** with the **Eden treaty client** for end-to-end type safety:
+
+```typescript
+import { api } from '@/lib/eden'
+
+// Fully typed API calls
+const { data, error } = await api.users.get({ query: { page: '1' } })
+const { data } = await api.users({ id: '123' }).popover.get()
+```
+
+See [API Documentation](./docs/API.md) for details.
 
 ## Database
 

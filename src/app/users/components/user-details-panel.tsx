@@ -3,46 +3,46 @@
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import {
-  Drawer,
-  DrawerContent,
-  DrawerDescription,
-  DrawerTitle,
+    Drawer,
+    DrawerContent,
+    DrawerDescription,
+    DrawerTitle,
 } from '@/components/ui/drawer';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
-  useUserDetails,
-  type UserDetails
+    useUserDetails,
+    type UserDetails
 } from '@/lib/hooks/queries/useUserDetails';
-import { cn } from '@/lib/utils';
+import { cn, formatRelativeTime, roleColorToHex } from '@/lib/utils';
 import * as VisuallyHidden from '@radix-ui/react-visually-hidden';
 import {
-  AlertTriangle,
-  Ban,
-  BookOpen,
-  Calendar,
-  Check,
-  ChevronDown,
-  Clock,
-  Copy,
-  Globe,
-  Heart,
-  Mars,
-  MessageSquare,
-  Mic,
-  MicOff,
-  Shield,
-  ShieldAlert,
-  ShieldCheck,
-  Star,
-  Ticket,
-  Timer,
-  User,
-  UserMinus,
-  UserX,
-  Users,
-  Venus,
-  VolumeX,
-  X
+    AlertTriangle,
+    Ban,
+    BookOpen,
+    Calendar,
+    Check,
+    ChevronDown,
+    Clock,
+    Copy,
+    Globe,
+    Heart,
+    Mars,
+    MessageSquare,
+    Mic,
+    MicOff,
+    Shield,
+    ShieldAlert,
+    ShieldCheck,
+    Star,
+    Ticket,
+    Timer,
+    User,
+    UserMinus,
+    UserX,
+    Users,
+    Venus,
+    VolumeX,
+    X
 } from 'lucide-react';
 import * as React from 'react';
 import { useCallback, useState } from 'react';
@@ -50,20 +50,6 @@ import { useCallback, useState } from 'react';
 // ============================================================================
 // Utility Functions
 // ============================================================================
-
-function formatRelativeTime(dateStr: string): string {
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-  
-  if (diffDays === 0) return 'Today';
-  if (diffDays === 1) return 'Yesterday';
-  if (diffDays < 7) return `${diffDays}d ago`;
-  if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`;
-  if (diffDays < 365) return `${Math.floor(diffDays / 30)}mo ago`;
-  return `${Math.floor(diffDays / 365)}y ago`;
-}
 
 function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString('en-US', {
@@ -81,11 +67,6 @@ function getInitials(name: string | null | undefined): string {
     .join('')
     .toUpperCase()
     .slice(0, 2);
-}
-
-function roleColorToHex(color: number): string {
-  if (color === 0) return '#99AAB5';
-  return `#${color.toString(16).padStart(6, '0')}`;
 }
 
 // ============================================================================
@@ -950,9 +931,10 @@ export function UserDetailsPanel({ userId, open, onOpenChange }: UserDetailsPane
       className={cn(
         'fixed top-0 right-0 h-full w-[420px] bg-background border-l border-border shadow-lg',
         'flex flex-col overflow-hidden z-50',
-        'transform transition-transform duration-300 ease-in-out',
+        'transform transition-transform duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]',
         open ? 'translate-x-0' : 'translate-x-full'
       )}
+      style={{ willChange: 'transform' }}
     >
       {/* Close button */}
       <button

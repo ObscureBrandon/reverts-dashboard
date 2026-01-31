@@ -42,15 +42,6 @@ interface DataTableProps<TData, TValue> {
   onRowHoverStart?: (row: TData) => void;
 }
 
-const columnLabels: Record<string, string> = {
-  user: 'User',
-  relationToIslam: 'Relation to Islam',
-  status: 'Status',
-  currentAssignmentStatus: 'Assignment',
-  topRoles: 'Roles',
-  createdAt: 'Joined',
-};
-
 export function DataTable<TData, TValue>({
   columns,
   data,
@@ -152,7 +143,7 @@ export function DataTable<TData, TValue>({
           </div>
         )}
         
-        <div className={`rounded-lg border border-border bg-card overflow-hidden transition-opacity ${isRefetching ? 'opacity-70' : ''}`}>
+        <div className="rounded-lg border border-border bg-card overflow-hidden">
           <Table>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (

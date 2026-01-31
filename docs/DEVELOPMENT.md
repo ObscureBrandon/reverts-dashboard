@@ -49,34 +49,104 @@ bunx tsc --noEmit --watch
 
 ### Adding New API Endpoints
 
-1. Create route file in `app/api/`:
+ElysiaJS routes are modular and type-safe. Add new routes in `src/lib/elysia/routes/`:
+
+1. Create a new route file:
 
 ```typescript
-// app/api/example/route.ts
-import { NextRequest, NextResponse } from 'next/server';
-import { requireAuth } from '@/lib/auth-helpers';
-import { db } from '@/lib/db';
+// src/lib/elysia/routes/example.ts
+import { authMacro } from '@/lib/elysia/auth'
+import { Elysia } from 'elysia'
 
-export async function GET(request: NextRequest) {
-  try {
-    await requireAuth();
-    
-    // Your logic here
-    const data = await db.query...;
-    
-    return NextResponse.json({ data });
-  } catch (error) {
-    if (error.message === 'Unauthorized') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-    return NextResponse.json({ error: 'Server error' }, { status: 500 });
-  }
+export const exampleRoutes = new Elysia({ prefix: '/example' })
+  .use(authMacro)
+  .get('/', async ({ user }) => {
+    // user is available from authMacro
+    return { message: 'Hello', userId: user.id }
+  }, { auth: true })
+  
+  .get('/:id', async ({ params }) => {
+    const { id } = params
+    return { id }
+  }, { auth: true })
+  
+  .post('/', async ({ body }) => {
+    // body is typed if you define a schema
+    return { created: true }
+  }, { auth: true })
+```
+
+2. Register in the main app (`app/api/[[...slugs]]/route.ts`):
+
+```typescript
+import { exampleRoutes } from '@/lib/elysia/routes/example'
+
+const apiRoutes = new Elysia({ prefix: '/api' })
+  .use(authMacro)
+  // ... existing routes
+  .use(exampleRoutes)
+```
+
+3. Use in React with Eden (automatic type inference):
+
+```typescript
+import { api } from '@/lib/eden'
+
+// Types are automatically inferred!
+const { data, error } = await api.example.get()
+const { data } = await api.example({ id: '123' }).get()
+```
+
+### Adding New React Query Hooks
+
+Hooks using the Eden client are fully type-safe:
+
+```typescript
+// src/lib/hooks/queries/useExample.ts
+'use client'
+
+import { api } from '@/lib/eden'
+import { useQuery } from '@tanstack/react-query'
+
+export function useExample(id: string) {
+  return useQuery({
+    queryKey: ['example', id],
+    queryFn: async () => {
+      const { data, error } = await api.example({ id }).get()
+      
+      if (error) {
+        throw new Error('Failed to fetch example')
+      }
+      
+      return data
+    },
+    enabled: !!id,
+  })
 }
+```
+
+### Adding Request Validation
+
+Use Elysia's built-in validation with TypeBox:
+
+```typescript
+import { t } from 'elysia'
+
+export const exampleRoutes = new Elysia({ prefix: '/example' })
+  .post('/', async ({ body }) => {
+    return { name: body.name, age: body.age }
+  }, {
+    auth: true,
+    body: t.Object({
+      name: t.String(),
+      age: t.Number({ minimum: 0 }),
+    })
+  })
 ```
 
 ### Adding New Database Queries
 
-1. Add query function to `src/lib/db/queries.ts`:
+Add query functions to `src/lib/db/queries.ts`:
 
 ```typescript
 export async function getExampleData(params: { id: number }) {
@@ -89,43 +159,6 @@ export async function getExampleData(params: { id: number }) {
 }
 ```
 
-2. Use in API route:
-
-```typescript
-import { getExampleData } from '@/lib/db/queries';
-
-const data = await getExampleData({ id: 123 });
-```
-
-### Adding New Filters
-
-1. Add state in page component:
-
-```typescript
-const [newFilter, setNewFilter] = useState<string>('');
-```
-
-2. Add to fetch URL:
-
-```typescript
-const params = new URLSearchParams();
-if (newFilter) params.set('newFilter', newFilter);
-```
-
-3. Parse in API route:
-
-```typescript
-const newFilter = searchParams.get('newFilter');
-```
-
-4. Add to query conditions:
-
-```typescript
-if (newFilter) {
-  conditions.push(eq(table.column, newFilter));
-}
-```
-
 ---
 
 ## Database Patterns
@@ -133,42 +166,30 @@ if (newFilter) {
 ### Type-Safe Queries with Drizzle
 
 ```typescript
-import { db, schema } from '@/lib/db';
-import { eq, and, or, sql, desc } from 'drizzle-orm';
+import { db } from '@/lib/db'
+import { users, messages } from '@/lib/db/schema'
+import { eq, and, desc } from 'drizzle-orm'
 
 // Select with joins
 const results = await db
   .select()
-  .from(schema.messages)
-  .leftJoin(schema.users, eq(schema.messages.authorId, schema.users.discordId))
-  .where(eq(schema.messages.isDeleted, false))
-  .orderBy(desc(schema.messages.createdAt))
-  .limit(50);
+  .from(messages)
+  .leftJoin(users, eq(messages.authorId, users.discordId))
+  .where(eq(messages.isDeleted, false))
+  .orderBy(desc(messages.createdAt))
+  .limit(50)
 
 // Using query API with relations
 const user = await db.query.users.findFirst({
-  where: eq(schema.users.discordId, discordId),
+  where: eq(users.discordId, discordId),
   with: {
     messages: {
       limit: 10,
-      orderBy: [desc(schema.messages.createdAt)],
+      orderBy: [desc(messages.createdAt)],
     },
     roles: true,
   },
-});
-```
-
-### Raw SQL When Needed
-
-```typescript
-import { sql } from 'drizzle-orm';
-
-// Complex conditions
-const results = await db.execute(sql`
-  SELECT * FROM "Message"
-  WHERE content ILIKE ${`%${query}%`}
-  AND created_at > NOW() - INTERVAL '7 days'
-`);
+})
 ```
 
 ### BigInt Handling
@@ -180,67 +201,72 @@ Discord IDs are BigInt. Convert for JSON:
 return {
   id: message.messageId.toString(),
   authorId: message.authorId.toString(),
-};
+}
 
 // When receiving from client
-const id = BigInt(request.query.id);
+const id = BigInt(params.id)
 ```
 
 ---
 
 ## Frontend Patterns
 
+### Using Eden Client
+
+The Eden client provides end-to-end type safety:
+
+```typescript
+import { api } from '@/lib/eden'
+
+// GET with query params
+const { data, error } = await api.users.get({
+  query: { page: '1', limit: '50' }
+})
+
+// GET with path params
+const { data } = await api.users({ id: userId }).get()
+
+// POST request
+const { data } = await api.tickets({ id }).summary.post()
+
+// Error handling
+if (error) {
+  console.error('API error:', error)
+}
+```
+
+### React Query + Eden Pattern
+
+```typescript
+export function useUserDetails(userId: string | null) {
+  return useQuery({
+    queryKey: ['user', 'details', userId],
+    queryFn: async () => {
+      const { data, error } = await api.users({ id: userId! }).get({
+        query: { full: 'true' }
+      })
+      
+      if (error) throw new Error('Failed to fetch user details')
+      return data
+    },
+    enabled: !!userId,
+  })
+}
+```
+
 ### Debounced Search
 
 ```typescript
-import { useDebounce } from '@/lib/hooks/useDebounce';
+import { useDebounce } from '@/lib/hooks/useDebounce'
 
-const [query, setQuery] = useState('');
-const debouncedQuery = useDebounce(query, 150);
+const [query, setQuery] = useState('')
+const debouncedQuery = useDebounce(query, 150)
 
 useEffect(() => {
   if (debouncedQuery) {
-    fetchResults(debouncedQuery);
+    fetchResults(debouncedQuery)
   }
-}, [debouncedQuery]);
-```
-
-### Request Cancellation
-
-```typescript
-useEffect(() => {
-  const controller = new AbortController();
-  
-  async function fetchData() {
-    try {
-      const res = await fetch(url, { signal: controller.signal });
-      const data = await res.json();
-      setResults(data);
-    } catch (error) {
-      if (error.name !== 'AbortError') {
-        setError(error.message);
-      }
-    }
-  }
-  
-  fetchData();
-  
-  return () => controller.abort();
-}, [dependency]);
-```
-
-### Optimistic UI
-
-```typescript
-const [loading, setLoading] = useState(true);
-const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
-
-// Only show loading on first load
-if (!hasLoadedOnce) setLoading(true);
-
-// After first load
-setHasLoadedOnce(true);
-setLoading(false);
+}, [debouncedQuery])
 ```
 
 ---
@@ -307,11 +333,6 @@ bunx tsc --noEmit
    psql $DATABASE_URL -c "SELECT 1"
    ```
 
-3. Check format:
-   ```
-   postgresql://user:password@host:5432/database
-   ```
-
 ### Search is Slow
 
 1. Check indexes exist:
@@ -329,14 +350,16 @@ bunx tsc --noEmit
    bun run db:migrate
    ```
 
-### Stale Results
-
-- Staff roles are cached for 5 minutes
-- Restart server to invalidate: `Ctrl+C` then `bun dev`
-
 ### Auth Issues
 
 See [Authentication Troubleshooting](./AUTHENTICATION.md#troubleshooting)
+
+### Eden Client Type Errors
+
+If you see type errors after adding new routes:
+1. Restart the TypeScript server in your IDE
+2. Make sure the route is registered in `app/api/[[...slugs]]/route.ts`
+3. Check that the `App` type is properly exported
 
 ---
 
@@ -354,6 +377,12 @@ See [Authentication Troubleshooting](./AUTHENTICATION.md#troubleshooting)
 - Use functional components with hooks
 - Memoize expensive computations: `useMemo`, `useCallback`
 - Keep components focused and composable
+
+### ElysiaJS
+
+- Use the auth macro for protected routes: `{ auth: true }`
+- Add validation schemas for POST/PUT endpoints
+- Keep route files focused (one domain per file)
 
 ### SQL/Drizzle
 
@@ -381,29 +410,6 @@ See [Authentication Troubleshooting](./AUTHENTICATION.md#troubleshooting)
     "source.fixAll.eslint": true
   }
 }
-```
-
----
-
-## Dependency Updates
-
-| Dependency | Update Caution |
-|------------|----------------|
-| Next.js | Test carefully - App Router breaking changes possible |
-| Drizzle ORM | Usually safe, check migration guide |
-| React | v19 is stable, minor updates safe |
-| TypeScript | Check for strict mode changes |
-| better-auth | Check changelog for auth changes |
-
-```bash
-# Check for updates
-bun outdated
-
-# Update all
-bun update
-
-# Update specific
-bun add next@latest
 ```
 
 ---

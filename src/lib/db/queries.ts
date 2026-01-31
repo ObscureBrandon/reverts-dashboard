@@ -1,19 +1,19 @@
 import { and, asc, desc, eq, ilike, inArray, isNotNull, or, sql } from 'drizzle-orm';
 import { db } from './index';
 import {
-  assignmentStatuses,
-  channels,
-  infractions,
-  messages,
-  panels,
-  roles,
-  shahadas,
-  supervisionNeeds,
-  tickets,
-  userRoles,
-  users,
-  userSupervisorEntries,
-  userSupervisors
+    assignmentStatuses,
+    channels,
+    infractions,
+    messages,
+    panels,
+    roles,
+    shahadas,
+    supervisionNeeds,
+    tickets,
+    userRoles,
+    users,
+    userSupervisorEntries,
+    userSupervisors
 } from './schema';
 
 export type MessageSearchParams = {
@@ -534,6 +534,8 @@ export type UserSearchParams = {
   voiceVerified?: boolean;
   roleId?: bigint;
   supervisorId?: bigint;
+  hasShahada?: boolean;
+  hasSupport?: boolean;
   sortBy?: 'name' | 'createdAt';
   sortOrder?: 'asc' | 'desc';
   limit?: number;
@@ -554,6 +556,8 @@ export async function searchUsers(params: UserSearchParams) {
     voiceVerified,
     roleId,
     supervisorId,
+    hasShahada,
+    hasSupport,
     sortBy = 'createdAt',
     sortOrder = 'desc',
     limit = 50,
@@ -626,12 +630,33 @@ export async function searchUsers(params: UserSearchParams) {
     );
   }
 
+  // Filter to users who have at least one shahada recorded
+  if (hasShahada) {
+    conditions.push(
+      sql`EXISTS (
+        SELECT 1 FROM ${shahadas}
+        WHERE ${shahadas.userId} = ${users.discordId}
+      )`
+    );
+  }
+
+  // Filter to users who have active support (active supervisors)
+  if (hasSupport) {
+    conditions.push(
+      sql`EXISTS (
+        SELECT 1 FROM ${userSupervisors}
+        WHERE ${userSupervisors.userId} = ${users.discordId}
+        AND ${userSupervisors.active} = true
+      )`
+    );
+  }
+
   // Build sort order
   const orderByClause = sortBy === 'name'
     ? (sortOrder === 'asc' ? asc(sql`COALESCE(${users.displayName}, ${users.name})`) : desc(sql`COALESCE(${users.displayName}, ${users.name})`))
     : (sortOrder === 'asc' ? asc(users.createdAt) : desc(users.createdAt));
 
-  // Main query with subqueries for current assignment status and top roles
+  // Single query with subqueries for current assignment status and top 3 roles
   const results = await db
     .select({
       user: users,
@@ -643,6 +668,21 @@ export async function searchUsers(params: UserSearchParams) {
         ORDER BY ${assignmentStatuses.createdAt} DESC
         LIMIT 1
       )`,
+      topRoles: sql<Array<{ id: string; name: string; color: number }> | null>`(
+        SELECT COALESCE(json_agg(role_data), '[]'::json)
+        FROM (
+          SELECT 
+            r.role_id::text as id,
+            r.name,
+            r.color
+          FROM ${userRoles} ur
+          INNER JOIN ${roles} r ON ur.role_id = r.role_id
+          WHERE ur.user_id = ${users.discordId}
+          AND r.deleted = false
+          ORDER BY r.position DESC
+          LIMIT 3
+        ) role_data
+      )`,
     })
     .from(users)
     .where(conditions.length > 0 ? and(...conditions) : undefined)
@@ -650,47 +690,9 @@ export async function searchUsers(params: UserSearchParams) {
     .limit(limit)
     .offset(offset);
 
-  // Batch fetch top 3 roles for all users in results
-  const userIds = results.map(r => r.user.discordId);
-  
-  let userRolesMap: Record<string, Array<{ id: string; name: string; color: number }>> = {};
-  
-  if (userIds.length > 0) {
-    const rolesData = await db
-      .select({
-        userId: userRoles.userId,
-        roleId: roles.roleId,
-        roleName: roles.name,
-        roleColor: roles.color,
-        rolePosition: roles.position,
-      })
-      .from(userRoles)
-      .innerJoin(roles, eq(userRoles.roleId, roles.roleId))
-      .where(and(
-        inArray(userRoles.userId, userIds),
-        eq(roles.deleted, false)
-      ))
-      .orderBy(desc(roles.position));
-
-    // Group by user, take top 3
-    for (const row of rolesData) {
-      const key = row.userId.toString();
-      if (!userRolesMap[key]) {
-        userRolesMap[key] = [];
-      }
-      if (userRolesMap[key].length < 3) {
-        userRolesMap[key].push({
-          id: row.roleId.toString(),
-          name: row.roleName,
-          color: row.roleColor,
-        });
-      }
-    }
-  }
-
   return results.map(r => ({
     ...r,
-    topRoles: userRolesMap[r.user.discordId.toString()] || [],
+    topRoles: r.topRoles || [],
   }));
 }
 
@@ -707,6 +709,8 @@ export async function getUserCount(params: Omit<UserSearchParams, 'sortBy' | 'so
     voiceVerified,
     roleId,
     supervisorId,
+    hasShahada,
+    hasSupport,
   } = params;
 
   const conditions = [];
@@ -764,6 +768,27 @@ export async function getUserCount(params: Omit<UserSearchParams, 'sortBy' | 'so
         SELECT 1 FROM ${userSupervisors}
         WHERE ${userSupervisors.userId} = ${users.discordId}
         AND ${userSupervisors.supervisorId} = ${supervisorId}
+        AND ${userSupervisors.active} = true
+      )`
+    );
+  }
+
+  // Filter to users who have at least one shahada recorded
+  if (hasShahada) {
+    conditions.push(
+      sql`EXISTS (
+        SELECT 1 FROM ${shahadas}
+        WHERE ${shahadas.userId} = ${users.discordId}
+      )`
+    );
+  }
+
+  // Filter to users who have active support (active supervisors)
+  if (hasSupport) {
+    conditions.push(
+      sql`EXISTS (
+        SELECT 1 FROM ${userSupervisors}
+        WHERE ${userSupervisors.userId} = ${users.discordId}
         AND ${userSupervisors.active} = true
       )`
     );
@@ -939,5 +964,185 @@ export async function getDistinctRelationsToIslam() {
     .orderBy(asc(users.relationToIslam));
   
   return result.map(r => r.relationToIslam).filter(Boolean) as string[];
+}
+
+// ============================================================================
+// STAFF QUERIES
+// ============================================================================
+
+export type StaffSearchParams = {
+  query?: string;
+  sortBy?: 'name' | 'superviseeCount';
+  sortOrder?: 'asc' | 'desc';
+  limit?: number;
+  offset?: number;
+};
+
+/**
+ * Get staff members with their active supervisees
+ * Staff = users who have at least one active supervisee in UserSupervisor table
+ */
+export async function searchStaffWithSupervisees(params: StaffSearchParams) {
+  const {
+    query,
+    sortBy = 'superviseeCount',
+    sortOrder = 'desc',
+    limit = 50,
+    offset = 0,
+  } = params;
+
+  // First, get unique supervisor IDs with active supervisees
+  const conditions = [];
+
+  // Base condition - must have active supervisees
+  conditions.push(eq(userSupervisors.active, true));
+
+  // Build query to get staff with supervisee counts
+  const superviseeCountsQuery = db
+    .$with('supervisee_counts')
+    .as(
+      db
+        .select({
+          supervisorId: userSupervisors.supervisorId,
+          count: sql<number>`COUNT(*)::int`.as('count'),
+        })
+        .from(userSupervisors)
+        .where(eq(userSupervisors.active, true))
+        .groupBy(userSupervisors.supervisorId)
+    );
+
+  // Search conditions for staff
+  const staffConditions = [];
+  if (query) {
+    staffConditions.push(
+      or(
+        ilike(users.displayName, `%${query}%`),
+        ilike(users.name, `%${query}%`)
+      )
+    );
+  }
+
+  // Get staff with counts
+  const orderByClause = sortBy === 'name'
+    ? (sortOrder === 'asc' ? asc(sql`COALESCE(${users.displayName}, ${users.name})`) : desc(sql`COALESCE(${users.displayName}, ${users.name})`))
+    : (sortOrder === 'asc' ? asc(superviseeCountsQuery.count) : desc(superviseeCountsQuery.count));
+
+  const results = await db
+    .with(superviseeCountsQuery)
+    .select({
+      user: users,
+      superviseeCount: superviseeCountsQuery.count,
+    })
+    .from(users)
+    .innerJoin(superviseeCountsQuery, eq(users.discordId, superviseeCountsQuery.supervisorId))
+    .where(staffConditions.length > 0 ? and(...staffConditions) : undefined)
+    .orderBy(orderByClause)
+    .limit(limit)
+    .offset(offset);
+
+  // Batch fetch roles and supervisees for all staff
+  const staffIds = results.map(r => r.user.discordId);
+  
+  let staffRolesMap: Record<string, Array<{ id: string; name: string; color: number }>> = {};
+  let superviseesMap: Record<string, Array<{ id: string; name: string | null; displayName: string | null }>> = {};
+
+  if (staffIds.length > 0) {
+    // Fetch roles
+    const rolesData = await db
+      .select({
+        userId: userRoles.userId,
+        roleId: roles.roleId,
+        roleName: roles.name,
+        roleColor: roles.color,
+        rolePosition: roles.position,
+      })
+      .from(userRoles)
+      .innerJoin(roles, eq(userRoles.roleId, roles.roleId))
+      .where(and(
+        inArray(userRoles.userId, staffIds),
+        eq(roles.deleted, false)
+      ))
+      .orderBy(desc(roles.position));
+
+    // Group by user, take top 3
+    for (const row of rolesData) {
+      const key = row.userId.toString();
+      if (!staffRolesMap[key]) {
+        staffRolesMap[key] = [];
+      }
+      if (staffRolesMap[key].length < 3) {
+        staffRolesMap[key].push({
+          id: row.roleId.toString(),
+          name: row.roleName,
+          color: row.roleColor,
+        });
+      }
+    }
+
+    // Fetch supervisees for each staff member
+    const superviseesData = await db
+      .select({
+        supervisorId: userSupervisors.supervisorId,
+        userId: userSupervisors.userId,
+        userName: users.name,
+        userDisplayName: users.displayName,
+      })
+      .from(userSupervisors)
+      .innerJoin(users, eq(userSupervisors.userId, users.discordId))
+      .where(and(
+        inArray(userSupervisors.supervisorId, staffIds),
+        eq(userSupervisors.active, true)
+      ))
+      .orderBy(asc(users.displayName));
+
+    // Group supervisees by supervisor
+    for (const row of superviseesData) {
+      const key = row.supervisorId.toString();
+      if (!superviseesMap[key]) {
+        superviseesMap[key] = [];
+      }
+      superviseesMap[key].push({
+        id: row.userId.toString(),
+        name: row.userName,
+        displayName: row.userDisplayName,
+      });
+    }
+  }
+
+  return results.map(r => ({
+    ...r,
+    topRoles: staffRolesMap[r.user.discordId.toString()] || [],
+    supervisees: superviseesMap[r.user.discordId.toString()] || [],
+  }));
+}
+
+/**
+ * Get count of staff members for pagination
+ */
+export async function getStaffCount(params: { query?: string }) {
+  const { query } = params;
+
+  const conditions = [];
+  
+  if (query) {
+    conditions.push(
+      or(
+        ilike(users.displayName, `%${query}%`),
+        ilike(users.name, `%${query}%`)
+      )
+    );
+  }
+
+  // Count users who have at least one active supervisee
+  const result = await db
+    .select({ count: sql<number>`count(DISTINCT ${userSupervisors.supervisorId})::int` })
+    .from(userSupervisors)
+    .innerJoin(users, eq(userSupervisors.supervisorId, users.discordId))
+    .where(and(
+      eq(userSupervisors.active, true),
+      ...(conditions.length > 0 ? conditions : [])
+    ));
+
+  return result[0]?.count ?? 0;
 }
 

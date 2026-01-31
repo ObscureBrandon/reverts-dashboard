@@ -2,6 +2,7 @@
 
 import { Skeleton } from '@/components/ui/skeleton';
 import { useSession } from '@/lib/auth-client';
+import { useStaffTable } from '@/lib/hooks/queries/useStaffTable';
 import { usePrefetchUserDetails } from '@/lib/hooks/queries/useUserDetails';
 import { usePrefetchUsersTable, UserListItem, useUsersTable } from '@/lib/hooks/queries/useUsersTable';
 import { cn } from '@/lib/utils';
@@ -11,13 +12,13 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { parseAsArrayOf, parseAsInteger, parseAsString, parseAsStringLiteral, useQueryStates } from 'nuqs';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { columns, viewColumnDefaults } from './components/columns';
+import { columns, staffColumns, viewColumnDefaults } from './components/columns';
 import { DataTable } from './components/data-table';
 import { DataTableToolbar, FilterState, QuickFilter, ViewPreset } from './components/data-table-toolbar';
 import { UserDetailsPanel } from './components/user-details-panel';
 
 // URL search params schema
-const viewOptions = ['all', 'priority', 'newThisWeek'] as const;
+const viewOptions = ['all', 'staff'] as const;
 const orderOptions = ['asc', 'desc'] as const;
 
 const searchParamsSchema = {
@@ -142,15 +143,25 @@ export default function UsersPage() {
 
   // Update column visibility when view changes
   useEffect(() => {
-    const visibleColumns = viewColumnDefaults[activeView] || viewColumnDefaults.all;
-    const allColumnIds = ['user', 'relationToIslam', 'status', 'currentAssignmentStatus', 'topRoles', 'createdAt'];
-    
-    const newVisibility: VisibilityState = {};
-    allColumnIds.forEach(id => {
-      newVisibility[id] = visibleColumns.includes(id);
-    });
-    
-    setColumnVisibility(newVisibility);
+    if (activeView === 'staff') {
+      // Staff view uses its own columns, so just show all of them
+      const staffColumnIds = ['user', 'superviseeCount', 'supervisees', 'topRoles'];
+      const newVisibility: VisibilityState = {};
+      staffColumnIds.forEach(id => {
+        newVisibility[id] = true;
+      });
+      setColumnVisibility(newVisibility);
+    } else {
+      const visibleColumns = viewColumnDefaults[activeView] || viewColumnDefaults.all;
+      const allColumnIds = ['user', 'relationToIslam', 'status', 'currentAssignmentStatus', 'topRoles', 'createdAt'];
+      
+      const newVisibility: VisibilityState = {};
+      allColumnIds.forEach(id => {
+        newVisibility[id] = visibleColumns.includes(id);
+      });
+      
+      setColumnVisibility(newVisibility);
+    }
   }, [activeView]);
 
   // Debounced search - updates URL after typing stops
@@ -178,21 +189,13 @@ export default function UsersPage() {
   }, [setParams]);
 
   const handleViewChange = useCallback((view: ViewPreset) => {
-    // View changes may also update sorting and quick filters
-    if (view === 'priority') {
+    if (view === 'staff') {
+      // Set sort to a valid staff column
       setParams({ 
-        view: 'priority',
-        filters: ['needs-support'], 
-        sort: 'createdAt', 
-        order: 'asc', 
-        page: 1 
-      });
-    } else if (view === 'newThisWeek') {
-      setParams({ 
-        view, 
+        view: 'staff',
         filters: null, 
-        sort: null, 
-        order: null, 
+        sort: 'superviseeCount', 
+        order: 'desc', 
         page: 1 
       });
     } else {
@@ -264,8 +267,12 @@ export default function UsersPage() {
       apiParams.assignmentStatus = 'NEEDS_SUPPORT';
     }
 
-    if (activeQuickFilters.has('new-reverts')) {
-      apiParams.relationToIslam = 'Revert Muslim';
+    if (activeQuickFilters.has('has-shahada')) {
+      apiParams.hasShahada = true;
+    }
+
+    if (activeQuickFilters.has('has-support')) {
+      apiParams.hasSupport = true;
     }
 
     if (activeQuickFilters.has('assigned-to-me')) {
@@ -289,13 +296,37 @@ export default function UsersPage() {
     return apiParams;
   }, [params, activeQuickFilters]);
 
-  const { data, isLoading, isFetching, error } = useUsersTable(queryParams);
+  // Staff query params (simpler, just query and pagination)
+  const staffQueryParams = useMemo(() => ({
+    query: params.q || undefined,
+    page: params.page,
+    limit: 50,
+    sortBy: params.sort === 'user' ? 'name' as const : 'superviseeCount' as const,
+    sortOrder: params.order as 'asc' | 'desc',
+  }), [params]);
+
+  // Use conditional hooks - only one will actually fetch based on activeView
+  const usersQuery = useUsersTable(activeView !== 'staff' ? queryParams : { page: 1, limit: 1 });
+  const staffQuery = useStaffTable(activeView === 'staff' ? staffQueryParams : { page: 1, limit: 1 });
+  
   const { prefetchPage } = usePrefetchUsersTable();
 
-  // Prefetch adjacent pages
+  // Get the right data based on active view
+  const isStaffView = activeView === 'staff';
+  const data = isStaffView ? staffQuery.data : usersQuery.data;
+  const isLoading = isStaffView ? staffQuery.isLoading : usersQuery.isLoading;
+  const isFetching = isStaffView ? staffQuery.isFetching : usersQuery.isFetching;
+  const error = isStaffView ? staffQuery.error : usersQuery.error;
+  
+  // Get the data array based on view
+  const tableData = isStaffView 
+    ? (staffQuery.data?.staff || []) 
+    : (usersQuery.data?.users || []);
+
+  // Prefetch adjacent pages (only for users view)
   useEffect(() => {
-    if (data?.pagination) {
-      const { page: currentPage, totalPages } = data.pagination;
+    if (!isStaffView && usersQuery.data?.pagination) {
+      const { page: currentPage, totalPages } = usersQuery.data.pagination;
       
       if (currentPage < totalPages) {
         prefetchPage({ ...queryParams, page: currentPage + 1 });
@@ -304,7 +335,7 @@ export default function UsersPage() {
         prefetchPage({ ...queryParams, page: currentPage - 1 });
       }
     }
-  }, [data?.pagination, prefetchPage, queryParams]);
+  }, [isStaffView, usersQuery.data?.pagination, prefetchPage, queryParams]);
 
   // Show skeleton while checking session OR loading initial data
   const showInitialLoading = isSessionLoading || (isLoading && !data);
@@ -322,7 +353,7 @@ export default function UsersPage() {
     <div className="min-h-screen bg-background">
       {/* Main content - adds margin when panel is open to make room */}
       <div className={cn(
-        "transition-[margin] duration-300 ease-in-out",
+        "transition-[margin] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]",
         panelOpen && "lg:mr-[420px]"
       )}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -371,8 +402,8 @@ export default function UsersPage() {
 
           {/* Data Table */}
           <DataTable
-            columns={columns}
-            data={data?.users || []}
+            columns={isStaffView ? staffColumns : columns}
+            data={tableData as any}
             isLoading={isLoading}
             isFetching={isFetching}
             pagination={data?.pagination}
@@ -381,8 +412,8 @@ export default function UsersPage() {
             onColumnVisibilityChange={setColumnVisibility}
             sorting={sorting}
             onSortingChange={handleSortingChange}
-            onRowClick={handleRowClick}
-            onRowHoverStart={handleRowHover}
+            onRowClick={isStaffView ? undefined : handleRowClick}
+            onRowHoverStart={isStaffView ? undefined : handleRowHover}
             renderToolbar={(table) => (
               <DataTableToolbar
                 filters={filters}

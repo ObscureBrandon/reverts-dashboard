@@ -29,6 +29,8 @@ export type UsersTableParams = {
   voiceVerified?: boolean
   roleId?: string
   assignedToMe?: boolean
+  hasShahada?: boolean
+  hasSupport?: boolean
   sortBy?: 'name' | 'createdAt'
   sortOrder?: 'asc' | 'desc'
   page?: number
@@ -56,6 +58,8 @@ async function fetchUsers(params: UsersTableParams): Promise<UsersResponse> {
   if (params.voiceVerified !== undefined) query.voiceVerified = String(params.voiceVerified)
   if (params.roleId) query.roleId = params.roleId
   if (params.assignedToMe) query.assignedToMe = 'true'
+  if (params.hasShahada) query.hasShahada = 'true'
+  if (params.hasSupport) query.hasSupport = 'true'
   if (params.sortBy) query.sortBy = params.sortBy
   if (params.sortOrder) query.sortOrder = params.sortOrder
   if (params.page) query.page = String(params.page)
@@ -74,7 +78,7 @@ export function useUsersTable(params: UsersTableParams) {
   return useQuery({
     queryKey: ['users', 'table', params],
     queryFn: () => fetchUsers(params),
-    staleTime: 30 * 1000, // 30 seconds
+    staleTime: 5 * 60 * 1000, // 5 minutes
     // Keep previous data while fetching new data to prevent layout shift
     placeholderData: keepPreviousData,
   })
@@ -87,7 +91,7 @@ export function usePrefetchUsersTable() {
     queryClient.prefetchQuery({
       queryKey: ['users', 'table', params],
       queryFn: () => fetchUsers(params),
-      staleTime: 30 * 1000,
+      staleTime: 5 * 60 * 1000, // 5 minutes
     })
   }
 

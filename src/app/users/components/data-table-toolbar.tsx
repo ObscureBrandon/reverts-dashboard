@@ -2,17 +2,17 @@
 
 import { Button } from '@/components/ui/button';
 import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
+    DropdownMenu,
+    DropdownMenuCheckboxItem,
+    DropdownMenuContent,
+    DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Table } from '@tanstack/react-table';
 import { Columns3, Search, X } from 'lucide-react';
 
-export type ViewPreset = 'all' | 'priority' | 'newThisWeek';
-export type QuickFilter = 'needs-support' | 'new-reverts' | 'assigned-to-me';
+export type ViewPreset = 'all' | 'staff';
+export type QuickFilter = 'needs-support' | 'has-shahada' | 'has-support' | 'assigned-to-me';
 
 export type FilterState = {
   query: string;
@@ -20,8 +20,6 @@ export type FilterState = {
   relationToIslam: string;
   roleId: string;
   inGuild: string;
-  // For new reverts filter (created in last 30 days)
-  createdAfter?: string;
 };
 
 interface DataTableToolbarProps {
@@ -37,13 +35,13 @@ interface DataTableToolbarProps {
 
 const viewPresets: { id: ViewPreset; label: string }[] = [
   { id: 'all', label: 'All Users' },
-  { id: 'priority', label: 'Priority Queue' },
-  { id: 'newThisWeek', label: 'New This Week' },
+  { id: 'staff', label: 'Staff Overview' },
 ];
 
 const quickFilters: { id: QuickFilter; label: string; color: string }[] = [
   { id: 'needs-support', label: 'Needs Support', color: 'bg-red-100 text-red-700 border-red-200 dark:bg-red-950 dark:text-red-400 dark:border-red-900' },
-  { id: 'new-reverts', label: 'New Reverts', color: 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-400 dark:border-emerald-900' },
+  { id: 'has-shahada', label: 'Has Shahada', color: 'bg-teal-100 text-teal-700 border-teal-200 dark:bg-teal-950 dark:text-teal-400 dark:border-teal-900' },
+  { id: 'has-support', label: 'Has Support', color: 'bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-950 dark:text-purple-400 dark:border-purple-900' },
   { id: 'assigned-to-me', label: 'Assigned to Me', color: 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-400 dark:border-blue-900' },
 ];
 
@@ -54,6 +52,8 @@ const columnLabels: Record<string, string> = {
   currentAssignmentStatus: 'Assignment',
   topRoles: 'Roles',
   createdAt: 'Joined',
+  superviseeCount: 'Supporting',
+  supervisees: 'Supervisees',
 };
 
 export function DataTableToolbar({
@@ -71,7 +71,6 @@ export function DataTableToolbar({
     filters.relationToIslam !== 'all' ||
     filters.roleId !== 'all' ||
     filters.inGuild !== 'all' ||
-    filters.createdAfter ||
     activeQuickFilters.size > 0;
 
   const clearAllFilters = () => {
@@ -81,7 +80,6 @@ export function DataTableToolbar({
       relationToIslam: 'all',
       roleId: 'all',
       inGuild: 'all',
-      createdAfter: undefined,
     });
     // Clear quick filters by toggling them off
     activeQuickFilters.forEach(filter => onQuickFilterToggle(filter));
@@ -119,15 +117,15 @@ export function DataTableToolbar({
           />
         </div>
 
-        {/* Quick Filter Chips */}
-        <div className="flex items-center gap-2 flex-wrap">
+        {/* Quick Filter Chips - 2-column grid on mobile, flex on desktop */}
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-2 sm:flex-wrap">
           {quickFilters.map((filter) => {
             const isActive = activeQuickFilters.has(filter.id);
             return (
               <button
                 key={filter.id}
                 onClick={() => onQuickFilterToggle(filter.id)}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-full border transition-all ${
+                className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-full border transition-all ${
                   isActive
                     ? filter.color
                     : 'bg-background text-muted-foreground border-border hover:border-foreground/30'

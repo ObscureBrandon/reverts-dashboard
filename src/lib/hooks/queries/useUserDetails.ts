@@ -134,7 +134,7 @@ export function useUserDetails(userId: string | null) {
     queryKey: ['user', 'details', userId],
     queryFn: () => fetchUserDetails(userId!),
     enabled: !!userId,
-    staleTime: 60 * 1000, // 1 minute
+    staleTime: 5 * 60 * 1000, // 5 minutes
     gcTime: 5 * 60 * 1000, // Keep in cache for 5 minutes
   })
 }
@@ -149,7 +149,7 @@ export function usePrefetchUserDetails() {
     queryClient.prefetchQuery({
       queryKey: ['user', 'details', userId],
       queryFn: () => fetchUserDetails(userId),
-      staleTime: 60 * 1000,
+      staleTime: 5 * 60 * 1000, // 5 minutes
     })
   }
 

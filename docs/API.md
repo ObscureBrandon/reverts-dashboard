@@ -2,9 +2,57 @@
 
 > REST API documentation for the Reverts Dashboard.
 
+## Technology Stack
+
+The API is built with **ElysiaJS**, a fast Bun-native web framework, running inside Next.js via a catch-all route handler. This provides:
+
+- **End-to-end type safety** via Eden treaty client
+- **High performance** with Bun runtime
+- **Modular routing** with composable plugins
+- **Built-in validation** and error handling
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  Client (React/Next.js)                                              │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │  Eden Treaty Client (@/lib/eden.ts)                          │    │
+│  │  - Type-safe API calls                                       │    │
+│  │  - Automatic error handling                                  │    │
+│  │  - Works in SSR and client                                   │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+│                                    │                                  │
+└────────────────────────────────────┼──────────────────────────────────┘
+                                     │ HTTP
+┌────────────────────────────────────┼──────────────────────────────────┐
+│  ElysiaJS Server                   ▼                                  │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │  Catch-all Handler (app/api/[[...slugs]]/route.ts)          │    │
+│  │  └─> app.fetch (Elysia → Next.js adapter)                   │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+│                    │                                                  │
+│  ┌─────────────────┼───────────────────────────────────────────┐    │
+│  │  Route Modules  ▼                                            │    │
+│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────┐   │    │
+│  │  │  users   │ │ tickets  │ │ messages │ │  roles/etc   │   │    │
+│  │  └──────────┘ └──────────┘ └──────────┘ └──────────────┘   │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+│                    │                                                  │
+│  ┌─────────────────┼───────────────────────────────────────────┐    │
+│  │  Auth Macro     ▼                                            │    │
+│  │  (@/lib/elysia/auth.ts)                                      │    │
+│  │  - Session validation via better-auth                        │    │
+│  │  - Injects user/session into context                         │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+└───────────────────────────────────────────────────────────────────────┘
+```
+
 ## Authentication
 
 All API routes require authentication via Discord OAuth. Unauthenticated requests return `401 Unauthorized`.
+
+### Client Authentication
 
 Sessions are managed via cookies. Use the better-auth client for authentication:
 
@@ -19,6 +67,63 @@ const session = await authClient.getSession();
 
 // Sign out
 await authClient.signOut();
+```
+
+### Route Protection
+
+Routes are protected using the `authMacro` plugin which validates sessions and injects user context:
+
+```typescript
+import { authMacro } from '@/lib/elysia/auth'
+
+// Protected route example
+export const myRoutes = new Elysia()
+  .use(authMacro)
+  .get('/protected', ({ user, session }) => {
+    // user and session are available here
+    return { userId: user.id }
+  }, { auth: true })  // <-- Enable auth requirement
+```
+
+---
+
+## Using the Eden Client
+
+The Eden treaty client provides end-to-end type safety for API calls:
+
+```typescript
+import { api } from '@/lib/eden'
+
+// GET request with query params
+const { data, error } = await api.users.get({
+  query: { page: '1', limit: '50' }
+})
+
+// GET with path params
+const { data, error } = await api.users({ id: '123456789' }).get()
+
+// GET with path params and query
+const { data, error } = await api.users({ id: '123456789' }).get({
+  query: { full: 'true' }
+})
+
+// POST request
+const { data, error } = await api.tickets({ id: '123' }).summary.post()
+```
+
+### Error Handling
+
+```typescript
+const { data, error } = await api.users.get()
+
+if (error) {
+  // error is typed based on possible error responses
+  console.error('API error:', error)
+  return
+}
+
+// data is fully typed
+console.log(data.users)
 ```
 
 ---
@@ -38,120 +143,17 @@ Search for messages with optional filters.
 | `q` | string | - | Search query (fuzzy match on content) |
 | `staffOnly` | boolean | `false` | Filter to staff messages only |
 | `ticketId` | number | - | Filter by specific ticket ID |
-| `channelId` | string | - | Filter by channel ID (bigint as string) |
+| `mode` | string | - | Set to `transcript` for ticket transcripts |
 | `page` | number | `1` | Page number |
 | `limit` | number | `50` | Results per page (max 100) |
 
-**Response:**
+**Eden Usage:**
 
 ```typescript
-{
-  messages: Array<{
-    id: string;                    // message_id as string
-    content: string | null;
-    createdAt: string;             // ISO 8601
-    isDeleted: boolean;
-    isStaff: boolean;              // Computed from user roles
-    author: {
-      id: string;                  // discord_id as string
-      name: string;
-      displayName: string | null;
-      nick: string | null;
-      displayAvatar: string | null;
-    } | null;
-    channel: {
-      id: string;
-      name: string;
-    } | null;
-    ticket: {
-      id: number;
-      sequence: number | null;
-      status: "OPEN" | "CLOSED" | "DELETED" | null;
-      createdAt: string;
-    } | null;
-  }>;
-  mentions: {
-    users: Record<string, {
-      name: string;
-      displayName: string | null;
-      displayAvatar: string | null;
-    }>;
-    roles: Record<string, {
-      name: string;
-      color: number;
-    }>;
-    channels: Record<string, {
-      name: string;
-    }>;
-  };
-  pagination: {
-    total: number;
-    page: number;
-    limit: number;
-    totalPages: number;
-  };
-  guildId: string | null;          // For Discord deep links
-}
+const { data } = await api.messages.get({
+  query: { q: 'hello', staffOnly: 'true', page: '1' }
+})
 ```
-
-**Example Request:**
-
-```bash
-GET /api/messages?q=hello&staffOnly=true&page=1&limit=50
-```
-
-**Example Response:**
-
-```json
-{
-  "messages": [
-    {
-      "id": "1234567890123456789",
-      "content": "Hello! How can I help?",
-      "createdAt": "2024-01-15T10:30:00.000Z",
-      "isDeleted": false,
-      "isStaff": true,
-      "author": {
-        "id": "9876543210987654321",
-        "name": "StaffMember",
-        "displayName": "Staff Member",
-        "nick": null,
-        "displayAvatar": "https://cdn.discordapp.com/avatars/..."
-      },
-      "channel": {
-        "id": "1111111111111111111",
-        "name": "ticket-123"
-      },
-      "ticket": {
-        "id": 123,
-        "sequence": 123,
-        "status": "OPEN",
-        "createdAt": "2024-01-15T10:00:00.000Z"
-      }
-    }
-  ],
-  "mentions": {
-    "users": {},
-    "roles": {},
-    "channels": {}
-  },
-  "pagination": {
-    "total": 150,
-    "page": 1,
-    "limit": 50,
-    "totalPages": 3
-  },
-  "guildId": "123456789123456789"
-}
-```
-
-**Status Codes:**
-
-| Code | Description |
-|------|-------------|
-| `200` | Success |
-| `401` | Unauthorized (no session) |
-| `500` | Server error |
 
 ---
 
@@ -159,110 +161,143 @@ GET /api/messages?q=hello&staffOnly=true&page=1&limit=50
 
 #### `GET /api/tickets`
 
-Get a list of tickets.
+Get a list of tickets with pagination and filters.
 
 **Query Parameters:**
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `status` | string | - | Filter by status (OPEN, CLOSED, DELETED) |
-| `authorId` | string | - | Filter by author Discord ID |
+| `author` | string | - | Filter by author Discord ID |
+| `panel` | number | - | Filter by panel ID |
+| `sortBy` | string | `newest` | Sort order (newest, oldest, messages) |
 | `page` | number | `1` | Page number |
 | `limit` | number | `50` | Results per page |
 
-**Response:**
+**Eden Usage:**
 
 ```typescript
-{
-  tickets: Array<{
-    id: number;
-    channelId: string | null;
-    sequence: number | null;
-    status: "OPEN" | "CLOSED" | "DELETED" | null;
-    createdAt: string;
-    closedAt: string | null;
-    author: {
-      id: string;
-      name: string;
-      displayName: string | null;
-    } | null;
-    channel: {
-      id: string;
-      name: string;
-    } | null;
-  }>;
-  pagination: {
-    total: number;
-    page: number;
-    limit: number;
-    totalPages: number;
-  };
-}
+const { data } = await api.tickets.get({
+  query: { status: 'OPEN', sortBy: 'newest' }
+})
 ```
 
----
+#### `POST /api/tickets/:id/summary`
 
-#### `GET /api/tickets/[id]/summary`
+Generate AI summary for a ticket.
 
-Get or generate AI summary for a ticket.
-
-**Path Parameters:**
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `id` | number | Ticket ID |
-
-**Response:**
+**Eden Usage:**
 
 ```typescript
-{
-  ticketId: number;
-  summary: string | null;
-  generatedAt: string | null;
-  model: string | null;
-  tokensUsed: number | null;
-}
+const { data, error } = await api.tickets({ id: '123' }).summary.post()
 ```
 
 ---
 
 ### Users
 
-#### `GET /api/users/[id]`
+#### `GET /api/users`
 
-Get user details by Discord ID.
+List/search users with pagination.
 
-**Path Parameters:**
+**Query Parameters:**
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `id` | string | Discord user ID |
+| `q` | string | Search query |
+| `assignmentStatus` | string | Filter by assignment status |
+| `relationToIslam` | string | Filter by relation |
+| `inGuild` | boolean | Filter by guild membership |
+| `roleId` | string | Filter by role ID |
+| `page` | number | Page number |
+| `limit` | number | Results per page |
 
-**Response:**
+**Eden Usage:**
 
 ```typescript
-{
-  user: {
-    id: string;
-    name: string | null;
-    displayName: string | null;
-    displayAvatar: string | null;
-    nick: string | null;
-    inGuild: boolean;
-    isVerified: boolean;
-    isVoiceVerified: boolean;
-    relationToIslam: string | null;
-    gender: string | null;
-    age: string | null;
-    region: string | null;
-    createdAt: string;
-  };
-  roles: Array<{
-    id: string;
-    name: string;
-    color: number;
-  }>;
-}
+const { data } = await api.users.get({
+  query: { q: 'john', page: '1' }
+})
+```
+
+#### `GET /api/users/:id`
+
+Get user details by Discord ID.
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `full` | boolean | Include all user details (shahadas, supervisors, etc.) |
+
+**Eden Usage:**
+
+```typescript
+// Basic user info
+const { data } = await api.users({ id: '123456789' }).get()
+
+// Full profile
+const { data } = await api.users({ id: '123456789' }).get({
+  query: { full: 'true' }
+})
+```
+
+#### `GET /api/users/:id/popover`
+
+Get user popover data (optimized for UI popovers).
+
+**Eden Usage:**
+
+```typescript
+const { data } = await api.users({ id: '123456789' }).popover.get()
+```
+
+#### `GET /api/users/:id/ticket-stats`
+
+Get user's ticket statistics.
+
+**Eden Usage:**
+
+```typescript
+const { data } = await api.users({ id: '123456789' })['ticket-stats'].get()
+```
+
+#### `GET /api/users/relations`
+
+Get list of unique relation-to-Islam values.
+
+**Eden Usage:**
+
+```typescript
+const { data } = await api.users.relations.get()
+```
+
+---
+
+### Roles
+
+#### `GET /api/roles`
+
+Get list of Discord roles.
+
+**Eden Usage:**
+
+```typescript
+const { data } = await api.roles.get()
+```
+
+---
+
+### Panels
+
+#### `GET /api/panels`
+
+Get list of ticket panels.
+
+**Eden Usage:**
+
+```typescript
+const { data } = await api.panels.get()
 ```
 
 ---
@@ -275,10 +310,10 @@ All auth routes are handled by better-auth. Key endpoints:
 
 | Route | Method | Description |
 |-------|--------|-------------|
-| `/api/auth/signin/discord` | POST | Initiate Discord OAuth |
+| `/api/auth/sign-in/social` | POST | Initiate Discord OAuth |
 | `/api/auth/callback/discord` | GET | OAuth callback |
 | `/api/auth/session` | GET | Get current session |
-| `/api/auth/signout` | POST | Sign out |
+| `/api/auth/sign-out` | POST | Sign out |
 
 ---
 
@@ -304,13 +339,24 @@ All errors follow this format:
 
 ---
 
-## Rate Limiting
+## File Structure
 
-Currently no rate limiting is implemented. For production, consider adding:
-
-- Request rate limits (e.g., 100 requests/minute)
-- Search debouncing is handled client-side (150ms)
-- Staff role lookups are cached server-side (5 min TTL)
+```
+src/
+├── app/api/[[...slugs]]/
+│   └── route.ts           # Catch-all handler, exports App type
+├── lib/
+│   ├── eden.ts             # Eden treaty client
+│   └── elysia/
+│       ├── auth.ts         # Auth macro plugin
+│       └── routes/
+│           ├── users.ts    # User routes
+│           ├── tickets.ts  # Ticket routes
+│           ├── messages.ts # Message routes
+│           ├── roles.ts    # Role routes
+│           ├── panels.ts   # Panel routes
+│           └── relations.ts # Relations routes
+```
 
 ---
 

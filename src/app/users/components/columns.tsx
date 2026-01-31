@@ -2,29 +2,15 @@
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { StaffListItem } from '@/lib/hooks/queries/useStaffTable';
 import { UserListItem } from '@/lib/hooks/queries/useUsersTable';
+import { formatRelativeTime, roleColorToHex } from '@/lib/utils';
 import { ColumnDef } from '@tanstack/react-table';
 import { ArrowUpDown, Mic, ShieldCheck, UserX } from 'lucide-react';
-import Link from 'next/link';
-
-// Helper to format relative time
-function formatRelativeTime(dateStr: string): string {
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-  
-  if (diffDays === 0) return 'Today';
-  if (diffDays === 1) return 'Yesterday';
-  if (diffDays < 7) return `${diffDays}d ago`;
-  if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`;
-  if (diffDays < 365) return `${Math.floor(diffDays / 30)}mo ago`;
-  return `${Math.floor(diffDays / 365)}y ago`;
-}
 
 // Helper to get initials from name
 function getInitials(name: string | null): string {
@@ -35,12 +21,6 @@ function getInitials(name: string | null): string {
     .join('')
     .toUpperCase()
     .slice(0, 2);
-}
-
-// Helper to convert Discord role color to CSS
-function roleColorToHex(color: number): string {
-  if (color === 0) return '#99AAB5'; // Default gray for no color
-  return `#${color.toString(16).padStart(6, '0')}`;
 }
 
 // Status dot component for compact visual indicators
@@ -123,10 +103,7 @@ export const columns: ColumnDef<UserListItem>[] = [
       const displayName = user.displayName || user.name || 'Unknown';
       
       return (
-        <Link 
-          href={`/users/${user.id}`}
-          className="flex items-center gap-3 group"
-        >
+        <div className="flex items-center gap-3 group">
           <UserAvatar 
             src={user.displayAvatar} 
             name={displayName} 
@@ -142,7 +119,7 @@ export const columns: ColumnDef<UserListItem>[] = [
               </span>
             )}
           </div>
-        </Link>
+        </div>
       );
     },
   },
@@ -274,8 +251,134 @@ export const columns: ColumnDef<UserListItem>[] = [
 ];
 
 // Column visibility defaults for different views
+// Note: 'staff' view uses completely separate staffColumns defined below
 export const viewColumnDefaults: Record<string, string[]> = {
   all: ['user', 'relationToIslam', 'status', 'currentAssignmentStatus', 'topRoles', 'createdAt'],
-  priority: ['user', 'currentAssignmentStatus', 'status', 'createdAt'],
-  newThisWeek: ['user', 'relationToIslam', 'topRoles', 'createdAt'],
 };
+
+// Staff-specific columns for Staff Overview view
+export const staffColumns: ColumnDef<StaffListItem>[] = [
+  {
+    id: 'user',
+    accessorFn: (row) => row.displayName || row.name,
+    header: 'Staff Member',
+    cell: ({ row }) => {
+      const staff = row.original;
+      const displayName = staff.displayName || staff.name || 'Unknown';
+      
+      return (
+        <div className="flex items-center gap-3 group">
+          <Avatar className="h-9 w-9 border border-border">
+            <AvatarImage src={staff.displayAvatar || undefined} alt={displayName} />
+            <AvatarFallback className="text-xs font-medium bg-muted">
+              {getInitials(displayName)}
+            </AvatarFallback>
+          </Avatar>
+          <div className="flex flex-col min-w-0">
+            <span className="font-medium text-foreground group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors truncate">
+              {displayName}
+            </span>
+            {staff.displayName && staff.name && staff.displayName !== staff.name && (
+              <span className="text-xs text-muted-foreground truncate">
+                @{staff.name}
+              </span>
+            )}
+          </div>
+        </div>
+      );
+    },
+  },
+  {
+    id: 'superviseeCount',
+    accessorKey: 'superviseeCount',
+    header: 'Supporting',
+    cell: ({ row }) => {
+      const count = row.original.superviseeCount;
+      return (
+        <div className="flex items-center gap-1.5">
+          <span className="inline-flex items-center justify-center min-w-[24px] h-6 px-2 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 text-sm font-medium">
+            {count}
+          </span>
+          <span className="text-muted-foreground text-sm">
+            {count === 1 ? 'person' : 'people'}
+          </span>
+        </div>
+      );
+    },
+  },
+  {
+    id: 'supervisees',
+    accessorKey: 'supervisees',
+    header: 'Supervisees',
+    cell: ({ row }) => {
+      const supervisees = row.original.supervisees;
+      if (!supervisees || supervisees.length === 0) {
+        return <span className="text-muted-foreground text-sm">—</span>;
+      }
+      
+      const displayCount = 3;
+      const displayed = supervisees.slice(0, displayCount);
+      const remaining = supervisees.length - displayCount;
+      
+      return (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="flex items-center gap-1 text-sm cursor-default">
+              <span className="text-muted-foreground truncate max-w-[200px]">
+                {displayed.map(s => s.displayName || s.name || 'Unknown').join(', ')}
+              </span>
+              {remaining > 0 && (
+                <span className="text-muted-foreground whitespace-nowrap">
+                  +{remaining} more
+                </span>
+              )}
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="max-w-[300px]">
+            <div className="space-y-1">
+              {supervisees.map(s => (
+                <div key={s.id} className="text-sm">
+                  {s.displayName || s.name || 'Unknown'}
+                </div>
+              ))}
+            </div>
+          </TooltipContent>
+        </Tooltip>
+      );
+    },
+  },
+  {
+    accessorKey: 'topRoles',
+    header: 'Roles',
+    cell: ({ row }) => {
+      const roles = row.original.topRoles;
+      if (!roles || roles.length === 0) {
+        return <span className="text-muted-foreground text-sm">—</span>;
+      }
+      
+      
+      return (
+        <div className="flex items-center gap-1 flex-nowrap overflow-hidden max-w-[200px]">
+          {roles.slice(0, 2).map(role => (
+            <span
+              key={role.id}
+              className="inline-flex items-center text-xs px-1.5 py-0.5 rounded font-medium whitespace-nowrap"
+              style={{
+                backgroundColor: `${roleColorToHex(role.color)}15`,
+                color: roleColorToHex(role.color),
+                border: `1px solid ${roleColorToHex(role.color)}30`,
+              }}
+            >
+              {role.name}
+            </span>
+          ))}
+          {roles.length > 2 && (
+            <span className="text-xs text-muted-foreground whitespace-nowrap">
+              +{roles.length - 2}
+            </span>
+          )}
+        </div>
+      );
+    },
+  },
+];
