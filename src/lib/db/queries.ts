@@ -500,7 +500,8 @@ export async function getUserTicketStats(userId: bigint) {
   const stats = result[0];
   return {
     open: stats?.openCount || 0,
-    closed: (stats?.closedCount || 0) + (stats?.deletedCount || 0),
+    closed: stats?.closedCount || 0,
+    deleted: stats?.deletedCount || 0,
   };
 }
 

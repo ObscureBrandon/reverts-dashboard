@@ -125,7 +125,7 @@ export function DataTableToolbar({
               <button
                 key={filter.id}
                 onClick={() => onQuickFilterToggle(filter.id)}
-                className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-full border transition-all ${
+                className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md border transition-all ${
                   isActive
                     ? filter.color
                     : 'bg-background text-muted-foreground border-border hover:border-foreground/30'

@@ -22,6 +22,7 @@ import {
     Calendar,
     Check,
     ChevronDown,
+    ChevronRight,
     Clock,
     Copy,
     Globe,
@@ -706,27 +707,100 @@ function ModerationSection({ infractions }: { infractions: UserDetails['infracti
 // Tickets Section
 // ============================================================================
 
-function TicketsSection({ ticketStats }: { ticketStats: UserDetails['ticketStats'] }) {
+function TicketsSection({ 
+  ticketStats, 
+  recentTickets,
+  userId,
+}: { 
+  ticketStats: UserDetails['ticketStats'];
+  recentTickets: UserDetails['recentTickets'];
+  userId: string;
+}) {
+  const totalTickets = ticketStats.open + ticketStats.closed + ticketStats.deleted;
+  
   return (
-    <div className="flex items-center gap-4">
-      <div className="flex items-center gap-2">
-        <div className="p-2 rounded-lg bg-emerald-100 dark:bg-emerald-950">
-          <Ticket className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+    <div className="space-y-4">
+      {/* Stat cards row */}
+      <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          <div className="p-2 rounded-lg bg-emerald-100 dark:bg-emerald-950">
+            <Ticket className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+          </div>
+          <div>
+            <div className="text-lg font-semibold">{ticketStats.open}</div>
+            <div className="text-xs text-muted-foreground">Open</div>
+          </div>
         </div>
-        <div>
-          <div className="text-lg font-semibold">{ticketStats.open}</div>
-          <div className="text-xs text-muted-foreground">Open</div>
+        <div className="flex items-center gap-2">
+          <div className="p-2 rounded-lg bg-muted">
+            <Ticket className="h-4 w-4 text-muted-foreground" />
+          </div>
+          <div>
+            <div className="text-lg font-semibold">{ticketStats.closed}</div>
+            <div className="text-xs text-muted-foreground">Closed</div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="p-2 rounded-lg bg-red-100 dark:bg-red-950">
+            <Ticket className="h-4 w-4 text-red-600 dark:text-red-400" />
+          </div>
+          <div>
+            <div className="text-lg font-semibold">{ticketStats.deleted}</div>
+            <div className="text-xs text-muted-foreground">Deleted</div>
+          </div>
         </div>
       </div>
-      <div className="flex items-center gap-2">
-        <div className="p-2 rounded-lg bg-muted">
-          <Ticket className="h-4 w-4 text-muted-foreground" />
+      
+      {/* Scrollable ticket list */}
+      {recentTickets.length > 0 && (
+        <div className="space-y-2">
+          <div className="text-xs text-muted-foreground uppercase tracking-wide">All Tickets</div>
+          <div className="max-h-[200px] overflow-y-auto space-y-1 pr-1">
+            {recentTickets.map((ticket) => (
+              <a
+                key={ticket.id}
+                href={`/tickets/${ticket.id}`}
+                className="flex items-center justify-between px-2 py-1.5 rounded-md hover:bg-muted/50 transition-colors group"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-primary group-hover:underline">
+                    #{ticket.sequence !== null ? ticket.sequence : ticket.id}
+                  </span>
+                  <span className={cn(
+                    'inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium',
+                    ticket.status === 'OPEN' 
+                      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400'
+                      : ticket.status === 'DELETED'
+                        ? 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-400'
+                        : 'bg-muted text-muted-foreground'
+                  )}>
+                    {ticket.status}
+                  </span>
+                </div>
+                <span className="text-xs text-muted-foreground">
+                  {new Date(ticket.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                </span>
+              </a>
+            ))}
+          </div>
         </div>
-        <div>
-          <div className="text-lg font-semibold">{ticketStats.closed}</div>
-          <div className="text-xs text-muted-foreground">Closed</div>
-        </div>
-      </div>
+      )}
+      
+      {/* View All link */}
+      {totalTickets > 0 && (
+        <a
+          href={`/tickets?author=${userId}`}
+          className="flex items-center justify-center gap-1 px-3 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors text-sm font-medium"
+        >
+          View All Tickets
+          <ChevronRight className="h-4 w-4" />
+        </a>
+      )}
+      
+      {/* Empty state */}
+      {totalTickets === 0 && (
+        <p className="text-sm text-muted-foreground">No tickets found</p>
+      )}
     </div>
   );
 }
@@ -845,7 +919,11 @@ function PanelContent({
               icon={<Ticket className="h-4 w-4" />}
               defaultOpen={!isMobile}
             >
-              <TicketsSection ticketStats={data.ticketStats} />
+              <TicketsSection 
+                ticketStats={data.ticketStats} 
+                recentTickets={data.recentTickets}
+                userId={data.user.id}
+              />
             </CollapsibleSection>
           </div>
 

@@ -201,6 +201,7 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
           infractions,
           supervisorEntries,
           ticketStats,
+          recentTicketsResult,
         ] = await Promise.all([
           getUserShahadas(userId),
           getUserSupervisors(userId),
@@ -209,6 +210,10 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
           getUserInfractions(userId),
           getUserSupervisorEntries(userId),
           getUserTicketStats(userId),
+          getTickets({
+            authorId: userId,
+            sortBy: 'newest',
+          }),
         ])
 
         return {
@@ -314,7 +319,17 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
               displayName: e.supervisorDisplayName,
             } : null,
           })),
-          ticketStats,
+          ticketStats: {
+            open: ticketStats.open,
+            closed: ticketStats.closed,
+            deleted: ticketStats.deleted,
+          },
+          recentTickets: recentTicketsResult.map(t => ({
+            id: t.ticket.id,
+            sequence: t.ticket.sequence,
+            status: t.ticket.status,
+            createdAt: t.ticket.createdAt.toISOString(),
+          })),
         }
       }
 

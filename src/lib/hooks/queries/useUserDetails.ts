@@ -83,6 +83,14 @@ export type SupervisorEntry = {
 export type TicketStats = {
   open: number
   closed: number
+  deleted: number
+}
+
+export type RecentTicket = {
+  id: number
+  sequence: number | null
+  status: string | null
+  createdAt: string
 }
 
 export type UserDetails = {
@@ -112,6 +120,7 @@ export type UserDetails = {
   infractions: UserInfraction[]
   supervisorEntries: SupervisorEntry[]
   ticketStats: TicketStats
+  recentTickets: RecentTicket[]
 }
 
 async function fetchUserDetails(userId: string): Promise<UserDetails> {
