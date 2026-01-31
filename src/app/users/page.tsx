@@ -417,7 +417,7 @@ export default function UsersPage() {
 
           {/* Data Table */}
           <DataTable
-            columns={isStaffView ? staffColumns : columns}
+            columns={(isStaffView ? staffColumns : columns) as any}
             data={tableData as any}
             isLoading={isLoading || isViewSwitching}
             isFetching={isFetching}
