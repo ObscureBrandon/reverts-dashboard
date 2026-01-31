@@ -50,7 +50,7 @@ All table state is synced to the URL via [nuqs](https://nuqs.47ng.com/), enablin
 |-------|------|---------|-------------|
 | `page` | integer | `1` | Current page number |
 | `q` | string | `""` | Search query |
-| `view` | `all` \| `priority` \| `newThisWeek` | `all` | View preset |
+| `view` | `all` \| `staff` | `all` | View preset |
 | `status` | string | `all` | Assignment status filter |
 | `relation` | string | `all` | Relation to Islam filter |
 | `role` | string | `all` | Role ID filter |
@@ -66,11 +66,11 @@ All table state is synced to the URL via [nuqs](https://nuqs.47ng.com/), enablin
 # Page 2 with search
 /users?page=2&q=john
 
-# Priority view (auto-applies needs-support filter)
-/users?view=priority&filters=needs-support&order=asc
+# Staff view
+/users?view=staff&sort=superviseeCount&order=desc
 
 # Multiple quick filters
-/users?filters=inactive,left-server
+/users?filters=needs-support,has-shahada
 
 # Deep link to user panel
 /users?user=abc123
@@ -82,6 +82,30 @@ All table state is synced to the URL via [nuqs](https://nuqs.47ng.com/), enablin
 - **View presets**: Switching views auto-applies associated filters/sorting
 - **Debounced search**: Search input updates URL after 150ms delay
 - **History mode**: Uses `replace` to avoid cluttering browser history
+
+---
+
+## Views and Quick Filters
+
+### View Presets
+
+| View | Description | Sort Default | Columns |
+|------|-------------|--------------|---------|
+| **All Users** | Default view showing all community members | `createdAt` desc | User, Relation, Status, Roles, Created |
+| **Staff Overview** | Staff members with their supervisees | `superviseeCount` desc | User, Supporting, Supervisees, Roles |
+
+When switching to Staff Overview, the table uses different columns and data source (`/api/users/staff`). Quick filters are hidden as they don't apply to staff data.
+
+### Quick Filters (All Users view only)
+
+| Filter ID | Label | Effect |
+|-----------|-------|--------|
+| `needs-support` | Needs Support | `assignmentStatus = 'NEEDS_SUPPORT'` |
+| `has-shahada` | Has Shahada | Users with at least one recorded shahada |
+| `has-support` | Has Support | Users with active supervisors |
+| `assigned-to-me` | Assigned to Me | Users assigned to current staff member |
+
+Quick filters are toggle buttons that apply backend filters. Multiple can be active simultaneously.
 
 ---
 
@@ -140,6 +164,7 @@ The Sheet uses fixed positioning and portal rendering. The table content never m
 | Endpoint | Purpose |
 |----------|---------|
 | `GET /api/users` | Paginated user list with filters |
+| `GET /api/users/staff` | Staff members with supervisee data |
 | `GET /api/users/[id]?full=true` | Full user details for panel |
 | `GET /api/users/relations` | Distinct relation values for filter dropdown |
 | `GET /api/roles` | Roles for filter dropdown |
@@ -149,6 +174,7 @@ The Sheet uses fixed positioning and portal rendering. The table content never m
 | Hook | File | Purpose |
 |------|------|---------|
 | `useUsersTable` | `useUsersTable.ts` | Fetches paginated user list |
+| `useStaffTable` | `useStaffTable.ts` | Fetches staff with supervisee data |
 | `usePrefetchUsersTable` | `useUsersTable.ts` | Prefetches adjacent pages |
 | `useUserDetails` | `useUserDetails.ts` | Fetches full user details |
 | `usePrefetchUserDetails` | `useUserDetails.ts` | Prefetches user on hover |
