@@ -49,12 +49,13 @@ async function fetchStaff(params: StaffTableParams): Promise<StaffResponse> {
   return data as StaffResponse
 }
 
-export function useStaffTable(params: StaffTableParams) {
+export function useStaffTable(params: StaffTableParams, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ['users', 'staff', params],
     queryFn: () => fetchStaff(params),
-    staleTime: 30 * 1000, // 30 seconds
+    staleTime: 5 * 60 * 1000, // 5 minutes
     placeholderData: keepPreviousData,
+    enabled: options?.enabled ?? true,
   })
 }
 

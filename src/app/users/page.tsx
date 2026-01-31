@@ -305,9 +305,9 @@ export default function UsersPage() {
     sortOrder: params.order as 'asc' | 'desc',
   }), [params]);
 
-  // Use conditional hooks - only one will actually fetch based on activeView
-  const usersQuery = useUsersTable(activeView !== 'staff' ? queryParams : { page: 1, limit: 1 });
-  const staffQuery = useStaffTable(activeView === 'staff' ? staffQueryParams : { page: 1, limit: 1 });
+  // Use conditional hooks - disable the inactive one to prevent stale data issues
+  const usersQuery = useUsersTable(queryParams, { enabled: activeView !== 'staff' });
+  const staffQuery = useStaffTable(staffQueryParams, { enabled: activeView === 'staff' });
   
   const { prefetchPage } = usePrefetchUsersTable();
 

@@ -74,13 +74,14 @@ async function fetchUsers(params: UsersTableParams): Promise<UsersResponse> {
   return data as UsersResponse
 }
 
-export function useUsersTable(params: UsersTableParams) {
+export function useUsersTable(params: UsersTableParams, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ['users', 'table', params],
     queryFn: () => fetchUsers(params),
     staleTime: 5 * 60 * 1000, // 5 minutes
     // Keep previous data while fetching new data to prevent layout shift
     placeholderData: keepPreviousData,
+    enabled: options?.enabled ?? true,
   })
 }
 
