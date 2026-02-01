@@ -3,47 +3,47 @@
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import {
-    Drawer,
-    DrawerContent,
-    DrawerDescription,
-    DrawerTitle,
+  Drawer,
+  DrawerContent,
+  DrawerDescription,
+  DrawerTitle,
 } from '@/components/ui/drawer';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
-    useUserDetails,
-    type UserDetails
+  useUserDetails,
+  type UserDetails
 } from '@/lib/hooks/queries/useUserDetails';
 import { cn, formatRelativeTime, roleColorToHex } from '@/lib/utils';
 import * as VisuallyHidden from '@radix-ui/react-visually-hidden';
 import {
-    AlertTriangle,
-    Ban,
-    BookOpen,
-    Calendar,
-    Check,
-    ChevronDown,
-    ChevronRight,
-    Clock,
-    Copy,
-    Globe,
-    Heart,
-    Mars,
-    MessageSquare,
-    Mic,
-    MicOff,
-    Shield,
-    ShieldAlert,
-    ShieldCheck,
-    Star,
-    Ticket,
-    Timer,
-    User,
-    UserMinus,
-    UserX,
-    Users,
-    Venus,
-    VolumeX,
-    X
+  AlertTriangle,
+  Ban,
+  BookOpen,
+  Calendar,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Clock,
+  Copy,
+  Globe,
+  Heart,
+  Mars,
+  MessageSquare,
+  Mic,
+  MicOff,
+  Shield,
+  ShieldAlert,
+  ShieldCheck,
+  Star,
+  Ticket,
+  Timer,
+  User,
+  UserMinus,
+  UserX,
+  Users,
+  Venus,
+  VolumeX,
+  X
 } from 'lucide-react';
 import * as React from 'react';
 import { useCallback, useState } from 'react';
@@ -720,34 +720,25 @@ function TicketsSection({
   
   return (
     <div className="space-y-4">
-      {/* Stat cards row */}
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2">
-          <div className="p-2 rounded-lg bg-emerald-100 dark:bg-emerald-950">
-            <Ticket className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+      {/* Stat row */}
+      <div className="flex gap-4">
+        <div className="flex-1">
+          <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
+            {ticketStats.open}
           </div>
-          <div>
-            <div className="text-lg font-semibold">{ticketStats.open}</div>
-            <div className="text-xs text-muted-foreground">Open</div>
-          </div>
+          <div className="text-xs text-muted-foreground">Open</div>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="p-2 rounded-lg bg-muted">
-            <Ticket className="h-4 w-4 text-muted-foreground" />
+        <div className="flex-1">
+          <div className="text-2xl font-bold text-muted-foreground">
+            {ticketStats.closed}
           </div>
-          <div>
-            <div className="text-lg font-semibold">{ticketStats.closed}</div>
-            <div className="text-xs text-muted-foreground">Closed</div>
-          </div>
+          <div className="text-xs text-muted-foreground">Closed</div>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="p-2 rounded-lg bg-red-100 dark:bg-red-950">
-            <Ticket className="h-4 w-4 text-red-600 dark:text-red-400" />
+        <div className="flex-1">
+          <div className="text-2xl font-bold text-red-600 dark:text-red-400">
+            {ticketStats.deleted}
           </div>
-          <div>
-            <div className="text-lg font-semibold">{ticketStats.deleted}</div>
-            <div className="text-xs text-muted-foreground">Deleted</div>
-          </div>
+          <div className="text-xs text-muted-foreground">Deleted</div>
         </div>
       </div>
       
