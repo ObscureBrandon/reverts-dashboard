@@ -4,13 +4,13 @@ import { Avatar } from '@/app/components/Avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
-    DropdownMenu,
-    DropdownMenuCheckboxItem,
-    DropdownMenuContent,
-    DropdownMenuTrigger,
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ColumnDef } from '@tanstack/react-table';
-import { ArrowUpDown, ChevronDown, Loader2, MessageSquare } from 'lucide-react';
+import { ArrowUpDown, ChevronDown, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 
 export type TicketListItem = {
@@ -207,19 +207,22 @@ export const ticketColumns: ColumnDef<TicketListItem>[] = [
     id: 'messageCount',
     accessorKey: 'messageCount',
     header: ({ column }) => (
-      <Button
-        variant="ghost"
-        size="sm"
-        className="-ml-3 h-8 hover:bg-transparent"
-        onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
-      >
-        <MessageSquare className="mr-2 h-4 w-4" />
-        Messages
-        <ArrowUpDown className="ml-2 h-4 w-4" />
-      </Button>
+      <div className="flex justify-center w-full">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-8 hover:bg-transparent"
+          onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
+        >
+          Messages
+          <ArrowUpDown className="ml-2 h-4 w-4" />
+        </Button>
+      </div>
     ),
     cell: ({ row }) => (
-      <span className="text-sm text-foreground">{row.original.messageCount}</span>
+      <div className="text-center -translate-x-3">
+        <span className="text-sm text-foreground">{row.original.messageCount}</span>
+      </div>
     ),
   },
   {
