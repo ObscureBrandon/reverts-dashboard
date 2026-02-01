@@ -1,17 +1,23 @@
 'use client';
 
-import { useState, useCallback, Suspense, useRef, useEffect } from 'react';
-import { useSearchParams } from 'next/navigation';
-import { useDebounce } from '@/lib/hooks/useDebounce';
+import { Avatar } from '@/app/components/Avatar';
+import { LoadingSpinner } from '@/app/components/LoadingSpinner';
+import { NavigationHeader } from '@/app/components/navigation-header';
+import { ChannelPopover } from '@/app/components/popovers/ChannelPopover';
+import { RolePopover } from '@/app/components/popovers/RolePopover';
+import { UserPopover } from '@/app/components/popovers/UserPopover';
+import { roleColorToHex } from '@/app/components/utils';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
 import { useMessages, usePrefetchMessages } from '@/lib/hooks/queries/useMessages';
 import { usePrefetchUser, useUserPopoverData } from '@/lib/hooks/queries/useUsers';
+import { useDebounce } from '@/lib/hooks/useDebounce';
+import { ChevronLeft, ChevronRight, Loader2, MessageSquare, Search } from 'lucide-react';
 import Link from 'next/link';
-import { Avatar } from '@/app/components/Avatar';
-import { roleColorToHex } from '@/app/components/utils';
-import { UserPopover } from '@/app/components/popovers/UserPopover';
-import { RolePopover } from '@/app/components/popovers/RolePopover';
-import { ChannelPopover } from '@/app/components/popovers/ChannelPopover';
-import { LoadingSpinner } from '@/app/components/LoadingSpinner';
+import { useSearchParams } from 'next/navigation';
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 
 type Message = {
   id: string;
@@ -258,7 +264,7 @@ function MessagesPageContent() {
   }
   
   // Use TanStack Query hook for data fetching
-  const { data, isLoading, error } = useMessages({
+  const { data, isLoading, isFetching, error } = useMessages({
     q: debouncedQuery || undefined,
     staffOnly: staffOnly || undefined,
     page,
@@ -379,7 +385,8 @@ function MessagesPageContent() {
   }, []);
   
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="min-h-screen bg-background">
+      <NavigationHeader />
       {/* Render three separate popovers */}
       {userModalData && userModalData.popoverData && (
         <UserPopover 
@@ -423,93 +430,103 @@ function MessagesPageContent() {
         />
       )}
       <div className="max-w-7xl mx-auto px-4 py-8">
-        <div className="flex items-center justify-between mb-2">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+        {/* Header */}
+        <div className="mb-8">
+          <h1 className="text-2xl font-semibold text-foreground tracking-tight">
             Message Search
           </h1>
-          <Link 
-            href="/tickets"
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm font-medium"
-          >
-            Browse Tickets
-          </Link>
+          <div className="h-1 w-12 bg-emerald-500 rounded-full mt-2" />
+          <p className="text-muted-foreground mt-2">
+            Search through Discord messages
+          </p>
         </div>
-        <p className="text-gray-600 dark:text-gray-400 mb-8">
-          Search through Discord messages
-        </p>
         
         {/* Search Bar */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 mb-6">
-          <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-end">
-            <div className="flex-1 w-full">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Search Messages
+        <Card className="mb-6">
+          <CardContent className="pt-6">
+            <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-end">
+              <div className="flex-1 w-full">
+                <label className="block text-sm font-medium text-muted-foreground mb-2">
+                  Search Messages
+                </label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search message content..."
+                    className="pl-9"
+                  />
+                </div>
+              </div>
+              
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Checkbox
+                  checked={staffOnly}
+                  onCheckedChange={(checked: boolean | 'indeterminate') => setStaffOnly(checked === true)}
+                  className="data-[state=checked]:bg-emerald-600 data-[state=checked]:border-emerald-600"
+                />
+                <span className="text-sm font-medium text-foreground whitespace-nowrap">
+                  Staff Only
+                </span>
               </label>
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search message content..."
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
-              />
             </div>
             
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={staffOnly}
-                onChange={(e) => setStaffOnly(e.target.checked)}
-                className="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
-              />
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap">
-                Staff Only
-              </span>
-            </label>
-          </div>
-          
-          {total > 0 && (
-            <div className="mt-4 text-sm text-gray-600 dark:text-gray-400">
-              Found {total.toLocaleString()} message{total !== 1 ? 's' : ''}
-            </div>
-          )}
-        </div>
+            {total > 0 && (
+              <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
+                {isFetching && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                <span>
+                  Found <span className="font-medium text-foreground">{total.toLocaleString()}</span> message{total !== 1 ? 's' : ''}
+                </span>
+              </div>
+            )}
+          </CardContent>
+        </Card>
         
         {/* Error Message */}
         {error && (
-          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 mb-6">
-            <p className="text-red-800 dark:text-red-200">
+          <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 mb-6">
+            <p className="text-destructive text-sm">
               Error: {error.message}
             </p>
           </div>
         )}
         
         {/* Results */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden">
+        <Card className="overflow-hidden relative">
+          {/* Accent gradient at top */}
+          <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-emerald-500/30 via-emerald-500 to-emerald-500/30" />
+          
           {isLoading ? (
-            <div className="p-12 text-center">
-              <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-              <p className="mt-4 text-gray-500 dark:text-gray-400">Loading messages...</p>
-            </div>
+            <CardContent className="py-12">
+              <div className="flex flex-col items-center justify-center gap-4">
+                <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
+                <p className="text-muted-foreground">Loading messages...</p>
+              </div>
+            </CardContent>
           ) : messages.length === 0 ? (
-            <div className="p-12 text-center text-gray-500 dark:text-gray-400">
-              {debouncedQuery || staffOnly ? (
-                <>
-                  <svg className="mx-auto h-12 w-12 text-gray-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                  </svg>
-                  <p className="text-lg font-medium">No messages found</p>
-                  <p className="text-sm mt-2">Try adjusting your search criteria</p>
-                </>
-              ) : (
-                <>
-                  <svg className="mx-auto h-12 w-12 text-gray-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                  </svg>
-                  <p className="text-lg font-medium">Start searching</p>
-                  <p className="text-sm mt-2">Enter a search term to find messages</p>
-                </>
+            <CardContent className="py-12">
+              <div className="flex flex-col items-center justify-center gap-3">
+                {debouncedQuery || staffOnly ? (
+                  <>
+                    <div className="p-4 rounded-full bg-muted">
+                      <Search className="h-8 w-8 text-muted-foreground" />
+                    </div>
+                    <p className="text-lg font-medium text-foreground">No messages found</p>
+                    <p className="text-sm text-muted-foreground">Try adjusting your search criteria</p>
+                  </>
+                ) : (
+                  <>
+                    <div className="p-4 rounded-full bg-emerald-50 dark:bg-emerald-950/50">
+                      <MessageSquare className="h-8 w-8 text-emerald-500" />
+                    </div>
+                    <p className="text-lg font-medium text-foreground">Start searching</p>
+                    <p className="text-sm text-muted-foreground">Enter a search term to find messages</p>
+                  </>
               )}
-            </div>
+              </div>
+            </CardContent>
           ) : (
             <>
               <div className="divide-y divide-gray-200 dark:divide-gray-700">
@@ -632,31 +649,43 @@ function MessagesPageContent() {
               
               {/* Pagination */}
               {totalPages > 1 && (
-                <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex flex-col sm:flex-row justify-between items-center gap-4">
-                  <button
-                    onClick={() => setPage(p => Math.max(1, p - 1))}
-                    disabled={page === 1 || isLoading}
-                    className="w-full sm:w-auto px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed disabled:hover:bg-gray-300 transition-colors"
-                  >
-                    Previous
-                  </button>
-                  
-                  <span className="text-gray-600 dark:text-gray-400">
-                    Page {page} of {totalPages}
-                  </span>
-                  
-                  <button
-                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                    disabled={page === totalPages || isLoading}
-                    className="w-full sm:w-auto px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed disabled:hover:bg-gray-300 transition-colors"
-                  >
-                    Next
-                  </button>
+                <div className="p-4 border-t border-border flex items-center justify-between">
+                  <p className="text-sm text-muted-foreground">
+                    Page <span className="font-medium text-foreground">{page}</span> of{' '}
+                    <span className="font-medium text-foreground">{totalPages}</span>
+                  </p>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 w-8 p-0"
+                      onClick={() => setPage(p => Math.max(1, p - 1))}
+                      disabled={page === 1 || isLoading}
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <div className="flex items-center gap-1.5 px-2 text-sm">
+                      <span className="font-medium px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400">
+                        {page}
+                      </span>
+                      <span className="text-muted-foreground">/</span>
+                      <span className="text-muted-foreground">{totalPages}</span>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 w-8 p-0"
+                      onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                      disabled={page === totalPages || isLoading}
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
               )}
             </>
           )}
-        </div>
+        </Card>
       </div>
     </div>
   );
@@ -666,10 +695,13 @@ function MessagesPageContent() {
 export default function MessagesPage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
-        <div className="text-center">
-          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-4"></div>
-          <p className="text-gray-500 dark:text-gray-400">Loading...</p>
+      <div className="min-h-screen bg-background">
+        <NavigationHeader />
+        <div className="flex items-center justify-center pt-32">
+          <div className="text-center">
+            <Loader2 className="h-8 w-8 animate-spin text-emerald-500 mx-auto mb-4" />
+            <p className="text-muted-foreground">Loading...</p>
+          </div>
         </div>
       </div>
     }>

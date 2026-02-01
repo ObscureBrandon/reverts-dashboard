@@ -1,5 +1,6 @@
 'use client';
 
+import { NavigationHeader } from '@/app/components/navigation-header';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useSession } from '@/lib/auth-client';
 import { useStaffDetails } from '@/lib/hooks/queries/useStaffDetails';
@@ -9,7 +10,6 @@ import { usePrefetchUsersTable, UserListItem, useUsersTable } from '@/lib/hooks/
 import { cn } from '@/lib/utils';
 import { useDebouncedCallback } from '@tanstack/react-pacer';
 import { SortingState, VisibilityState } from '@tanstack/react-table';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { parseAsArrayOf, parseAsInteger, parseAsString, parseAsStringLiteral, useQueryStates } from 'nuqs';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -411,40 +411,17 @@ export default function UsersPage() {
         "transition-[margin] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]",
         panelOpen && "lg:mr-[420px]"
       )}>
+        <NavigationHeader />
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           {/* Header */}
           <div className="mb-8">
-            <div className="flex items-center justify-between">
-              <div>
-                <h1 className="text-2xl font-semibold text-foreground tracking-tight">
-                  Users
-                </h1>
-                <div className="h-1 w-12 bg-emerald-500 rounded-full mt-2" />
-                <p className="text-muted-foreground mt-2">
-                  Manage and view all community members
-                </p>
-              </div>
-              <div className="flex items-center gap-6">
-                <Link
-                  href="/"
-                  className="text-sm text-muted-foreground hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors"
-                >
-                  Home
-                </Link>
-                <Link
-                  href="/tickets"
-                  className="text-sm text-muted-foreground hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors"
-                >
-                  Tickets
-                </Link>
-                <Link
-                  href="/messages"
-                  className="text-sm text-muted-foreground hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors"
-                >
-                  Messages
-                </Link>
-              </div>
-            </div>
+            <h1 className="text-2xl font-semibold text-foreground tracking-tight">
+              Users
+            </h1>
+            <div className="h-1 w-12 bg-emerald-500 rounded-full mt-2" />
+            <p className="text-muted-foreground mt-2">
+              Manage and view all community members
+            </p>
           </div>
 
           {/* Error state */}

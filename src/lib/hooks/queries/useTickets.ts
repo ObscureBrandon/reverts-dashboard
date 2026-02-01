@@ -1,7 +1,7 @@
 'use client'
 
 import { api } from '@/lib/eden'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
 
 export type Ticket = {
   id: number
@@ -121,6 +121,7 @@ export function useTickets(params: TicketsParams = {}, options?: { enabled?: boo
       return data as TicketsResponse
     },
     staleTime: 30 * 1000, // 30 seconds
+    placeholderData: keepPreviousData, // Keep previous results visible while fetching
     ...options,
   })
 }

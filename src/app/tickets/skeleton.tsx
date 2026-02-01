@@ -1,125 +1,135 @@
+import { NavigationHeader } from '@/app/components/navigation-header';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow,
+} from '@/components/ui/table';
+
 export default function TicketsListSkeleton() {
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="min-h-screen bg-background">
+      <NavigationHeader />
       <div className="max-w-7xl mx-auto px-4 py-8">
-        {/* Header Skeleton */}
+        {/* Header skeleton */}
         <div className="mb-8">
-          <div className="flex items-center justify-between mb-2">
-            <div className="h-9 w-48 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
-            <div className="h-10 w-36 bg-gray-200 dark:bg-gray-700 rounded-md animate-pulse"></div>
-          </div>
-          <div className="h-5 w-64 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
+          <Skeleton className="h-8 w-48 mb-2" />
+          <div className="h-1 w-12 bg-emerald-500/30 rounded-full mt-2" />
+          <Skeleton className="h-5 w-64 mt-2" />
         </div>
         
-        {/* Filters Skeleton */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 mb-6">
-          <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-            <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center flex-1">
-              {/* Status filter */}
-              <div>
-                <div className="h-4 w-12 bg-gray-200 dark:bg-gray-700 rounded animate-pulse mb-1"></div>
-                <div className="h-10 w-32 bg-gray-200 dark:bg-gray-700 rounded-md animate-pulse"></div>
+        {/* Toolbar skeleton */}
+        <div className="space-y-4 mb-4">
+          <div className="rounded-lg border border-border bg-card p-4">
+            <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+              <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center flex-1">
+                <div>
+                  <Skeleton className="h-4 w-12 mb-1.5" />
+                  <Skeleton className="h-10 w-[140px]" />
+                </div>
+                <div>
+                  <Skeleton className="h-4 w-12 mb-1.5" />
+                  <Skeleton className="h-10 w-[160px]" />
+                </div>
+                <div>
+                  <Skeleton className="h-4 w-14 mb-1.5" />
+                  <Skeleton className="h-10 w-[150px]" />
+                </div>
               </div>
-              
-              {/* Panel filter */}
-              <div>
-                <div className="h-4 w-12 bg-gray-200 dark:bg-gray-700 rounded animate-pulse mb-1"></div>
-                <div className="h-10 w-32 bg-gray-200 dark:bg-gray-700 rounded-md animate-pulse"></div>
-              </div>
-              
-              {/* Sort by */}
-              <div>
-                <div className="h-4 w-14 bg-gray-200 dark:bg-gray-700 rounded animate-pulse mb-1"></div>
-                <div className="h-10 w-32 bg-gray-200 dark:bg-gray-700 rounded-md animate-pulse"></div>
-              </div>
+              <Skeleton className="h-5 w-24" />
             </div>
-            
-            {/* Ticket count */}
-            <div className="h-5 w-32 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
           </div>
         </div>
         
-        {/* Tickets Table Skeleton */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden">
+        {/* Table skeleton */}
+        <div className="rounded-lg border border-border bg-card overflow-hidden relative">
+          {/* Accent gradient at top */}
+          <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-emerald-500/30 via-emerald-500 to-emerald-500/30" />
+          
           {/* Desktop Table View */}
-          <div className="hidden md:block overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
-                <tr>
-                  <th className="px-6 py-3 text-left">
-                    <div className="h-3 w-12 bg-gray-300 dark:bg-gray-600 rounded animate-pulse"></div>
-                  </th>
-                  <th className="px-6 py-3 text-left">
-                    <div className="h-3 w-16 bg-gray-300 dark:bg-gray-600 rounded animate-pulse"></div>
-                  </th>
-                  <th className="px-6 py-3 text-left">
-                    <div className="h-3 w-14 bg-gray-300 dark:bg-gray-600 rounded animate-pulse"></div>
-                  </th>
-                  <th className="px-6 py-3 text-left">
-                    <div className="h-3 w-20 bg-gray-300 dark:bg-gray-600 rounded animate-pulse"></div>
-                  </th>
-                  <th className="px-6 py-3 text-left">
-                    <div className="h-3 w-16 bg-gray-300 dark:bg-gray-600 rounded animate-pulse"></div>
-                  </th>
-                  <th className="px-6 py-3 text-left">
-                    <div className="h-3 w-14 bg-gray-300 dark:bg-gray-600 rounded animate-pulse"></div>
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((i) => (
-                  <tr key={i}>
-                    <td className="px-6 py-4">
-                      <div className="h-5 w-16 bg-gray-200 dark:bg-gray-700 rounded animate-pulse mb-1"></div>
-                      <div className="h-3 w-20 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
-                    </td>
-                    <td className="px-6 py-4">
+          <div className="hidden md:block">
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent border-border bg-muted/30">
+                  <TableHead className="h-11 text-muted-foreground font-medium">
+                    <Skeleton className="h-4 w-16" />
+                  </TableHead>
+                  <TableHead className="h-11 text-muted-foreground font-medium">
+                    <Skeleton className="h-4 w-16" />
+                  </TableHead>
+                  <TableHead className="h-11 text-muted-foreground font-medium">
+                    <Skeleton className="h-4 w-14" />
+                  </TableHead>
+                  <TableHead className="h-11 text-muted-foreground font-medium">
+                    <Skeleton className="h-4 w-20" />
+                  </TableHead>
+                  <TableHead className="h-11 text-muted-foreground font-medium">
+                    <Skeleton className="h-4 w-16" />
+                  </TableHead>
+                  <TableHead className="h-11 text-muted-foreground font-medium">
+                    <Skeleton className="h-4 w-14" />
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {Array.from({ length: 10 }).map((_, i) => (
+                  <TableRow key={i} className="border-border">
+                    <TableCell className="py-3.5">
+                      <div>
+                        <Skeleton className="h-5 w-16 mb-1" />
+                        <Skeleton className="h-3 w-24" />
+                      </div>
+                    </TableCell>
+                    <TableCell className="py-3.5">
                       <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 bg-gray-200 dark:bg-gray-700 rounded-full animate-pulse flex-shrink-0"></div>
-                        <div className="flex-1">
-                          <div className="h-4 w-24 bg-gray-200 dark:bg-gray-700 rounded animate-pulse mb-1"></div>
-                          <div className="h-3 w-20 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
+                        <Skeleton className="h-8 w-8 rounded-full" />
+                        <div>
+                          <Skeleton className="h-4 w-24 mb-1" />
+                          <Skeleton className="h-3 w-20" />
                         </div>
                       </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="h-5 w-16 bg-gray-200 dark:bg-gray-700 rounded-full animate-pulse"></div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="h-5 w-8 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="h-4 w-32 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="h-4 w-32 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
-                    </td>
-                  </tr>
+                    </TableCell>
+                    <TableCell className="py-3.5">
+                      <Skeleton className="h-6 w-16 rounded-full" />
+                    </TableCell>
+                    <TableCell className="py-3.5">
+                      <Skeleton className="h-5 w-8" />
+                    </TableCell>
+                    <TableCell className="py-3.5">
+                      <Skeleton className="h-4 w-24" />
+                    </TableCell>
+                    <TableCell className="py-3.5">
+                      <Skeleton className="h-4 w-24" />
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
           
           {/* Mobile Card View */}
-          <div className="md:hidden divide-y divide-gray-200 dark:divide-gray-700">
-            {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+          <div className="md:hidden divide-y divide-border">
+            {Array.from({ length: 8 }).map((_, i) => (
               <div key={i} className="p-4">
                 <div className="flex items-start justify-between mb-2">
                   <div className="flex items-center gap-2">
-                    <div className="h-6 w-12 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
-                    <div className="h-5 w-14 bg-gray-200 dark:bg-gray-700 rounded-full animate-pulse"></div>
+                    <Skeleton className="h-6 w-12" />
+                    <Skeleton className="h-5 w-14 rounded-full" />
                   </div>
-                  <div className="h-4 w-16 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
+                  <Skeleton className="h-4 w-16" />
                 </div>
                 
-                <div className="h-4 w-24 bg-gray-200 dark:bg-gray-700 rounded animate-pulse mb-2"></div>
+                <Skeleton className="h-4 w-24 mb-2" />
                 
                 <div className="flex items-center gap-2 mb-2">
-                  <div className="w-6 h-6 bg-gray-200 dark:bg-gray-700 rounded-full animate-pulse"></div>
-                  <div className="h-4 w-28 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
+                  <Skeleton className="h-6 w-6 rounded-full" />
+                  <Skeleton className="h-4 w-28" />
                 </div>
                 
-                <div className="h-3 w-40 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
+                <Skeleton className="h-3 w-40" />
               </div>
             ))}
           </div>
