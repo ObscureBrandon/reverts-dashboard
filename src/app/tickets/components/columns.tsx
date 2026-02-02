@@ -74,40 +74,25 @@ export const ticketColumns: ColumnDef<TicketListItem>[] = [
     cell: ({ row, table }) => {
       const author = row.original.author;
       const meta = table.options.meta as { 
-        onUserClick?: (e: React.MouseEvent, userId: string, userName: string, displayName: string | null, displayAvatar: string | null, elementKey: string) => void;
+        onUserClick?: (e: React.MouseEvent, userId: string) => void;
         onUserHover?: (userId: string) => void;
-        loadingUserId?: string | null;
-        loadingElementKey?: string | null;
-        isPopoverFetching?: boolean;
       } | undefined;
       
       if (!author) {
         return <span className="text-sm text-muted-foreground">Unknown</span>;
       }
 
-      const elementKey = `table-${row.original.id}`;
-      const isLoading = meta?.loadingUserId === author.id && 
-                        meta?.isPopoverFetching && 
-                        meta?.loadingElementKey === elementKey;
-
       return (
         <div 
           className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
-          onClick={(e) => meta?.onUserClick?.(e, author.id, author.name, author.displayName, author.displayAvatar, elementKey)}
+          onClick={(e) => meta?.onUserClick?.(e, author.id)}
           onMouseEnter={() => meta?.onUserHover?.(author.id)}
         >
-          <div className="relative">
-            <Avatar 
-              src={author.displayAvatar}
-              name={author.displayName || author.name}
-              size={32}
-            />
-            {isLoading && (
-              <div className="absolute inset-0 flex items-center justify-center bg-background/80 rounded-full">
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
-              </div>
-            )}
-          </div>
+          <Avatar 
+            src={author.displayAvatar}
+            name={author.displayName || author.name}
+            size={32}
+          />
           <div>
             <div className="text-sm font-medium text-foreground">
               {author.displayName || author.name}

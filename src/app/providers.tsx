@@ -1,9 +1,34 @@
 'use client';
 
+import { GlobalUserPanel } from '@/app/components/global-user-panel';
+import { UserPanelProvider, useUserPanel } from '@/lib/contexts/user-panel-context';
+import { cn } from '@/lib/utils';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { NuqsAdapter } from 'nuqs/adapters/next/app';
 import { Suspense, useState } from 'react';
+
+/**
+ * Wrapper component that applies margin when global panel is open.
+ * This creates the "push" layout effect where content moves aside for the panel.
+ * 
+ * Note: Users page has its own panel state/margin - this wrapper only applies
+ * when the GLOBAL panel is open from other pages (tickets, messages, etc.)
+ */
+function PageContentWrapper({ children }: { children: React.ReactNode }) {
+  const { panelState } = useUserPanel();
+  
+  return (
+    <div 
+      className={cn(
+        "transition-[margin] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]",
+        panelState.isOpen && "lg:mr-[420px]"
+      )}
+    >
+      {children}
+    </div>
+  );
+}
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -40,7 +65,12 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <QueryClientProvider client={queryClient}>
       <Suspense fallback={null}>
         <NuqsAdapter>
-          {children}
+          <UserPanelProvider>
+            <PageContentWrapper>
+              {children}
+            </PageContentWrapper>
+            <GlobalUserPanel />
+          </UserPanelProvider>
         </NuqsAdapter>
       </Suspense>
       {/* Only show devtools in development */}

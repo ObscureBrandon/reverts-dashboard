@@ -1,18 +1,18 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
-import { useParams, useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { useTicket, useTicketMessages } from '@/lib/hooks/queries/useTickets';
-import { usePrefetchUser, useUserPopoverData } from '@/lib/hooks/queries/useUsers';
-import { useGenerateTicketSummary } from '@/lib/hooks/mutations/useTicketMutations';
-import TicketDetailSkeleton from './skeleton';
 import { Avatar } from '@/app/components/Avatar';
 import { roleColorToHex } from '@/app/components/utils';
-import { UserPopover } from '@/app/components/popovers/UserPopover';
-import { RolePopover } from '@/app/components/popovers/RolePopover';
+import { useGenerateTicketSummary } from '@/lib/hooks/mutations/useTicketMutations';
+import { useTicket, useTicketMessages } from '@/lib/hooks/queries/useTickets';
+import Link from 'next/link';
+import { useParams, useRouter } from 'next/navigation';
+import { useRef, useState } from 'react';
+import TicketDetailSkeleton from './skeleton';
+// UserPopover replaced with global panel context
 import { ChannelPopover } from '@/app/components/popovers/ChannelPopover';
-import { LoadingSpinner } from '@/app/components/LoadingSpinner';
+import { RolePopover } from '@/app/components/popovers/RolePopover';
+import { useUserPanel } from '@/lib/contexts/user-panel-context';
+import { usePrefetchUserDetails } from '@/lib/hooks/queries/useUserDetails';
 
 type Message = {
   id: string;
@@ -70,40 +70,7 @@ type UserRole = {
   position: number;
 };
 
-type UserModalData = { 
-  type: 'user'; 
-  id: string; 
-  data: { name: string; displayName: string | null; displayAvatar: string | null }; 
-  position: { x: number; y: number; triggerWidth?: number; triggerHeight?: number };
-  popoverData?: {
-    user: {
-      id: string;
-      name: string;
-      displayName: string | null;
-      displayAvatar: string | null;
-      nick: string | null;
-      inGuild: boolean | null;
-      isVerified: boolean | null;
-      isVoiceVerified: boolean | null;
-    };
-    roles: Array<{
-      id: string;
-      name: string;
-      color: number;
-      position: number;
-    }>;
-    ticketStats: {
-      open: number;
-      closed: number;
-    };
-    recentTickets: Array<{
-      id: number;
-      sequence: number | null;
-      status: string | null;
-      createdAt: string;
-    }>;
-  };
-};
+// UserModalData type removed - using global panel context now
 
 type RoleModalData = { 
   type: 'role'; 
@@ -615,33 +582,19 @@ export default function TicketDetailPage() {
   const router = useRouter();
   const ticketId = params.id as string;
   
-  const [userModalData, setUserModalData] = useState<UserModalData | null>(null);
   const [roleModalData, setRoleModalData] = useState<RoleModalData | null>(null);
   const [channelModalData, setChannelModalData] = useState<ChannelModalData | null>(null);
-  const [loadingUserId, setLoadingUserId] = useState<string | null>(null);
-  const [loadingElementKey, setLoadingElementKey] = useState<string | null>(null);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  
+  // Global panel context
+  const { openUserPanel } = useUserPanel();
   
   // Use TanStack Query hooks for data fetching
   const { data: ticketData, isLoading: ticketLoading, error: ticketError } = useTicket(ticketId);
   const { data: messagesData, isLoading: messagesLoading, error: messagesError } = useTicketMessages(ticketId);
   const { mutate: generateSummary, isPending: generatingSummary, error: summaryMutationError } = useGenerateTicketSummary(ticketId);
-  const { prefetchUser } = usePrefetchUser();
-
-  // Fetch popover data when loading
-  const { data: popoverData, isFetching: isPopoverFetching } = useUserPopoverData(loadingUserId || undefined, {
-    enabled: !!loadingUserId,
-  });
-
-  // When popover data is loaded, show the popover
-  useEffect(() => {
-    if (loadingUserId && popoverData && userModalData?.id === loadingUserId) {
-      setUserModalData(prev => prev ? { ...prev, popoverData } : null);
-      setLoadingUserId(null);
-      setLoadingElementKey(null);
-    }
-  }, [popoverData, loadingUserId, userModalData?.id]);
+  const { prefetch: prefetchUserDetails } = usePrefetchUserDetails();
   
   // Extract data from hook responses
   const ticket = ticketData?.ticket || null;
@@ -656,6 +609,9 @@ export default function TicketDetailPage() {
 
   
   const handleMentionClick = (type: 'user' | 'role' | 'channel', id: string, event: React.MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    
     const rect = (event.target as HTMLElement).getBoundingClientRect();
     const position = {
       x: rect.left,
@@ -663,12 +619,8 @@ export default function TicketDetailPage() {
     };
 
     if (type === 'user') {
-      const userData = mentions.users[id];
-      if (userData) {
-        // Set loading state and fetch popover data
-        setLoadingUserId(id);
-        setUserModalData({ type: 'user', id, data: userData, position });
-      }
+      // Use global panel instead of popover
+      openUserPanel(id);
     } else if (type === 'role') {
       const roleData = mentions.roles[id];
       if (roleData) {
@@ -719,24 +671,6 @@ export default function TicketDetailPage() {
   
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col">
-      {userModalData && userModalData.popoverData && (
-        <UserPopover 
-          isOpen={true}
-          onClose={() => {
-            setUserModalData(null);
-            setLoadingUserId(null);
-            setLoadingElementKey(null);
-          }}
-          triggerPosition={userModalData.position}
-          userData={{
-            id: userModalData.id,
-            name: userModalData.data.name,
-            displayName: userModalData.data.displayName,
-            displayAvatar: userModalData.data.displayAvatar,
-          }}
-          popoverData={userModalData.popoverData}
-        />
-      )}
       
       {roleModalData && (
         <RolePopover
@@ -820,39 +754,20 @@ export default function TicketDetailPage() {
           <div className="flex flex-wrap gap-4 text-sm text-gray-600 dark:text-gray-400">
             {ticket.author && (
               <div className="flex items-center gap-2">
-                <div className="relative">
+                <div 
+                  className="cursor-pointer"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    openUserPanel(ticket.author!.id);
+                  }}
+                  onMouseEnter={() => prefetchUserDetails(ticket.author!.id)}
+                >
                   <Avatar 
                     src={ticket.author.displayAvatar}
                     name={ticket.author.displayName || ticket.author.name}
                     size={24}
-                    onClick={(e) => {
-                      // Try to get user data from mentions, fallback to ticket author data
-                      const userData = mentions.users[ticket.author!.id] || {
-                        name: ticket.author!.name,
-                        displayName: ticket.author!.displayName,
-                        displayAvatar: ticket.author!.displayAvatar
-                      };
-                      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                      setLoadingUserId(ticket.author!.id);
-                      setLoadingElementKey('ticket-author');
-                      setUserModalData({ 
-                        type: 'user', 
-                        id: ticket.author!.id, 
-                        data: userData, 
-                        position: { 
-                          x: rect.left, 
-                          y: rect.top,
-                          triggerWidth: rect.width,
-                          triggerHeight: rect.height
-                        } 
-                      });
-                    }}
                   />
-                  {loadingUserId === ticket.author.id && isPopoverFetching && loadingElementKey === 'ticket-author' && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-white/80 dark:bg-gray-900/80 rounded-full">
-                      <LoadingSpinner size="sm" />
-                    </div>
-                  )}
                 </div>
                 <span>
                   Created by <span className="font-medium">{ticket.author.displayName || ticket.author.name}</span>
@@ -1001,39 +916,20 @@ export default function TicketDetailPage() {
                           <div className="flex gap-3">
                             {msg.author && (
                               <>
-                                <div className="relative flex-shrink-0 self-start">
+                                <div 
+                                  className="flex-shrink-0 self-start cursor-pointer"
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    openUserPanel(msg.author!.id);
+                                  }}
+                                  onMouseEnter={() => prefetchUserDetails(msg.author!.id)}
+                                >
                                   <Avatar 
                                     src={msg.author.displayAvatar}
                                     name={msg.author.displayName || msg.author.name}
                                     size={40}
-                                    onClick={(e) => {
-                                      // Try to get user data from mentions, fallback to message author data
-                                      const userData = mentions.users[msg.author!.id] || {
-                                        name: msg.author!.name,
-                                        displayName: msg.author!.displayName,
-                                        displayAvatar: msg.author!.displayAvatar
-                                      };
-                                      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                                      setLoadingUserId(msg.author!.id);
-                                      setLoadingElementKey(`msg-${msg.id}`);
-                                      setUserModalData({ 
-                                        type: 'user', 
-                                        id: msg.author!.id, 
-                                        data: userData, 
-                                        position: { 
-                                          x: rect.left, 
-                                          y: rect.top,
-                                          triggerWidth: rect.width,
-                                          triggerHeight: rect.height
-                                        } 
-                                      });
-                                    }}
                                   />
-                                  {loadingUserId === msg.author.id && isPopoverFetching && loadingElementKey === `msg-${msg.id}` && (
-                                    <div className="absolute inset-0 flex items-center justify-center bg-white/80 dark:bg-gray-900/80 rounded-full">
-                                      <LoadingSpinner size="sm" />
-                                    </div>
-                                  )}
                                 </div>
                               </>
                             )}
@@ -1061,7 +957,7 @@ export default function TicketDetailPage() {
                                  </span>
                               </div>
                               <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-words">
-                                {parseMessageContent(msg.content || (msg.attachments?.length ? '' : '(No content)'), mentions, handleMentionClick, prefetchUser)}
+                                {parseMessageContent(msg.content || (msg.attachments?.length ? '' : '(No content)'), mentions, handleMentionClick, prefetchUserDetails)}
                               </p>
                               
                               {/* Render embeds if present */}
@@ -1073,7 +969,7 @@ export default function TicketDetailPage() {
                                       embed={embed} 
                                       mentions={mentions}
                                       onMentionClick={handleMentionClick}
-                                      onUserMentionHover={prefetchUser}
+                                      onUserMentionHover={prefetchUserDetails}
                                     />
                                   ))}
                                 </div>
@@ -1111,7 +1007,7 @@ export default function TicketDetailPage() {
                             </div>
                             <div className="flex-1 min-w-0">
                               <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-words">
-                                {parseMessageContent(msg.content || (msg.attachments?.length ? '' : '(No content)'), mentions, handleMentionClick, prefetchUser)}
+                                {parseMessageContent(msg.content || (msg.attachments?.length ? '' : '(No content)'), mentions, handleMentionClick, prefetchUserDetails)}
                               </p>
                               
                               {/* Render embeds if present */}
@@ -1123,7 +1019,7 @@ export default function TicketDetailPage() {
                                       embed={embed} 
                                       mentions={mentions}
                                       onMentionClick={handleMentionClick}
-                                      onUserMentionHover={prefetchUser}
+                                      onUserMentionHover={prefetchUserDetails}
                                     />
                                   ))}
                                 </div>

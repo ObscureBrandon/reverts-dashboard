@@ -1,19 +1,19 @@
 import { db } from '@/lib/db'
 import {
-  getStaffCount,
-  getStaffDetails,
-  getTickets,
-  getUserAssignmentHistory,
-  getUserCount,
-  getUserInfractions,
-  getUserRoles,
-  getUserShahadas,
-  getUserSupervisionNeeds,
-  getUserSupervisorEntries,
-  getUserSupervisors,
-  getUserTicketStats,
-  searchStaffWithSupervisees,
-  searchUsers
+    getStaffCount,
+    getStaffDetails,
+    getTickets,
+    getUserAssignmentHistory,
+    getUserCount,
+    getUserInfractions,
+    getUserRoles,
+    getUserShahadas,
+    getUserSupervisionNeeds,
+    getUserSupervisorEntries,
+    getUserSupervisors,
+    getUserTicketStats,
+    searchStaffWithSupervisees,
+    searchUsers
 } from '@/lib/db/queries'
 import { authAccount, users } from '@/lib/db/schema'
 import { authMacro } from '@/lib/elysia/auth'
@@ -237,6 +237,11 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
           }),
         ])
 
+        // Check if user is staff by matching role names
+        const isStaff = userRolesResult.some(r => 
+          /staff|mod|moderator|admin|helper/i.test(r.role.name)
+        )
+
         return {
           user: {
             id: user.discordId.toString(),
@@ -254,6 +259,7 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
             religiousAffiliation: user.religiousAffiliation,
             wantsDiscussion: user.wantsDiscussion,
             createdAt: user.createdAt.toISOString(),
+            isStaff,
           },
           roles: userRolesResult.map(r => ({
             id: r.role.roleId.toString(),
@@ -357,6 +363,11 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
       // Basic response (backwards compatible)
       set.headers['Cache-Control'] = 'public, s-maxage=120, stale-while-revalidate=300'
 
+      // Check if user is staff by matching role names
+      const isStaff = userRolesResult.some(r => 
+        /staff|mod|moderator|admin|helper/i.test(r.role.name)
+      )
+
       return {
         user: {
           id: user.discordId.toString(),
@@ -367,6 +378,7 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
           inGuild: user.inGuild,
           isVerified: user.isVerified,
           isVoiceVerified: user.isVoiceVerified,
+          isStaff,
         },
         roles: userRolesResult.map(r => ({
           id: r.role.roleId.toString(),

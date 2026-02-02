@@ -1,10 +1,11 @@
 'use client';
 
 import { NavigationHeader } from '@/app/components/navigation-header';
-import { UserPopover } from '@/app/components/popovers/UserPopover';
+import { useUserPanel } from '@/lib/contexts/user-panel-context';
 import { usePanels } from '@/lib/hooks/queries/usePanels';
 import { usePrefetchTicketDetail, usePrefetchTickets, useTickets } from '@/lib/hooks/queries/useTickets';
-import { usePrefetchUser, useUser, useUserPopoverData } from '@/lib/hooks/queries/useUsers';
+import { usePrefetchUserDetails } from '@/lib/hooks/queries/useUserDetails';
+import { useUser } from '@/lib/hooks/queries/useUsers';
 import { useSearchParams } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import { TicketListItem, ticketColumns } from './components/columns';
@@ -12,44 +13,12 @@ import { TicketsDataTable } from './components/data-table';
 import { TicketFilterState, TicketsToolbar } from './components/data-table-toolbar';
 import TicketsListSkeleton from './skeleton';
 
-type UserModalData = { 
-  type: 'user'; 
-  id: string; 
-  data: { name: string; displayName: string | null; displayAvatar: string | null }; 
-  position: { x: number; y: number; triggerWidth?: number; triggerHeight?: number };
-  popoverData?: {
-    user: {
-      id: string;
-      name: string;
-      displayName: string | null;
-      displayAvatar: string | null;
-      nick: string | null;
-      inGuild: boolean | null;
-      isVerified: boolean | null;
-      isVoiceVerified: boolean | null;
-    };
-    roles: Array<{
-      id: string;
-      name: string;
-      color: number;
-      position: number;
-    }>;
-    ticketStats: {
-      open: number;
-      closed: number;
-    };
-    recentTickets: Array<{
-      id: number;
-      sequence: number | null;
-      status: string | null;
-      createdAt: string;
-    }>;
-  };
-};
-
 function TicketsContent() {
   const searchParams = useSearchParams();
   const authorParam = searchParams.get('author');
+  
+  // Global panel context
+  const { openUserPanel } = useUserPanel();
   
   // Filter state
   const [filters, setFilters] = useState<TicketFilterState>({
@@ -88,27 +57,8 @@ function TicketsContent() {
   // Prefetch ticket details on hover
   const { prefetchTicket } = usePrefetchTicketDetail();
 
-  // Prefetch user data on hover
-  const { prefetchUser } = usePrefetchUser();
-
-  // Modal state for user popover
-  const [modalData, setModalData] = useState<UserModalData | null>(null);
-  const [loadingUserId, setLoadingUserId] = useState<string | null>(null);
-  const [loadingElementKey, setLoadingElementKey] = useState<string | null>(null);
-
-  // Fetch popover data when loading
-  const { data: popoverData, isFetching: isPopoverFetching } = useUserPopoverData(loadingUserId || undefined, {
-    enabled: !!loadingUserId,
-  });
-
-  // When popover data is loaded, show the popover
-  useEffect(() => {
-    if (loadingUserId && popoverData && modalData?.id === loadingUserId) {
-      setModalData(prev => prev ? { ...prev, popoverData } : null);
-      setLoadingUserId(null);
-      setLoadingElementKey(null);
-    }
-  }, [popoverData, loadingUserId, modalData?.id]);
+  // Prefetch user details on hover
+  const { prefetch: prefetchUserDetails } = usePrefetchUserDetails();
 
   // Prefetch next/previous pages when data loads
   useEffect(() => {
@@ -131,7 +81,6 @@ function TicketsContent() {
   
   // Extract data from hook responses
   const tickets: TicketListItem[] = data?.tickets || [];
-  const total = data?.pagination.total || 0;
   const authorInfo = authorData ? {
     id: authorData.id,
     name: authorData.name,
@@ -170,57 +119,25 @@ function TicketsContent() {
     }
   }, [isFetching, isPlaceholderData, pendingAction]);
 
-  // Handler for opening user popover (passed to table via meta)
+  // Handler for opening user panel (passed to table via meta)
   const handleUserClick = useCallback((
     e: React.MouseEvent,
     userId: string,
-    userName: string,
-    displayName: string | null,
-    displayAvatar: string | null,
-    elementKey: string
   ) => {
     e.preventDefault();
     e.stopPropagation();
-    
-    const container = e.currentTarget as HTMLElement;
-    const avatarElement = container.querySelector('img, div[class*="rounded-full"]') as HTMLElement;
-    const rect = avatarElement ? avatarElement.getBoundingClientRect() : container.getBoundingClientRect();
-    
-    setLoadingUserId(userId);
-    setLoadingElementKey(elementKey);
-    setModalData({
-      type: 'user',
-      id: userId,
-      data: {
-        name: userName,
-        displayName: displayName,
-        displayAvatar: displayAvatar,
-      },
-      position: {
-        x: rect.left,
-        y: rect.top,
-        triggerWidth: rect.width,
-        triggerHeight: rect.height,
-      },
-    });
-  }, []);
+    openUserPanel(userId);
+  }, [openUserPanel]);
 
   // Handler for row hover - prefetch ticket details
   const handleRowHover = useCallback((ticket: TicketListItem) => {
     prefetchTicket(ticket.id);
   }, [prefetchTicket]);
 
-  // Handler for user hover - prefetch user data
+  // Handler for user hover - prefetch user details
   const handleUserHover = useCallback((userId: string) => {
-    prefetchUser(userId);
-  }, [prefetchUser]);
-
-  // Handler for closing popover
-  const handleCloseModal = useCallback(() => {
-    setModalData(null);
-    setLoadingUserId(null);
-    setLoadingElementKey(null);
-  }, []);
+    prefetchUserDetails(userId);
+  }, [prefetchUserDetails]);
   
   return (
     <div className="min-h-screen bg-background">
@@ -257,9 +174,6 @@ function TicketsContent() {
           onRowHoverStart={handleRowHover}
           onUserClick={handleUserClick}
           onUserHover={handleUserHover}
-          loadingUserId={loadingUserId}
-          loadingElementKey={loadingElementKey}
-          isPopoverFetching={isPopoverFetching}
           statusFilter={filters.status}
           onStatusFilterChange={handleStatusFilterChange}
           pendingAction={pendingAction}
@@ -275,22 +189,6 @@ function TicketsContent() {
           )}
         />
       </div>
-
-      {/* User Popover */}
-      {modalData && modalData.popoverData && (
-        <UserPopover 
-          isOpen={true}
-          onClose={handleCloseModal}
-          triggerPosition={modalData.position}
-          userData={{
-            id: modalData.id,
-            name: modalData.data.name,
-            displayName: modalData.data.displayName,
-            displayAvatar: modalData.data.displayAvatar,
-          }}
-          popoverData={modalData.popoverData}
-        />
-      )}
     </div>
   );
 }

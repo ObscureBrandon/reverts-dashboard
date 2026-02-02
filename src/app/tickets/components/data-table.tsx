@@ -38,12 +38,9 @@ interface TicketsDataTableProps<TData, TValue> {
   sorting?: SortingState;
   onSortingChange?: (sorting: SortingState) => void;
   onRowHoverStart?: (row: TData) => void;
-  // Meta props for popover handling
-  onUserClick?: (e: React.MouseEvent, userId: string, userName: string, displayName: string | null, displayAvatar: string | null, elementKey: string) => void;
+  // Simplified user click handler - opens global panel
+  onUserClick?: (e: React.MouseEvent, userId: string) => void;
   onUserHover?: (userId: string) => void;
-  loadingUserId?: string | null;
-  loadingElementKey?: string | null;
-  isPopoverFetching?: boolean;
   // Status filter props (for column header)
   statusFilter?: string;
   onStatusFilterChange?: (status: string) => void;
@@ -64,9 +61,6 @@ export function TicketsDataTable<TData extends { id: number }, TValue>({
   onRowHoverStart,
   onUserClick,
   onUserHover,
-  loadingUserId,
-  loadingElementKey,
-  isPopoverFetching,
   statusFilter,
   onStatusFilterChange,
   pendingAction,
@@ -99,9 +93,6 @@ export function TicketsDataTable<TData extends { id: number }, TValue>({
     meta: {
       onUserClick,
       onUserHover,
-      loadingUserId,
-      loadingElementKey,
-      isPopoverFetching,
       statusFilter,
       onStatusFilterChange,
       pendingAction,

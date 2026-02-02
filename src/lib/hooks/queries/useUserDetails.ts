@@ -111,6 +111,7 @@ export type UserDetails = {
     religiousAffiliation: string | null
     wantsDiscussion: string | null
     createdAt: string
+    isStaff: boolean
   }
   roles: UserRole[]
   shahadas: UserShahada[]

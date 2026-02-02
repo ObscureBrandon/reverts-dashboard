@@ -1,18 +1,17 @@
 'use client';
 
 import { Avatar } from '@/app/components/Avatar';
-import { LoadingSpinner } from '@/app/components/LoadingSpinner';
 import { NavigationHeader } from '@/app/components/navigation-header';
 import { ChannelPopover } from '@/app/components/popovers/ChannelPopover';
 import { RolePopover } from '@/app/components/popovers/RolePopover';
-import { UserPopover } from '@/app/components/popovers/UserPopover';
 import { roleColorToHex } from '@/app/components/utils';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
+import { useUserPanel } from '@/lib/contexts/user-panel-context';
 import { useMessages, usePrefetchMessages } from '@/lib/hooks/queries/useMessages';
-import { usePrefetchUser, useUserPopoverData } from '@/lib/hooks/queries/useUsers';
+import { usePrefetchUserDetails } from '@/lib/hooks/queries/useUserDetails';
 import { useDebounce } from '@/lib/hooks/useDebounce';
 import { ChevronLeft, ChevronRight, Loader2, MessageSquare, Search } from 'lucide-react';
 import Link from 'next/link';
@@ -49,48 +48,6 @@ type MentionLookup = {
   channels: Record<string, { name: string }>;
 };
 
-type UserRole = {
-  id: string;
-  name: string;
-  color: number;
-  position: number;
-};
-
-type UserModalData = { 
-  type: 'user'; 
-  id: string; 
-  data: { name: string; displayName: string | null; displayAvatar: string | null }; 
-  position: { x: number; y: number; triggerWidth?: number; triggerHeight?: number };
-  popoverData?: {
-    user: {
-      id: string;
-      name: string;
-      displayName: string | null;
-      displayAvatar: string | null;
-      nick: string | null;
-      inGuild: boolean | null;
-      isVerified: boolean | null;
-      isVoiceVerified: boolean | null;
-    };
-    roles: Array<{
-      id: string;
-      name: string;
-      color: number;
-      position: number;
-    }>;
-    ticketStats: {
-      open: number;
-      closed: number;
-    };
-    recentTickets: Array<{
-      id: number;
-      sequence: number | null;
-      status: string | null;
-      createdAt: string;
-    }>;
-  };
-};
-
 type RoleModalData = { 
   type: 'role'; 
   id: string; 
@@ -103,18 +60,6 @@ type ChannelModalData = {
   id: string; 
   data: { name: string }; 
   position: { x: number; y: number; triggerWidth?: number; triggerHeight?: number } 
-};
-
-type SearchResponse = {
-  messages: Message[];
-  mentions: MentionLookup;
-  pagination: {
-    total: number;
-    page: number;
-    limit: number;
-    totalPages: number;
-  };
-  guildId: string | null;
 };
 
 // Component to render a single mention
@@ -242,14 +187,14 @@ function MessagesPageContent() {
   // Get initial values from URL
   const urlQuery = searchParams.get('q');
   
+  // Global panel context
+  const { openUserPanel } = useUserPanel();
+  
   const [searchQuery, setSearchQuery] = useState(urlQuery || '');
   const [staffOnly, setStaffOnly] = useState(false);
-  const [userModalData, setUserModalData] = useState<UserModalData | null>(null);
   const [roleModalData, setRoleModalData] = useState<RoleModalData | null>(null);
   const [channelModalData, setChannelModalData] = useState<ChannelModalData | null>(null);
   const [page, setPage] = useState(1);
-  const [loadingUserId, setLoadingUserId] = useState<string | null>(null);
-  const [loadingElementKey, setLoadingElementKey] = useState<string | null>(null);
   
   const debouncedQuery = useDebounce(searchQuery, 150);
   
@@ -279,22 +224,8 @@ function MessagesPageContent() {
     limit: 50,
   });
 
-  // Prefetch user data on hover
-  const { prefetchUser } = usePrefetchUser();
-
-  // Fetch popover data when loading
-  const { data: popoverData, isFetching: isPopoverFetching } = useUserPopoverData(loadingUserId || undefined, {
-    enabled: !!loadingUserId,
-  });
-
-  // When popover data is loaded, show the popover
-  useEffect(() => {
-    if (loadingUserId && popoverData && userModalData?.id === loadingUserId) {
-      setUserModalData(prev => prev ? { ...prev, popoverData } : null);
-      setLoadingUserId(null);
-      setLoadingElementKey(null);
-    }
-  }, [popoverData, loadingUserId, userModalData?.id]);
+  // Prefetch user details on hover
+  const { prefetch: prefetchUserDetails } = usePrefetchUserDetails();
 
   // Prefetch next/previous pages when data loads
   useEffect(() => {
@@ -321,6 +252,9 @@ function MessagesPageContent() {
   const guildId = data?.guildId || null;
   
   const handleMentionClick = useCallback((type: 'user' | 'role' | 'channel', id: string, event: React.MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    
     const rect = (event.target as HTMLElement).getBoundingClientRect();
     const position = {
       x: rect.left,
@@ -328,12 +262,8 @@ function MessagesPageContent() {
     };
 
     if (type === 'user') {
-      const userData = mentions.users[id];
-      if (userData) {
-        // Set loading state and fetch popover data
-        setLoadingUserId(id);
-        setUserModalData({ type: 'user', id, data: userData, position });
-      }
+      // Use global panel instead of popover
+      openUserPanel(id);
     } else if (type === 'role') {
       const roleData = mentions.roles[id];
       if (roleData) {
@@ -345,67 +275,19 @@ function MessagesPageContent() {
         setChannelModalData({ type: 'channel', id, data: channelData, position });
       }
     }
-  }, [mentions]);
+  }, [mentions, openUserPanel]);
 
-  // Handler for opening user popover from avatar click
-  const handleUserClick = useCallback((
-    e: React.MouseEvent,
-    userId: string,
-    userName: string,
-    displayName: string | null,
-    displayAvatar: string | null,
-    elementKey: string
-  ) => {
+  // Handler for opening user panel from avatar click
+  const handleUserClick = useCallback((e: React.MouseEvent, userId: string) => {
     e.preventDefault();
     e.stopPropagation();
-    
-    // Find the avatar element (img or div) within the clicked container
-    const container = e.currentTarget as HTMLElement;
-    const avatarElement = container.querySelector('img, div[class*="rounded-full"]') as HTMLElement;
-    const rect = avatarElement ? avatarElement.getBoundingClientRect() : container.getBoundingClientRect();
-    
-    // Set loading state and store position
-    setLoadingUserId(userId);
-    setLoadingElementKey(elementKey);
-    setUserModalData({
-      type: 'user',
-      id: userId,
-      data: {
-        name: userName,
-        displayName: displayName,
-        displayAvatar: displayAvatar,
-      },
-      position: {
-        x: rect.left,
-        y: rect.top,
-        triggerWidth: rect.width,
-        triggerHeight: rect.height,
-      },
-    });
-  }, []);
+    openUserPanel(userId);
+  }, [openUserPanel]);
   
   return (
     <div className="min-h-screen bg-background">
       <NavigationHeader />
-      {/* Render three separate popovers */}
-      {userModalData && userModalData.popoverData && (
-        <UserPopover 
-          isOpen={true}
-          onClose={() => {
-            setUserModalData(null);
-            setLoadingUserId(null);
-            setLoadingElementKey(null);
-          }}
-          triggerPosition={userModalData.position}
-          userData={{
-            id: userModalData.id,
-            name: userModalData.data.name,
-            displayName: userModalData.data.displayName,
-            displayAvatar: userModalData.data.displayAvatar,
-          }}
-          popoverData={userModalData.popoverData}
-        />
-      )}
+      {/* Role and Channel Popovers (keep these) */}
       {roleModalData && (
         <RolePopover 
           isOpen={true}
@@ -536,35 +418,16 @@ function MessagesPageContent() {
                       <div className="flex items-center gap-3 flex-wrap">
                         {msg.author && (
                           <div className="flex items-center gap-2">
-                            <div className="relative"
-                              onClick={(e) => handleUserClick(
-                                e,
-                                msg.author!.id,
-                                msg.author!.name,
-                                msg.author!.displayName,
-                                msg.author!.displayAvatar,
-                                `msg-${msg.id}`
-                              )}
-                              onMouseEnter={() => prefetchUser(msg.author!.id)}
+                            <div 
+                              className="cursor-pointer"
+                              onClick={(e) => handleUserClick(e, msg.author!.id)}
+                              onMouseEnter={() => prefetchUserDetails(msg.author!.id)}
                             >
                               <Avatar 
                                 src={msg.author.displayAvatar}
                                 name={msg.author.displayName || msg.author.name}
                                 size={40}
-                                onClick={(e) => handleUserClick(
-                                  e,
-                                  msg.author!.id,
-                                  msg.author!.name,
-                                  msg.author!.displayName,
-                                  msg.author!.displayAvatar,
-                                  `msg-${msg.id}`
-                                )}
                               />
-                              {loadingUserId === msg.author.id && isPopoverFetching && loadingElementKey === `msg-${msg.id}` && (
-                                <div className="absolute inset-0 flex items-center justify-center bg-white/80 dark:bg-gray-900/80 rounded-full">
-                                  <LoadingSpinner size="sm" />
-                                </div>
-                              )}
                             </div>
                           </div>
                         )}
