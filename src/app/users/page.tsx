@@ -3,6 +3,7 @@
 import { NavigationHeader } from '@/app/components/navigation-header';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useSession } from '@/lib/auth-client';
+import { useUserPanel } from '@/lib/contexts/user-panel-context';
 import { useStaffDetails } from '@/lib/hooks/queries/useStaffDetails';
 import { StaffListItem, useStaffTable } from '@/lib/hooks/queries/useStaffTable';
 import { usePrefetchUserDetails } from '@/lib/hooks/queries/useUserDetails';
@@ -11,7 +12,7 @@ import { cn } from '@/lib/utils';
 import { useDebouncedCallback } from '@tanstack/react-pacer';
 import { SortingState, VisibilityState } from '@tanstack/react-table';
 import { useRouter } from 'next/navigation';
-import { parseAsArrayOf, parseAsInteger, parseAsString, parseAsStringLiteral, useQueryStates } from 'nuqs';
+import { parseAsArrayOf, parseAsInteger, parseAsString, parseAsStringLiteral, useQueryState, useQueryStates } from 'nuqs';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { columns, staffColumns, viewColumnDefaults } from './components/columns';
 import { DataTable } from './components/data-table';
@@ -23,6 +24,7 @@ import { UserDetailsPanel } from './components/user-details-panel';
 const viewOptions = ['all', 'staff'] as const;
 const orderOptions = ['asc', 'desc'] as const;
 
+// Note: user/staff params are managed by UserPanelContext, not here
 const searchParamsSchema = {
   page: parseAsInteger.withDefault(1),
   q: parseAsString.withDefault(''),
@@ -34,8 +36,6 @@ const searchParamsSchema = {
   sort: parseAsString.withDefault('createdAt'),
   order: parseAsStringLiteral(orderOptions).withDefault('desc'),
   filters: parseAsArrayOf(parseAsString).withDefault([]),
-  staff: parseAsString,  // Selected staff member ID (staff view)
-  user: parseAsString,   // Selected user ID (or supervisee when drilling down)
 };
 
 // Loading skeleton component
@@ -122,15 +122,18 @@ export default function UsersPage() {
   const sorting: SortingState = [{ id: params.sort, desc: params.order === 'desc' }];
   const activeQuickFilters = new Set(params.filters as QuickFilter[]);
   
-  // Panel state from URL
-  const selectedStaffId = params.staff;
-  const selectedUserId = params.user;
-  const staffPanelOpen = !!params.staff;
-  const userPanelOpen = !!params.user;
-  const panelOpen = staffPanelOpen || userPanelOpen;
+  // Panel state from context (manages user/staff URL params)
+  const { panelState, openUserPanel, openStaffPanel, closePanel } = useUserPanel();
+  const selectedStaffId = panelState.panelType === 'staff' ? panelState.userId : null;
+  const selectedUserId = panelState.panelType === 'user' ? panelState.userId : null;
+  const staffPanelOpen = panelState.isOpen && panelState.panelType === 'staff';
+  const userPanelOpen = panelState.isOpen && panelState.panelType === 'user';
+  const panelOpen = panelState.isOpen;
   
   // Fetch staff details for breadcrumb when viewing a user from staff panel
-  const { data: staffDetailsData } = useStaffDetails(selectedStaffId);
+  // We need a separate query state to track the "parent" staff when drilling down
+  const [parentStaffId] = useQueryState('staff', parseAsString);
+  const { data: staffDetailsData } = useStaffDetails(parentStaffId);
 
   // Track if we've ever loaded data (to prevent full-page skeleton on view switches)
   const hasInitiallyLoaded = useRef(false);
@@ -250,51 +253,43 @@ export default function UsersPage() {
   }, [setParams]);
 
   // Handler for row click - opens user details panel (all users view)
-  // Clear staff param to prevent stacking from main table
   const handleRowClick = useCallback((user: UserListItem) => {
-    setParams({ staff: null, user: user.id });
-  }, [setParams]);
+    openUserPanel(user.id);
+  }, [openUserPanel]);
 
   // Handler for staff row click - opens staff details panel (staff view)
-  // Clear user param to replace any existing panel (not stack)
   const handleStaffRowClick = useCallback((staff: StaffListItem) => {
-    setParams({ staff: staff.id, user: null });
-  }, [setParams]);
+    openStaffPanel(staff.id);
+  }, [openStaffPanel]);
 
   // Handler for row hover - prefetches user details
   const handleRowHover = useCallback((user: UserListItem) => {
     prefetchUserDetails(user.id);
   }, [prefetchUserDetails]);
 
-  // Handler for user panel close (or back navigation from stacked panel)
+  // Handler for user panel close
   const handleUserPanelOpenChange = useCallback((open: boolean) => {
     if (!open) {
-      // If we were viewing a user from staff panel, just clear user (keep staff)
-      // Otherwise clear both
-      if (selectedStaffId) {
-        setParams({ user: null });
-      } else {
-        setParams({ user: null });
-      }
+      closePanel();
     }
-  }, [setParams, selectedStaffId]);
+  }, [closePanel]);
 
   // Handler for staff panel close
   const handleStaffPanelOpenChange = useCallback((open: boolean) => {
     if (!open) {
-      setParams({ staff: null, user: null });
+      closePanel();
     }
-  }, [setParams]);
+  }, [closePanel]);
 
   // Handler for clicking a supervisee in staff panel → opens user panel stacked
   const handleSuperviseeClick = useCallback((userId: string) => {
-    setParams({ user: userId });
-  }, [setParams]);
+    openUserPanel(userId);
+  }, [openUserPanel]);
 
   // Handler for back navigation in breadcrumb
   const handleBackToStaff = useCallback(() => {
-    setParams({ user: null });
-  }, [setParams]);
+    closePanel();
+  }, [closePanel]);
 
   // Build query params for API based on all filters
   const queryParams = useMemo(() => {
