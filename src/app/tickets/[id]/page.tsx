@@ -90,7 +90,7 @@ type ChannelModalData = {
 function SparklesIcon({ size = 40 }: { size?: number }) {
   return (
     <div 
-      className="rounded-full flex items-center justify-center border-2 border-gray-200 dark:border-gray-700 flex-shrink-0 bg-gradient-to-br from-purple-500 to-blue-500"
+      className="rounded-full flex items-center justify-center border-2 border-gray-200 dark:border-gray-700 flex-shrink-0 bg-gradient-to-br from-emerald-500 to-emerald-600"
       style={{ 
         width: `${size}px`, 
         height: `${size}px`,
@@ -859,7 +859,7 @@ export default function TicketDetailPage() {
                             <p className="text-red-600 dark:text-red-400 mb-2">{summaryError}</p>
                             <button
                               onClick={handleGenerateSummary}
-                              className="px-3 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors"
+                              className="px-3 py-1.5 text-xs font-medium bg-emerald-600 hover:bg-emerald-700 text-white rounded-md transition-colors"
                             >
                               Try Again
                             </button>
@@ -872,7 +872,7 @@ export default function TicketDetailPage() {
                             <button
                               onClick={handleGenerateSummary}
                               disabled={messages.length === 0}
-                              className="px-3 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                              className="px-3 py-1.5 text-xs font-medium bg-emerald-600 hover:bg-emerald-700 text-white rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                               title={messages.length === 0 ? 'No messages to summarize' : 'Generate AI summary'}
                             >
                               Generate Summary
@@ -983,7 +983,7 @@ export default function TicketDetailPage() {
                               {guildId && msg.channel && (
                                 <a
                                   href={`discord://discord.com/channels/${guildId}/${msg.channel.id}/${msg.id}`}
-                                  className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 text-xs font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 opacity-0 group-hover:opacity-100 transition-opacity"
+                                  className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 text-xs font-medium text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
                                 >
                                   <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
@@ -1033,7 +1033,7 @@ export default function TicketDetailPage() {
                               {guildId && msg.channel && (
                                 <a
                                   href={`discord://discord.com/channels/${guildId}/${msg.channel.id}/${msg.id}`}
-                                  className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 text-xs font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 opacity-0 group-hover:opacity-100 transition-opacity"
+                                  className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 text-xs font-medium text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
                                 >
                                   <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />

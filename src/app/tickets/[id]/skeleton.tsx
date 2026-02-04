@@ -48,7 +48,7 @@ export default function TicketDetailSkeleton() {
             <div className="group py-3 px-4 rounded-md">
               <div className="flex gap-3">
                 {/* AI avatar skeleton */}
-                <div className="w-10 h-10 bg-gradient-to-br from-purple-300 to-blue-300 dark:from-purple-700 dark:to-blue-700 rounded-full animate-pulse"></div>
+                <div className="w-10 h-10 bg-gradient-to-br from-emerald-300 to-emerald-400 dark:from-emerald-600 dark:to-emerald-700 rounded-full animate-pulse"></div>
                 <div className="flex-1 min-w-0">
                   <div className="h-5 w-32 bg-gray-200 dark:bg-gray-700 rounded animate-pulse mb-2"></div>
                   <div className="space-y-2">
