@@ -272,7 +272,13 @@ export function TicketsDataTable<TData extends { id: number }, TValue>({
                     )}
                     
                     {ticket.author && (
-                      <div className="flex items-center gap-2 mb-2">
+                      <div 
+                        className="flex items-center gap-2 mb-2 cursor-pointer hover:opacity-80 active:opacity-60"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onUserClick?.(e, ticket.author.id);
+                        }}
+                      >
                         <div className="w-6 h-6 rounded-full bg-muted overflow-hidden">
                           {ticket.author.displayAvatar ? (
                             <img src={ticket.author.displayAvatar} alt="" className="w-full h-full object-cover" />

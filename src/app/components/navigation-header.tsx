@@ -120,35 +120,45 @@ export function NavigationHeader() {
           </Button>
         </div>
 
-        {/* Mobile Navigation */}
+        {/* Mobile Navigation - Overlay */}
         {mobileMenuOpen && (
-          <nav className="md:hidden py-4 border-t border-border">
-            <div className="flex flex-col gap-1">
-              {navItems.map((item) => {
-                const isActive = item.href === '/' 
-                  ? pathname === '/' 
-                  : pathname.startsWith(item.href);
-                const Icon = item.icon;
-                
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    onClick={() => setMobileMenuOpen(false)}
-                    className={cn(
-                      "flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-md transition-colors",
-                      isActive
-                        ? "bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-400 border-l-2 border-emerald-500"
-                        : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                    )}
-                  >
-                    <Icon className="h-4 w-4" />
-                    {item.label}
-                  </Link>
-                );
-              })}
-            </div>
-          </nav>
+          <>
+            {/* Backdrop */}
+            <div 
+              className="md:hidden fixed inset-0 top-[57px] bg-black/20 backdrop-blur-sm z-40"
+              onClick={() => setMobileMenuOpen(false)}
+            />
+            {/* Menu */}
+            <nav className="md:hidden absolute left-0 right-0 top-full bg-background border-b border-border shadow-lg z-50">
+              <div className="max-w-7xl mx-auto px-4 py-4">
+                <div className="flex flex-col gap-1">
+                  {navItems.map((item) => {
+                    const isActive = item.href === '/' 
+                      ? pathname === '/' 
+                      : pathname.startsWith(item.href);
+                    const Icon = item.icon;
+                    
+                    return (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        onClick={() => setMobileMenuOpen(false)}
+                        className={cn(
+                          "flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-md transition-colors",
+                          isActive
+                            ? "bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-400 border-l-2 border-emerald-500"
+                            : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                        )}
+                      >
+                        <Icon className="h-4 w-4" />
+                        {item.label}
+                      </Link>
+                    );
+                  })}
+                </div>
+              </div>
+            </nav>
+          </>
         )}
       </div>
     </header>
