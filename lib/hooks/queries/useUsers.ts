@@ -1,3 +1,4 @@
+import { userSupervisors } from '@/lib/db/schema';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 type UserRole = {
@@ -47,6 +48,11 @@ type UserPopoverData = {
     closed: number;
   };
   recentTickets: RecentTicket[];
+};
+
+type SupervisorResponse = {
+  presentSupervisor: any | null;
+  pastSupervisors: any[];
 };
 
 /**
@@ -166,4 +172,33 @@ export function usePrefetchUser() {
   };
 
   return { prefetchUser };
+}
+  /*
+  * Fetch user's supervisors
+  */
+
+
+
+export function useUserSupervisors(
+  userId: string | undefined,
+  options?: { enabled?: boolean }
+) {
+  return useQuery<SupervisorResponse>({
+    queryKey: ['userSupervisors', userId],
+    queryFn: async () => {
+      if (!userId) {
+        throw new Error('User ID is required');
+      }
+
+      const res = await fetch(`/api/userSupervisors/${userId}`);
+
+      if (!res.ok) {
+        throw new Error('Failed to fetch user supervisors');
+      }
+
+      return res.json();
+    },
+    enabled: options?.enabled !== false && !!userId,
+    staleTime: 5 * 60 * 1000,
+  });
 }

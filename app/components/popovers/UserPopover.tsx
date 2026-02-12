@@ -237,6 +237,19 @@ export function UserPopover({ isOpen, onClose, triggerPosition, userData, popove
           <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">No tickets found</div>
         )}
       </div>
+      <Link
+        href={`/user/${userData.id}`}
+        onClick={onClose}
+        className="mt-4 flex items-center justify-center gap-2 w-full px-3 py-2
+                  bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900
+                  rounded-md hover:opacity-90 transition-opacity text-sm font-medium"
+      >
+        View Full Profile
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+        </svg>
+      </Link>
+
     </PopoverWrapper>
   );
 }

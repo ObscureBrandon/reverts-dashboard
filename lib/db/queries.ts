@@ -1,6 +1,8 @@
 import { db } from './index';
-import { messages, users, channels, tickets, userRoles, roles, panels } from './schema';
+import { messages, users, channels, tickets, userRoles, roles, panels, supportNotifications } from './schema';
 import { eq, and, like, inArray, sql, desc, asc, ilike, or, isNotNull } from 'drizzle-orm';
+import { userSupervisors} from './schema';
+
 
 export type MessageSearchParams = {
   query?: string;
@@ -488,4 +490,52 @@ export async function getUserTicketStats(userId: bigint) {
     open: stats?.openCount || 0,
     closed: (stats?.closedCount || 0) + (stats?.deletedCount || 0),
   };
+}
+
+export async function getUserSupervisorRelations(userId: bigint) {
+  return db
+    .select({
+      relationId: userSupervisors.id,
+      active: userSupervisors.active,
+      startedAt: userSupervisors.createdAt,
+
+      supervisor: {
+        discordId: users.discordId,
+        name: users.name,
+        displayName: users.displayName,
+        displayAvatar: users.displayAvatar,
+      },
+    })
+    .from(userSupervisors)
+    .innerJoin(
+      users,
+      eq(userSupervisors.supervisorId, users.discordId)
+    )
+    .where(eq(userSupervisors.userId, userId))
+    .orderBy(
+      desc(userSupervisors.active),       // active first
+      desc(userSupervisors.createdAt)     // newest first
+    );
+}
+
+export async function getUserSupportStatus(userId: bigint) {
+  const result = await db
+    .select({
+      id: supportNotifications.id,
+      active: supportNotifications.active,
+      assignedAt: supportNotifications.assignedAt,
+      createdAt: supportNotifications.createdAt,
+      channelId: supportNotifications.channelId,
+      assignedById: supportNotifications.assignedById,
+    })
+    .from(supportNotifications)
+    .where(eq(supportNotifications.userId, userId))
+    .orderBy(
+      desc(supportNotifications.active),       // active first
+      desc(isNotNull(supportNotifications.assignedAt)), // assigned before waiting
+      desc(supportNotifications.createdAt)     // newest first
+    )
+    .limit(1);
+
+  return result[0] ?? null;
 }
