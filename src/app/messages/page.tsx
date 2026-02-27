@@ -12,10 +12,11 @@ import { Input } from '@/components/ui/input';
 import { useUserPanel } from '@/lib/contexts/user-panel-context';
 import { useMessages, usePrefetchMessages } from '@/lib/hooks/queries/useMessages';
 import { usePrefetchUserDetails } from '@/lib/hooks/queries/useUserDetails';
+import { useUserRole } from '@/lib/hooks/queries/useUserRole';
 import { useDebounce } from '@/lib/hooks/useDebounce';
 import { ChevronLeft, ChevronRight, Loader2, MessageSquare, Search } from 'lucide-react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 
 type Message = {
@@ -182,7 +183,9 @@ function parseMessageContent(
 }
 
 function MessagesPageContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
+  const { isMod, isLoading: roleLoading } = useUserRole();
   
   // Get initial values from URL
   const urlQuery = searchParams.get('q');
@@ -284,6 +287,28 @@ function MessagesPageContent() {
     openUserPanel(userId);
   }, [openUserPanel]);
   
+  // Redirect to my-tickets if not a mod
+  useEffect(() => {
+    if (!roleLoading && !isMod) {
+      router.replace('/my-tickets');
+    }
+  }, [isMod, roleLoading, router]);
+
+  // Don't render content if redirecting
+  if (!roleLoading && !isMod) {
+    return (
+      <div className="min-h-screen bg-background">
+        <NavigationHeader />
+        <div className="flex items-center justify-center pt-32">
+          <div className="text-center">
+            <Loader2 className="h-8 w-8 animate-spin text-emerald-500 mx-auto mb-4" />
+            <p className="text-muted-foreground">Redirecting...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <NavigationHeader />

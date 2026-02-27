@@ -7,6 +7,7 @@ import { useUserPanel } from '@/lib/contexts/user-panel-context';
 import { useStaffDetails } from '@/lib/hooks/queries/useStaffDetails';
 import { StaffListItem, useStaffTable } from '@/lib/hooks/queries/useStaffTable';
 import { usePrefetchUserDetails } from '@/lib/hooks/queries/useUserDetails';
+import { useUserRole } from '@/lib/hooks/queries/useUserRole';
 import { usePrefetchUsersTable, UserListItem, useUsersTable } from '@/lib/hooks/queries/useUsersTable';
 import { cn } from '@/lib/utils';
 import { useDebouncedCallback } from '@tanstack/react-pacer';
@@ -99,6 +100,7 @@ function UsersLoading() {
 export default function UsersPage() {
   const router = useRouter();
   const { data: session, isPending: isSessionLoading } = useSession();
+  const { isMod, isLoading: roleLoading } = useUserRole();
   
   // URL-synced state using nuqs
   const [params, setParams] = useQueryStates(searchParamsSchema, {
@@ -146,12 +148,14 @@ export default function UsersPage() {
     inGuild: params.guild,
   };
 
-  // Redirect to login if not authenticated
+  // Redirect to login if not authenticated or to my-tickets if not a mod
   useEffect(() => {
     if (!isSessionLoading && !session) {
       router.push('/login?callbackUrl=/users');
+    } else if (session && !roleLoading && !isMod) {
+      router.replace('/my-tickets');
     }
-  }, [session, isSessionLoading, router]);
+  }, [session, isSessionLoading, isMod, roleLoading, router]);
 
   // Sync search input with URL on mount/navigation
   useEffect(() => {
@@ -385,7 +389,7 @@ export default function UsersPage() {
 
   // Only show full-page skeleton on initial visit (before any data has loaded)
   // After initial load, view switches will show table skeleton only
-  const showInitialLoading = isSessionLoading || (!hasInitiallyLoaded.current && isLoading && !data);
+  const showInitialLoading = isSessionLoading || roleLoading || (!hasInitiallyLoaded.current && isLoading && !data);
   
   // For view switches: show table skeleton when loading new view data
   const isViewSwitching = hasInitiallyLoaded.current && isLoading && !data;
@@ -394,8 +398,8 @@ export default function UsersPage() {
     return <UsersLoading />;
   }
 
-  // Don't render content if not authenticated (will redirect)
-  if (!session) {
+  // Don't render content if not authenticated or not mod (will redirect)
+  if (!session || (!roleLoading && !isMod)) {
     return <UsersLoading />;
   }
 

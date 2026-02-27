@@ -5,8 +5,9 @@ import { useUserPanel } from '@/lib/contexts/user-panel-context';
 import { usePanels } from '@/lib/hooks/queries/usePanels';
 import { usePrefetchTicketDetail, usePrefetchTickets, useTickets } from '@/lib/hooks/queries/useTickets';
 import { usePrefetchUserDetails } from '@/lib/hooks/queries/useUserDetails';
+import { useUserRole } from '@/lib/hooks/queries/useUserRole';
 import { useUser } from '@/lib/hooks/queries/useUsers';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import { TicketListItem, ticketColumns } from './components/columns';
 import { TicketsDataTable } from './components/data-table';
@@ -14,7 +15,9 @@ import { TicketFilterState, TicketsToolbar } from './components/data-table-toolb
 import TicketsListSkeleton from './skeleton';
 
 function TicketsContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
+  const { isMod, isLoading: roleLoading } = useUserRole();
   const authorParam = searchParams.get('author');
   
   // Global panel context
@@ -139,6 +142,18 @@ function TicketsContent() {
     prefetchUserDetails(userId);
   }, [prefetchUserDetails]);
   
+  // Redirect to my-tickets if not a mod
+  useEffect(() => {
+    if (!roleLoading && !isMod) {
+      router.replace('/my-tickets');
+    }
+  }, [isMod, roleLoading, router]);
+
+  // Don't render content if redirecting
+  if (!roleLoading && !isMod) {
+    return <TicketsListSkeleton />;
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <NavigationHeader />
