@@ -118,7 +118,7 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
       console.error('Error fetching users:', err)
       throw new Error('Failed to fetch users')
     }
-  }, { auth: true })
+  }, { modAuth: true })
 
   // GET /users/staff - Get staff members with supervisees
   .get('/staff', async ({ query }) => {
@@ -167,7 +167,7 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
       console.error('Error fetching staff:', err)
       throw new Error('Failed to fetch staff')
     }
-  }, { auth: true })
+  }, { modAuth: true })
 
   // GET /users/:id/staff-details - Get staff member details with supervisees
   .get('/:id/staff-details', async ({ params, set }) => {
@@ -187,7 +187,7 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
       console.error('Error fetching staff details:', err)
       throw new Error('Failed to fetch staff details')
     }
-  }, { auth: true })
+  }, { modAuth: true })
 
   // GET /users/:id - Get user by ID
   .get('/:id', async ({ params, query, set }) => {
@@ -391,7 +391,7 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
       console.error('User fetch error:', error)
       throw new Error('Failed to fetch user')
     }
-  }, { auth: true })
+  }, { modAuth: true })
 
   // GET /users/:id/popover - User popover data
   .get('/:id/popover', async ({ params, set }) => {
@@ -455,7 +455,7 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
       console.error('User popover data fetch error:', error)
       throw new Error('Failed to fetch user popover data')
     }
-  }, { auth: true })
+  }, { modAuth: true })
 
   // GET /users/:id/ticket-stats - User ticket statistics
   .get('/:id/ticket-stats', async ({ params, set }) => {
@@ -474,4 +474,4 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
       console.error('User ticket stats fetch error:', error)
       throw new Error('Failed to fetch ticket stats')
     }
-  }, { auth: true })
+  }, { modAuth: true })

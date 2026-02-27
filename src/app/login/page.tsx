@@ -48,7 +48,7 @@ function LoginForm() {
           </div>
           <CardTitle className="text-2xl">Reverts Dashboard</CardTitle>
           <CardDescription>
-            Sign in to access the internal staff dashboard
+            Sign in to access your dashboard
           </CardDescription>
         </CardHeader>
 
@@ -99,7 +99,7 @@ function LoginForm() {
           </Button>
 
           <p className="text-xs text-center text-muted-foreground">
-            Only moderators can access this dashboard
+            Sign in with your Discord account to view your tickets
           </p>
         </CardContent>
       </Card>

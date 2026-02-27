@@ -2,10 +2,12 @@ import { generateTicketSummary } from '@/lib/ai/gemini'
 import { db } from '@/lib/db'
 import { getTicketById, getTicketCount, getTickets } from '@/lib/db/queries'
 import { tickets } from '@/lib/db/schema'
+import { authMacro } from '@/lib/elysia/auth'
 import { eq } from 'drizzle-orm'
 import { Elysia } from 'elysia'
 
 export const ticketsRoutes = new Elysia({ prefix: '/tickets' })
+  .use(authMacro)
   // GET /tickets - List tickets with filters
   .get('/', async ({ query, set }) => {
     const ticketId = query.id
@@ -125,7 +127,7 @@ export const ticketsRoutes = new Elysia({ prefix: '/tickets' })
       console.error('Tickets list error:', error)
       throw new Error('Failed to fetch tickets')
     }
-  })
+  }, { modAuth: true })
 
   // POST /tickets/:id/summary - Generate AI summary
   .post('/:id/summary', async ({ params, set }) => {
@@ -162,4 +164,4 @@ export const ticketsRoutes = new Elysia({ prefix: '/tickets' })
       const errorMessage = error instanceof Error ? error.message : 'Failed to generate summary'
       throw new Error(errorMessage)
     }
-  })
+  }, { modAuth: true })

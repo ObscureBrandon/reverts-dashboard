@@ -1,22 +1,33 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
+import { useUserRole } from '@/lib/hooks/queries/useUserRole';
 import { cn } from '@/lib/utils';
 import { Home, Menu, MessageSquare, Ticket, Users, X } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useLayoutEffect, useRef, useState } from 'react';
 
-const navItems = [
+// Full nav items for mods
+const modNavItems = [
   { href: '/', label: 'Home', icon: Home },
   { href: '/users', label: 'Users', icon: Users },
   { href: '/tickets', label: 'Tickets', icon: Ticket },
   { href: '/messages', label: 'Messages', icon: MessageSquare },
 ];
 
+// Limited nav items for regular users
+const userNavItems = [
+  { href: '/my-tickets', label: 'My Tickets', icon: Ticket },
+];
+
 export function NavigationHeader() {
   const pathname = usePathname();
+  const { isMod, isLoading } = useUserRole();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // Select nav items based on role
+  const navItems = isLoading ? [] : isMod ? modNavItems : userNavItems;
   
   // Refs for measuring nav link positions for sliding underline
   const navContainerRef = useRef<HTMLDivElement>(null);
@@ -48,6 +59,10 @@ export function NavigationHeader() {
     }
   }, [activeIndex, pathname]);
 
+  // Determine which items to show in the desktop nav (skip Home for mods)
+  const desktopNavItems = isMod ? navItems.slice(1) : navItems;
+  const desktopActiveOffset = isMod ? 1 : 0;
+
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       {/* Accent gradient line at top */}
@@ -57,7 +72,7 @@ export function NavigationHeader() {
         <div className="flex h-14 items-center justify-between">
           {/* Logo/Brand */}
           <Link 
-            href="/"
+            href={isMod ? '/' : '/my-tickets'}
             className="flex items-center gap-2 font-semibold text-foreground hover:text-emerald-600 transition-colors"
           >
             <div className="p-1.5 rounded-md">
@@ -71,14 +86,14 @@ export function NavigationHeader() {
             ref={navContainerRef}
             className="hidden md:flex items-center gap-1 relative"
           >
-            {navItems.slice(1).map((item, index) => {
-              const isActive = activeIndex === index + 1;
+            {desktopNavItems.map((item, index) => {
+              const isActive = activeIndex === index + desktopActiveOffset;
               const Icon = item.icon;
               
               return (
                 <Link
                   key={item.href}
-                  ref={(el) => { navRefs.current[index + 1] = el; }}
+                  ref={(el) => { navRefs.current[index + desktopActiveOffset] = el; }}
                   href={item.href}
                   className={cn(
                     "flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors rounded-md",
@@ -93,7 +108,7 @@ export function NavigationHeader() {
               );
             })}
             {/* Sliding underline */}
-            {activeIndex > 0 && (
+            {activeIndex >= desktopActiveOffset && (
               <span
                 className="absolute bottom-0 h-0.5 bg-emerald-500 rounded-full transition-all duration-300 ease-out"
                 style={{

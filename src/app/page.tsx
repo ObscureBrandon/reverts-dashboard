@@ -1,6 +1,31 @@
+'use client';
+
+import { useUserRole } from '@/lib/hooks/queries/useUserRole';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { useEffect } from 'react';
 
 export default function Home() {
+  const { role, isLoading, isMod } = useUserRole();
+  const router = useRouter();
+
+  // Redirect normal users to /my-tickets
+  useEffect(() => {
+    if (!isLoading && role === 'user') {
+      router.replace('/my-tickets');
+    }
+  }, [role, isLoading, router]);
+
+  // Show loading while determining role
+  if (isLoading || role === 'user') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 flex items-center justify-center">
+        <div className="text-muted-foreground">Loading...</div>
+      </div>
+    );
+  }
+
+  // Mod view — full dashboard
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800">
       <div className="container mx-auto px-4 py-16">

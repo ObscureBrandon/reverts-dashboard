@@ -1,4 +1,5 @@
 import { getMentionsForMessages, getMessageCount, getStaffRoles, searchMessages } from '@/lib/db/queries';
+import { authMacro } from '@/lib/elysia/auth';
 import { Elysia } from 'elysia';
 
 // In-memory cache for staff role IDs (refresh every 5 minutes)
@@ -24,6 +25,7 @@ async function getStaffRoleIds(): Promise<bigint[]> {
 }
 
 export const messagesRoutes = new Elysia({ prefix: '/messages' })
+  .use(authMacro)
   .get('/', async ({ query }) => {
     const q = query.q || undefined
     const staffOnly = query.staffOnly === 'true'
@@ -104,4 +106,4 @@ export const messagesRoutes = new Elysia({ prefix: '/messages' })
       console.error('Message search error:', error)
       throw new Error('Failed to search messages')
     }
-  })
+  }, { modAuth: true })

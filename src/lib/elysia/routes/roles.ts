@@ -1,7 +1,9 @@
 import { getAllRoles } from '@/lib/db/queries'
+import { authMacro } from '@/lib/elysia/auth'
 import { Elysia } from 'elysia'
 
 export const rolesRoutes = new Elysia({ prefix: '/roles' })
+  .use(authMacro)
   .get('/', async () => {
     try {
       const roles = await getAllRoles()
@@ -18,4 +20,4 @@ export const rolesRoutes = new Elysia({ prefix: '/roles' })
       console.error('Error fetching roles:', err)
       throw new Error('Failed to fetch roles')
     }
-  })
+  }, { modAuth: true })

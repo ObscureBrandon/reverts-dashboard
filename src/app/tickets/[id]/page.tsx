@@ -4,6 +4,7 @@ import { Avatar } from '@/app/components/Avatar';
 import { roleColorToHex } from '@/app/components/utils';
 import { useGenerateTicketSummary } from '@/lib/hooks/mutations/useTicketMutations';
 import { useTicket, useTicketMessages } from '@/lib/hooks/queries/useTickets';
+import { useUserRole } from '@/lib/hooks/queries/useUserRole';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useRef, useState } from 'react';
@@ -587,7 +588,10 @@ export default function TicketDetailPage() {
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
-  // Global panel context
+  // Role-based access
+  const { isMod, discordId, isLoading: roleLoading } = useUserRole();
+  
+  // Global panel context (mod-only feature)
   const { openUserPanel } = useUserPanel();
   
   // Use TanStack Query hooks for data fetching
@@ -603,9 +607,13 @@ export default function TicketDetailPage() {
   const guildId = messagesData?.guildId || null;
   
   // Combined loading and error states
-  const loading = ticketLoading || messagesLoading;
+  const loading = ticketLoading || messagesLoading || roleLoading;
   const error = ticketError || messagesError;
   const summaryError = summaryMutationError?.message || null;
+
+  // Back link: mods go to /tickets, users go to /my-tickets
+  const backHref = isMod ? '/tickets' : '/my-tickets';
+  const backLabel = isMod ? 'Back to Tickets' : 'Back to My Tickets';
 
   
   const handleMentionClick = (type: 'user' | 'role' | 'channel', id: string, event: React.MouseEvent) => {
@@ -643,6 +651,30 @@ export default function TicketDetailPage() {
     return <TicketDetailSkeleton />;
   }
   
+  // Access control: non-mods can only see their own tickets
+  if (!loading && ticket && !isMod && ticket.author?.id !== discordId) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
+        <div className="text-center max-w-md">
+          <svg className="mx-auto h-12 w-12 text-red-500 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+          </svg>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Access Denied</h1>
+          <p className="text-gray-600 dark:text-gray-400 mb-6">You don&apos;t have permission to view this ticket.</p>
+          <Link 
+            href="/my-tickets"
+            className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+          >
+            <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+            Back to My Tickets
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   // Show error only if we have an actual error or ticket doesn't exist after loading
   if (error || !ticket) {
     return (
@@ -654,13 +686,13 @@ export default function TicketDetailPage() {
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Ticket Not Found</h1>
           <p className="text-gray-600 dark:text-gray-400 mb-6">{error?.message || 'The ticket you are looking for does not exist.'}</p>
           <Link 
-            href="/tickets"
+            href={backHref}
             className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
           >
             <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
             </svg>
-            Back to Tickets
+            {backLabel}
           </Link>
         </div>
       </div>
@@ -703,9 +735,9 @@ export default function TicketDetailPage() {
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-3">
               <Link 
-                href="/tickets"
+                href={backHref}
                 className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors"
-                title="Back to tickets"
+                title={backLabel}
               >
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
@@ -755,13 +787,13 @@ export default function TicketDetailPage() {
             {ticket.author && (
               <div className="flex items-center gap-2">
                 <div 
-                  className="cursor-pointer"
-                  onClick={(e) => {
+                  className={isMod ? 'cursor-pointer' : ''}
+                  onClick={isMod ? (e) => {
                     e.preventDefault();
                     e.stopPropagation();
                     openUserPanel(ticket.author!.id);
-                  }}
-                  onMouseEnter={() => prefetchUserDetails(ticket.author!.id)}
+                  } : undefined}
+                  onMouseEnter={isMod ? () => prefetchUserDetails(ticket.author!.id) : undefined}
                 >
                   <Avatar 
                     src={ticket.author.displayAvatar}
@@ -800,8 +832,8 @@ export default function TicketDetailPage() {
             </div>
           ) : (
             <>
-              {/* AI Summary Message - Appears as first message */}
-              {(ticket.summary || ticket.status === 'CLOSED' || messages.length > 0) && (
+              {/* AI Summary Message - Mod only: full controls; User: read-only summary if exists */}
+              {isMod && (ticket.summary || ticket.status === 'CLOSED' || messages.length > 0) && (
                 <div className="mb-6">
                   <div className="group hover:bg-gray-100 dark:hover:bg-gray-800/50 transition-colors py-3 px-4 rounded-md">
                     <div className="flex gap-3">
@@ -884,6 +916,26 @@ export default function TicketDetailPage() {
                   </div>
                 </div>
               )}
+              {/* Read-only summary for non-mod users */}
+              {!isMod && ticket.summary && (
+                <div className="mb-6">
+                  <div className="py-3 px-4 rounded-md">
+                    <div className="flex gap-3">
+                      <SparklesIcon size={40} />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-semibold text-gray-900 dark:text-white">
+                            AI Summary
+                          </span>
+                        </div>
+                        <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-words leading-relaxed">
+                          {ticket.summary}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
               
               {/* Date-grouped Messages */}
               {Array.from(messageGroups.entries()).map(([dateKey, dateMessages]) => (
@@ -917,13 +969,13 @@ export default function TicketDetailPage() {
                             {msg.author && (
                               <>
                                 <div 
-                                  className="flex-shrink-0 self-start cursor-pointer"
-                                  onClick={(e) => {
+                                  className={`flex-shrink-0 self-start ${isMod ? 'cursor-pointer' : ''}`}
+                                  onClick={isMod ? (e) => {
                                     e.preventDefault();
                                     e.stopPropagation();
                                     openUserPanel(msg.author!.id);
-                                  }}
-                                  onMouseEnter={() => prefetchUserDetails(msg.author!.id)}
+                                  } : undefined}
+                                  onMouseEnter={isMod ? () => prefetchUserDetails(msg.author!.id) : undefined}
                                 >
                                   <Avatar 
                                     src={msg.author.displayAvatar}
