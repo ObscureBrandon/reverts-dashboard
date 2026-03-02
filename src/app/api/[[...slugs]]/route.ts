@@ -1,5 +1,6 @@
 import { auth } from '@/lib/auth'
 import { authMacro } from '@/lib/elysia/auth'
+import { botRoutes } from '@/lib/elysia/routes/bot'
 import { messagesRoutes } from '@/lib/elysia/routes/messages'
 import { myTicketsRoutes } from '@/lib/elysia/routes/my-tickets'
 import { panelsRoutes } from '@/lib/elysia/routes/panels'
@@ -21,6 +22,7 @@ const apiRoutes = new Elysia({ prefix: '/api' })
   .use(ticketsRoutes)
   .use(messagesRoutes)
   .use(myTicketsRoutes)
+  .use(botRoutes)
 
 // Root app - mounts better-auth at root (it handles /api/auth internally)
 // and the API routes separately
