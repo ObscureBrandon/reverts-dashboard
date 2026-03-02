@@ -1,6 +1,10 @@
 import { auth } from "@/lib/auth";
+import { getUserRole } from "@/lib/user-role";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
+
+// Routes only accessible to mods
+const MOD_ONLY_ROUTES = ["/tickets", "/users", "/messages"];
 
 export async function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
@@ -26,6 +30,18 @@ export async function proxy(request: NextRequest) {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("callbackUrl", pathname);
     return NextResponse.redirect(loginUrl);
+  }
+
+  // Redirect non-mods away from mod-only routes
+  const isModOnlyRoute = MOD_ONLY_ROUTES.some(
+    (route) => pathname === route || pathname.startsWith(route + "/")
+  );
+
+  if (isModOnlyRoute) {
+    const result = await getUserRole(session.user.id);
+    if (!result || result.role !== "mod") {
+      return NextResponse.redirect(new URL("/my-tickets", request.url));
+    }
   }
 
   return NextResponse.next();
