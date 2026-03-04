@@ -4,22 +4,18 @@ import { NavigationHeader } from '@/app/components/navigation-header';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useSession } from '@/lib/auth-client';
 import { useUserPanel } from '@/lib/contexts/user-panel-context';
-import { useStaffDetails } from '@/lib/hooks/queries/useStaffDetails';
 import { StaffListItem, useStaffTable } from '@/lib/hooks/queries/useStaffTable';
 import { usePrefetchUserDetails } from '@/lib/hooks/queries/useUserDetails';
 import { useUserRole } from '@/lib/hooks/queries/useUserRole';
 import { usePrefetchUsersTable, UserListItem, useUsersTable } from '@/lib/hooks/queries/useUsersTable';
-import { cn } from '@/lib/utils';
 import { useDebouncedCallback } from '@tanstack/react-pacer';
 import { SortingState, VisibilityState } from '@tanstack/react-table';
 import { useRouter } from 'next/navigation';
-import { parseAsArrayOf, parseAsInteger, parseAsString, parseAsStringLiteral, useQueryState, useQueryStates } from 'nuqs';
+import { parseAsArrayOf, parseAsInteger, parseAsString, parseAsStringLiteral, useQueryStates } from 'nuqs';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { columns, staffColumns, viewColumnDefaults } from './components/columns';
 import { DataTable } from './components/data-table';
 import { DataTableToolbar, FilterState, QuickFilter, ViewPreset } from './components/data-table-toolbar';
-import { PanelBreadcrumb, StaffDetailsPanel } from './components/staff-details-panel';
-import { UserDetailsPanel } from './components/user-details-panel';
 
 // URL search params schema
 const viewOptions = ['all', 'staff'] as const;
@@ -124,18 +120,10 @@ export default function UsersPage() {
   const sorting: SortingState = [{ id: params.sort, desc: params.order === 'desc' }];
   const activeQuickFilters = new Set(params.filters as QuickFilter[]);
   
-  // Panel state from context (manages user/staff URL params)
-  const { panelState, openUserPanel, openStaffPanel, closePanel } = useUserPanel();
-  const selectedStaffId = panelState.panelType === 'staff' ? panelState.userId : null;
-  const selectedUserId = panelState.panelType === 'user' ? panelState.userId : null;
-  const staffPanelOpen = panelState.isOpen && panelState.panelType === 'staff';
-  const userPanelOpen = panelState.isOpen && panelState.panelType === 'user';
-  const panelOpen = panelState.isOpen;
-  
-  // Fetch staff details for breadcrumb when viewing a user from staff panel
-  // We need a separate query state to track the "parent" staff when drilling down
-  const [parentStaffId] = useQueryState('staff', parseAsString);
-  const { data: staffDetailsData } = useStaffDetails(parentStaffId);
+  // Panel state from context
+  const { panelState, openUserPanel, openStaffPanel } = useUserPanel();
+  const selectedStaffId = panelState.stack.find(e => e.panelType === 'staff')?.userId ?? null;
+  const selectedUserId = panelState.stack.find(e => e.panelType === 'user')?.userId ?? null;
 
   // Track if we've ever loaded data (to prevent full-page skeleton on view switches)
   const hasInitiallyLoaded = useRef(false);
@@ -271,30 +259,6 @@ export default function UsersPage() {
     prefetchUserDetails(user.id);
   }, [prefetchUserDetails]);
 
-  // Handler for user panel close
-  const handleUserPanelOpenChange = useCallback((open: boolean) => {
-    if (!open) {
-      closePanel();
-    }
-  }, [closePanel]);
-
-  // Handler for staff panel close
-  const handleStaffPanelOpenChange = useCallback((open: boolean) => {
-    if (!open) {
-      closePanel();
-    }
-  }, [closePanel]);
-
-  // Handler for clicking a supervisee in staff panel → opens user panel stacked
-  const handleSuperviseeClick = useCallback((userId: string) => {
-    openUserPanel(userId);
-  }, [openUserPanel]);
-
-  // Handler for back navigation in breadcrumb
-  const handleBackToStaff = useCallback(() => {
-    closePanel();
-  }, [closePanel]);
-
   // Build query params for API based on all filters
   const queryParams = useMemo(() => {
     const apiParams: Record<string, any> = {
@@ -405,13 +369,8 @@ export default function UsersPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Main content - adds margin when panel is open to make room */}
-      <div className={cn(
-        "transition-[margin] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]",
-        panelOpen && "lg:mr-[420px]"
-      )}>
-        <NavigationHeader />
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <NavigationHeader />
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           {/* Header */}
           <div className="mb-8">
             <h1 className="text-2xl font-semibold text-foreground tracking-tight">
@@ -462,32 +421,7 @@ export default function UsersPage() {
               />
             )}
           />
-        </div>
       </div>
-
-      {/* Staff Details Side Panel - renders regardless of view, hidden when user panel is open */}
-      <StaffDetailsPanel
-        staffId={selectedStaffId}
-        open={staffPanelOpen && !userPanelOpen}
-        onOpenChange={handleStaffPanelOpenChange}
-        onSuperviseeClick={handleSuperviseeClick}
-      />
-
-      {/* User Details Side Panel */}
-      {/* Shows breadcrumb only when opened from staff panel (both staff and user params set) */}
-      <UserDetailsPanel
-        userId={selectedUserId}
-        open={userPanelOpen}
-        onOpenChange={handleUserPanelOpenChange}
-        breadcrumb={
-          selectedStaffId && staffDetailsData ? (
-            <PanelBreadcrumb
-              staffName={staffDetailsData.staff.displayName || staffDetailsData.staff.name || 'Staff'}
-              onBack={handleBackToStaff}
-            />
-          ) : undefined
-        }
-      />
     </div>
   );
 }

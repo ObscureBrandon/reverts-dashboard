@@ -2,7 +2,7 @@
 
 import { useMediaQuery } from '@/lib/hooks/useMediaQuery'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 
 // ============================================================================
 // Types
@@ -10,22 +10,36 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 
 type PanelType = 'user' | 'staff'
 
-type PanelState = {
-  userId: string | null
+type PanelEntry = {
+  userId: string
   panelType: PanelType
+}
+
+type PanelState = {
+  /** Ordered bottom→top. Top of stack = currently visible panel. */
+  stack: PanelEntry[]
+  /** Derived: true when stack has entries */
   isOpen: boolean
 }
 
 type UserPanelContextType = {
-  /** Current panel state */
+  /** Full panel state */
   panelState: PanelState
-  /** Open the user details panel for a specific user */
+  /** Currently visible panel entry (top of stack), or null */
+  currentPanel: PanelEntry | null
+  /** Parent panel for breadcrumb display (second from top), or null */
+  parentPanel: PanelEntry | null
+  /** Whether there's a panel to go back to */
+  canGoBack: boolean
+  /** Push a user panel onto the stack */
   openUserPanel: (userId: string) => void
-  /** Open the staff details panel for a specific staff member */
+  /** Push a staff panel onto the stack */
   openStaffPanel: (staffId: string) => void
-  /** Close the currently open panel */
+  /** Pop the top entry; if stack becomes empty, panel closes */
+  goBack: () => void
+  /** Clear the entire stack (close everything) */
   closePanel: () => void
-  /** Check if a specific user's panel is currently open */
+  /** Check if a specific user's panel is currently showing */
   isPanelOpenForUser: (userId: string) => boolean
 }
 
@@ -45,17 +59,24 @@ export function UserPanelProvider({ children }: { children: React.ReactNode }) {
   const searchParams = useSearchParams()
   const isMobile = useMediaQuery('(max-width: 767px)')
   
-  // In-memory state for cross-page persistence
-  const [panelState, setPanelState] = useState<PanelState>({
-    userId: null,
-    panelType: 'user',
-    isOpen: false,
-  })
+  // Stack-based state
+  const [stack, setStack] = useState<PanelEntry[]>([])
   
   // Track if we've initialized from URL (for shared links)
   const hasInitializedRef = useRef(false)
   // Track previous pathname to detect navigation
   const prevPathnameRef = useRef(pathname)
+  
+  // Derived state
+  const isOpen = stack.length > 0
+  const currentPanel = stack.length > 0 ? stack[stack.length - 1] : null
+  const parentPanel = stack.length > 1 ? stack[stack.length - 2] : null
+  const canGoBack = stack.length > 1
+  
+  const panelState: PanelState = useMemo(() => ({
+    stack,
+    isOpen,
+  }), [stack, isOpen])
   
   // Initialize from URL on first mount (for shared links)
   useEffect(() => {
@@ -65,38 +86,38 @@ export function UserPanelProvider({ children }: { children: React.ReactNode }) {
     const userParam = searchParams.get('user')
     const staffParam = searchParams.get('staff')
     
-    if (staffParam) {
-      setPanelState({
-        userId: staffParam,
-        panelType: 'staff',
-        isOpen: true,
-      })
+    if (staffParam && userParam) {
+      // Both params = stacked state (staff → user)
+      setStack([
+        { userId: staffParam, panelType: 'staff' },
+        { userId: userParam, panelType: 'user' },
+      ])
+    } else if (staffParam) {
+      setStack([{ userId: staffParam, panelType: 'staff' }])
     } else if (userParam) {
-      setPanelState({
-        userId: userParam,
-        panelType: 'user',
-        isOpen: true,
-      })
+      setStack([{ userId: userParam, panelType: 'user' }])
     }
   }, [searchParams])
   
-  // Sync panel state TO URL when it changes (for shareability)
+  // Sync stack TO URL when it changes
   useEffect(() => {
     if (!hasInitializedRef.current) return
     
-    const currentUserParam = searchParams.get('user')
-    const currentStaffParam = searchParams.get('staff')
-    
-    // Build new search params
     const params = new URLSearchParams(searchParams.toString())
     
-    if (panelState.isOpen && panelState.userId) {
-      if (panelState.panelType === 'staff') {
-        params.set('staff', panelState.userId)
+    if (isOpen && currentPanel) {
+      // Always reflect the top-of-stack in URL
+      if (currentPanel.panelType === 'staff') {
+        params.set('staff', currentPanel.userId)
         params.delete('user')
       } else {
-        params.set('user', panelState.userId)
-        params.delete('staff')
+        params.set('user', currentPanel.userId)
+        // Keep staff param if parent is staff (for shareable stacked URLs)
+        if (parentPanel?.panelType === 'staff') {
+          params.set('staff', parentPanel.userId)
+        } else {
+          params.delete('staff')
+        }
       }
     } else {
       params.delete('user')
@@ -106,55 +127,67 @@ export function UserPanelProvider({ children }: { children: React.ReactNode }) {
     const newParamString = params.toString()
     const currentParamString = searchParams.toString()
     
-    // Only update if params changed to avoid infinite loops
     if (newParamString !== currentParamString) {
       const newUrl = newParamString ? `${pathname}?${newParamString}` : pathname
       router.replace(newUrl, { scroll: false })
     }
-  }, [panelState, pathname, router, searchParams])
+  }, [stack, isOpen, currentPanel, parentPanel, pathname, router, searchParams])
   
   // On mobile, close panel when navigating to a different page
   useEffect(() => {
-    if (isMobile && prevPathnameRef.current !== pathname && panelState.isOpen) {
-      setPanelState(prev => ({ ...prev, isOpen: false, userId: null }))
+    if (isMobile && prevPathnameRef.current !== pathname && isOpen) {
+      setStack([])
     }
     prevPathnameRef.current = pathname
-  }, [pathname, isMobile, panelState.isOpen])
+  }, [pathname, isMobile, isOpen])
 
   const openUserPanel = useCallback((userId: string) => {
-    setPanelState({
-      userId,
-      panelType: 'user',
-      isOpen: true,
+    setStack(prev => {
+      // Don't push duplicate of what's already on top
+      const top = prev.length > 0 ? prev[prev.length - 1] : null
+      if (top && top.userId === userId && top.panelType === 'user') {
+        return prev
+      }
+      return [...prev, { userId, panelType: 'user' as const }]
     })
   }, [])
 
   const openStaffPanel = useCallback((staffId: string) => {
-    setPanelState({
-      userId: staffId,
-      panelType: 'staff',
-      isOpen: true,
+    setStack(prev => {
+      // Don't push duplicate of what's already on top
+      const top = prev.length > 0 ? prev[prev.length - 1] : null
+      if (top && top.userId === staffId && top.panelType === 'staff') {
+        return prev
+      }
+      return [...prev, { userId: staffId, panelType: 'staff' as const }]
+    })
+  }, [])
+
+  const goBack = useCallback(() => {
+    setStack(prev => {
+      if (prev.length <= 1) return [] // close entirely
+      return prev.slice(0, -1) // pop top
     })
   }, [])
 
   const closePanel = useCallback(() => {
-    setPanelState(prev => ({
-      ...prev,
-      isOpen: false,
-      userId: null,
-    }))
+    setStack([])
   }, [])
 
   const isPanelOpenForUser = useCallback((userId: string) => {
-    return panelState.isOpen && panelState.userId === userId
-  }, [panelState.isOpen, panelState.userId])
+    return currentPanel?.userId === userId
+  }, [currentPanel])
 
   return (
     <UserPanelContext.Provider
       value={{
         panelState,
+        currentPanel,
+        parentPanel,
+        canGoBack,
         openUserPanel,
         openStaffPanel,
+        goBack,
         closePanel,
         isPanelOpenForUser,
       }}

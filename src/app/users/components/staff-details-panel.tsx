@@ -1,21 +1,13 @@
 'use client';
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import {
-    Drawer,
-    DrawerContent,
-    DrawerDescription,
-    DrawerTitle,
-} from '@/components/ui/drawer';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
-    useStaffDetails,
     type StaffDetails,
     type StaffSupervisee
 } from '@/lib/hooks/queries/useStaffDetails';
 import { usePrefetchUserDetails } from '@/lib/hooks/queries/useUserDetails';
 import { cn, roleColorToHex } from '@/lib/utils';
-import * as VisuallyHidden from '@radix-ui/react-visually-hidden';
 import {
     ArrowLeft,
     Check,
@@ -25,8 +17,7 @@ import {
     Mic,
     Shield,
     ShieldCheck,
-    Users,
-    X
+    Users
 } from 'lucide-react';
 import * as React from 'react';
 import { useCallback, useState } from 'react';
@@ -447,102 +438,8 @@ function StaffPanelContent({
 }
 
 // ============================================================================
-// Main Component
+// Main Export — Content only, no shell wrapper
 // ============================================================================
 
-interface StaffDetailsPanelProps {
-  staffId: string | null;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onSuperviseeClick: (userId: string) => void;
-  breadcrumb?: React.ReactNode;
-}
+export { StaffPanelContent, type StaffPanelContentProps };
 
-export function StaffDetailsPanel({ 
-  staffId, 
-  open, 
-  onOpenChange, 
-  onSuperviseeClick,
-  breadcrumb,
-}: StaffDetailsPanelProps) {
-  const { data, isLoading, error } = useStaffDetails(staffId);
-  const closeButtonRef = React.useRef<HTMLButtonElement>(null);
-  
-  // Detect mobile
-  const [isMobile, setIsMobile] = useState(false);
-  
-  React.useEffect(() => {
-    const checkMobile = () => setIsMobile(window.innerWidth < 768);
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
-  }, []);
-
-  // Focus close button when panel opens
-  React.useEffect(() => {
-    if (open && !isMobile && closeButtonRef.current) {
-      const timer = setTimeout(() => {
-        closeButtonRef.current?.focus();
-      }, 100);
-      return () => clearTimeout(timer);
-    }
-  }, [open, isMobile]);
-
-  // Mobile: Use Drawer with swipe gestures
-  if (isMobile) {
-    return (
-      <Drawer open={open} onOpenChange={onOpenChange}>
-        <DrawerContent className="max-h-[85vh] flex flex-col p-0">
-          <VisuallyHidden.Root>
-            <DrawerTitle>Staff Details</DrawerTitle>
-            <DrawerDescription>Detailed information about the staff member</DrawerDescription>
-          </VisuallyHidden.Root>
-
-          <StaffPanelContent 
-            data={data} 
-            isLoading={isLoading} 
-            error={error} 
-            isMobile={isMobile}
-            onSuperviseeClick={onSuperviseeClick}
-            breadcrumb={breadcrumb}
-          />
-        </DrawerContent>
-      </Drawer>
-    );
-  }
-
-  // Desktop/Tablet: Use fixed positioned panel with slide animation
-  return (
-    <div
-      role="dialog"
-      aria-modal="false"
-      aria-label="Staff details"
-      className={cn(
-        'fixed top-0 right-0 h-full w-[420px] bg-background border-l border-border shadow-lg',
-        'flex flex-col overflow-hidden z-50',
-        'transform transition-transform duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]',
-        open ? 'translate-x-0' : 'translate-x-full'
-      )}
-      style={{ willChange: 'transform' }}
-    >
-      {/* Close button */}
-      <button
-        ref={closeButtonRef}
-        onClick={() => onOpenChange(false)}
-        className="absolute top-4 right-4 z-20 p-1.5 rounded-md bg-muted/80 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-        aria-label="Close panel"
-      >
-        <X className="h-4 w-4" />
-      </button>
-
-      <StaffPanelContent 
-        data={data} 
-        isLoading={isLoading} 
-        error={error} 
-        isMobile={isMobile}
-        onSuperviseeClick={onSuperviseeClick}
-        breadcrumb={breadcrumb}
-      />
-    </div>
-  );
-}
