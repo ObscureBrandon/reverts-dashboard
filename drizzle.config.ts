@@ -24,5 +24,6 @@ export default {
     url: process.env.DATABASE_URL!,
   },
   // Only manage auth tables - bot tables are managed by the bot's Prisma setup
-  tablesFilter: ['auth_*'],
+  // tablesFilter: ['auth_*', 'revert_tag', 'revert_tag_assignment', 'revert_check_in'],
+  tablesFilter: ["!_prisma_migrations"],
 } satisfies Config;

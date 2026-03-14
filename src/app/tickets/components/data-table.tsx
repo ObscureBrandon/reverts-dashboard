@@ -1,5 +1,6 @@
 'use client';
 
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -10,7 +11,9 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table';
+import { getTicketStatusDescriptor } from '@/lib/status-system';
 import { cn } from '@/lib/utils';
+import { formatRelativeTime } from '@/lib/utils';
 import {
     ColumnDef,
     flexRender,
@@ -20,8 +23,27 @@ import {
     useReactTable,
 } from '@tanstack/react-table';
 import { ChevronLeft, ChevronRight, Ticket } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
+
+type MobileTicketRow = {
+  id: number;
+  sequence: number | null;
+  status: string | null;
+  messageCount: number;
+  createdAt: string;
+  closedAt: string | null;
+  channel: {
+    name: string;
+  } | null;
+  author: {
+    id: string;
+    name: string;
+    displayName: string | null;
+    displayAvatar: string | null;
+  } | null;
+  searchMatchedByParticipant?: boolean;
+};
 
 interface TicketsDataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[];
@@ -41,14 +63,9 @@ interface TicketsDataTableProps<TData, TValue> {
   // Simplified user click handler - opens global panel
   onUserClick?: (e: React.MouseEvent, userId: string) => void;
   onUserHover?: (userId: string) => void;
-  // Status filter props (for column header)
-  statusFilter?: string;
-  onStatusFilterChange?: (status: string) => void;
-  // Pending action for contextual loading
-  pendingAction?: 'status' | 'panel' | 'page' | null;
 }
 
-export function TicketsDataTable<TData extends { id: number }, TValue>({
+export function TicketsDataTable<TData extends MobileTicketRow, TValue>({
   columns,
   data,
   isLoading,
@@ -61,16 +78,19 @@ export function TicketsDataTable<TData extends { id: number }, TValue>({
   onRowHoverStart,
   onUserClick,
   onUserHover,
-  statusFilter,
-  onStatusFilterChange,
-  pendingAction,
 }: TicketsDataTableProps<TData, TValue> & {
   renderToolbar?: (table: ReturnType<typeof useReactTable<TData>>) => React.ReactNode;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [internalSorting, setInternalSorting] = useState<SortingState>([]);
+  const currentQuery = searchParams.toString();
+  const currentPathWithSearch = `${pathname}${currentQuery ? `?${currentQuery}` : ''}`;
+  const getTicketHref = (ticketId: number) => `/tickets/${ticketId}?returnTo=${encodeURIComponent(currentPathWithSearch)}`;
   
   const sorting = externalSorting ?? internalSorting;
+  const manualSorting = externalSorting !== undefined && onSortingChange !== undefined;
 
   const handleSortingChange = (updater: SortingState | ((old: SortingState) => SortingState)) => {
     const newValue = typeof updater === 'function' ? updater(sorting) : updater;
@@ -85,7 +105,8 @@ export function TicketsDataTable<TData extends { id: number }, TValue>({
     data,
     columns,
     getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
+    getSortedRowModel: manualSorting ? undefined : getSortedRowModel(),
+    manualSorting,
     onSortingChange: handleSortingChange,
     state: {
       sorting,
@@ -93,9 +114,7 @@ export function TicketsDataTable<TData extends { id: number }, TValue>({
     meta: {
       onUserClick,
       onUserHover,
-      statusFilter,
-      onStatusFilterChange,
-      pendingAction,
+      getTicketHref,
     },
   });
 
@@ -103,30 +122,26 @@ export function TicketsDataTable<TData extends { id: number }, TValue>({
   const columnLabels: Record<string, string> = {
     ticket: 'Ticket',
     author: 'Author',
-    status: 'Status',
+    status: 'Ticket State',
     messageCount: 'Messages',
     createdAt: 'Created',
-    closedAt: 'Closed',
   };
 
   // Only show skeleton on initial load (no data yet)
   const showSkeleton = isLoading && data.length === 0;
-  // Show subtle indicator when refetching with existing data
-  const isRefetching = isFetching && data.length > 0;
 
   if (showSkeleton) {
     return (
       <div className="space-y-4">
         {renderToolbar && renderToolbar(table)}
         <div className="rounded-lg border border-border bg-card overflow-hidden relative">
-          {/* Accent gradient at top */}
-          <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-emerald-500/30 via-emerald-500 to-emerald-500/30" />
+          <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-brand-accent-solid/30 via-brand-accent-solid to-brand-accent-solid/30" />
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-transparent border-border bg-muted/30">
                 {columns.map((column, i) => (
                   <TableHead key={i} className="h-11 text-muted-foreground font-medium text-sm">
-                    {columnLabels[(column as any).id] || (typeof column.header === 'string' ? column.header : '')}
+                    {columnLabels[(typeof column.id === 'string' ? column.id : '')] || (typeof column.header === 'string' ? column.header : '')}
                   </TableHead>
                 ))}
               </TableRow>
@@ -154,9 +169,7 @@ export function TicketsDataTable<TData extends { id: number }, TValue>({
 
       <div className="relative">
         <div className="rounded-lg border border-border bg-card overflow-hidden relative">
-          {/* Accent gradient at top */}
-          <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-emerald-500/30 via-emerald-500 to-emerald-500/30" />
-          
+          <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-brand-accent-solid/30 via-brand-accent-solid to-brand-accent-solid/30" />
           {/* Desktop Table View */}
           <div className="hidden md:block">
             <Table>
@@ -186,9 +199,9 @@ export function TicketsDataTable<TData extends { id: number }, TValue>({
                       key={row.id}
                       className={cn(
                         "border-border transition-colors group cursor-pointer",
-                        "hover:bg-emerald-50/50 dark:hover:bg-emerald-950/20"
+                        "hover:bg-muted/50"
                       )}
-                      onClick={() => router.push(`/tickets/${row.original.id}`)}
+                      onClick={() => router.push(getTicketHref(row.original.id))}
                       onMouseEnter={() => onRowHoverStart?.(row.original)}
                     >
                       {row.getVisibleCells().map((cell, cellIndex) => (
@@ -196,7 +209,7 @@ export function TicketsDataTable<TData extends { id: number }, TValue>({
                           key={cell.id} 
                           className={cn(
                             "py-3.5 transition-colors",
-                            cellIndex === 0 && "border-l-2 border-l-transparent group-hover:border-l-emerald-500"
+                            cellIndex === 0 && "border-l-2 border-l-transparent group-hover:border-l-brand-accent-border"
                           )}
                           onClick={(e) => {
                             // Stop propagation for author cell to allow popover
@@ -220,8 +233,8 @@ export function TicketsDataTable<TData extends { id: number }, TValue>({
                       className="h-[400px] text-center align-middle"
                     >
                       <div className="flex flex-col items-center gap-3">
-                        <div className="p-4 rounded-full bg-emerald-50 dark:bg-emerald-950/50">
-                          <Ticket className="h-8 w-8 text-emerald-500" />
+                        <div className="p-4 rounded-full bg-muted">
+                          <Ticket className="h-8 w-8 text-muted-foreground" />
                         </div>
                         <p className="text-muted-foreground font-medium">No tickets found</p>
                         <p className="text-sm text-muted-foreground/70">Try adjusting your filters</p>
@@ -237,28 +250,26 @@ export function TicketsDataTable<TData extends { id: number }, TValue>({
           <div className="md:hidden divide-y divide-border">
             {table.getRowModel().rows?.length ? (
               table.getRowModel().rows.map((row) => {
-                const ticket = row.original as any;
+                const ticket = row.original;
+                const ticketAuthor = ticket.author;
                 return (
                   <div
                     key={row.id}
-                    className="p-4 hover:bg-emerald-50/50 dark:hover:bg-emerald-950/20 transition-colors cursor-pointer"
-                    onClick={() => router.push(`/tickets/${ticket.id}`)}
+                    className="p-4 hover:bg-muted/50 transition-colors cursor-pointer"
+                    onClick={() => router.push(getTicketHref(ticket.id))}
                   >
                     <div className="flex items-start justify-between mb-2">
                       <div className="flex items-center gap-2">
-                        <span className="text-lg font-semibold text-emerald-600 dark:text-emerald-400">
+                        <span className="text-lg font-semibold text-foreground">
                           #{ticket.sequence !== null ? ticket.sequence : ticket.id}
                         </span>
-                        <span className={cn(
-                          "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium",
-                          ticket.status === 'OPEN' 
-                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200'
-                            : ticket.status === 'CLOSED'
-                            ? 'bg-muted text-muted-foreground'
-                            : 'bg-destructive/10 text-destructive'
-                        )}>
-                          {ticket.status}
-                        </span>
+                        <Badge
+                          tone={ticket.status === 'DELETED' ? 'danger' : 'neutral'}
+                          kind="status"
+                          emphasis="soft"
+                        >
+                          {getTicketStatusDescriptor(ticket.status).label}
+                        </Badge>
                       </div>
                       <span className="text-sm text-muted-foreground">
                         {ticket.messageCount} msgs
@@ -271,42 +282,35 @@ export function TicketsDataTable<TData extends { id: number }, TValue>({
                       </div>
                     )}
                     
-                    {ticket.author && (
+                    {ticketAuthor && (
                       <div 
                         className="flex items-center gap-2 mb-2 cursor-pointer hover:opacity-80 active:opacity-60"
                         onClick={(e) => {
                           e.stopPropagation();
-                          onUserClick?.(e, ticket.author.id);
+                          onUserClick?.(e, ticketAuthor.id);
                         }}
                       >
                         <div className="w-6 h-6 rounded-full bg-muted overflow-hidden">
-                          {ticket.author.displayAvatar ? (
-                            <img src={ticket.author.displayAvatar} alt="" className="w-full h-full object-cover" />
+                          {ticketAuthor.displayAvatar ? (
+                            <img src={ticketAuthor.displayAvatar} alt="" className="w-full h-full object-cover" />
                           ) : (
                             <div className="w-full h-full flex items-center justify-center text-xs text-muted-foreground">
-                              {(ticket.author.displayName || ticket.author.name || '?')[0].toUpperCase()}
+                              {(ticketAuthor.displayName || ticketAuthor.name || '?')[0].toUpperCase()}
                             </div>
                           )}
                         </div>
                         <span className="text-sm text-foreground">
-                          {ticket.author.displayName || ticket.author.name}
+                          {ticketAuthor.displayName || ticketAuthor.name}
                         </span>
                       </div>
                     )}
                     
                     <div className="text-xs text-muted-foreground">
-                      Created {new Date(ticket.createdAt).toLocaleDateString('en-US', {
-                        month: 'short',
-                        day: 'numeric',
-                        year: 'numeric'
-                      })}
+                      Created {formatRelativeTime(ticket.createdAt)}
                       {ticket.closedAt && (
-                        <> • Closed {new Date(ticket.closedAt).toLocaleDateString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                          year: 'numeric'
-                        })}</>
+                        <> • Closed {formatRelativeTime(ticket.closedAt)}</>
                       )}
+                      {ticket.searchMatchedByParticipant ? <> • Participant match</> : null}
                     </div>
                   </div>
                 );
@@ -314,8 +318,8 @@ export function TicketsDataTable<TData extends { id: number }, TValue>({
             ) : (
               <div className="p-12 text-center">
                 <div className="flex flex-col items-center gap-3">
-                  <div className="p-4 rounded-full bg-emerald-50 dark:bg-emerald-950/50">
-                    <Ticket className="h-8 w-8 text-emerald-500" />
+                  <div className="p-4 rounded-full bg-muted">
+                    <Ticket className="h-8 w-8 text-muted-foreground" />
                   </div>
                   <p className="text-muted-foreground font-medium">No tickets found</p>
                   <p className="text-sm text-muted-foreground/70">Try adjusting your filters</p>

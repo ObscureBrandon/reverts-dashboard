@@ -10,10 +10,11 @@
  * - Bot tables: Managed by bot's Prisma migrations (reference only here)
  */
 
-import { relations } from 'drizzle-orm';
+import { relations, sql } from 'drizzle-orm';
 import {
   bigint,
   boolean,
+  date,
   foreignKey,
   index,
   integer,
@@ -77,6 +78,9 @@ export const infractionStatusEnum = pgEnum("InfractionStatus", [
 export const progressModeEnum = pgEnum("progress_mode", ["sequential", "freeflow"]);
 export const lessonStatusEnum = pgEnum("lesson_status", ["not_started", "in_progress", "completed"]);
 export const questionTypeEnum = pgEnum("question_type", ["single", "multiple", "text"]);
+
+// Ramadan Tracker Enums
+export const ramadanItemStatusEnum = pgEnum("ramadan_item_status", ["completed", "excused", "missed"]);
 
 // ============================================================================
 // AUTH TABLES (Dashboard-owned, Drizzle migrations)
@@ -438,6 +442,48 @@ export const jailRoles = pgTable("JailRoles", {
   infractionIdIdx: index("JailRoles_infraction_id_idx").on(table.infractionId),
 }));
 
+// --- Revert Tag & Check-in Tables (Dashboard-owned, Drizzle migrations) ---
+
+export const revertTags = pgTable("revert_tag", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 64 }).notNull(),
+  description: text("description"),
+  color: varchar("color", { length: 7 }).notNull().default('#6366f1'),
+  emoji: varchar("emoji", { length: 8 }),
+  category: varchar("category", { length: 64 }),
+  isArchived: boolean("is_archived").default(false).notNull(),
+  createdById: bigint("created_by_id", { mode: "bigint" }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const revertTagAssignments = pgTable("revert_tag_assignment", {
+  id: serial("id").primaryKey(),
+  userId: bigint("user_id", { mode: "bigint" }).notNull(),
+  tagId: integer("tag_id").notNull().references(() => revertTags.id),
+  assignedById: bigint("assigned_by_id", { mode: "bigint" }).notNull(),
+  assignedAt: timestamp("assigned_at").defaultNow().notNull(),
+  removedById: bigint("removed_by_id", { mode: "bigint" }),
+  removedAt: timestamp("removed_at"),
+  note: text("note"),
+  removalNote: text("removal_note"),
+}, (table) => ({
+  userIdIdx: index("revert_tag_assignment_user_id_idx").on(table.userId),
+  tagIdIdx: index("revert_tag_assignment_tag_id_idx").on(table.tagId),
+  activeIdx: index("revert_tag_assignment_active_idx").on(table.userId, table.tagId).where(sql`removed_at IS NULL`),
+}));
+
+export const revertCheckIns = pgTable("revert_check_in", {
+  id: serial("id").primaryKey(),
+  userId: bigint("user_id", { mode: "bigint" }).notNull(),
+  staffId: bigint("staff_id", { mode: "bigint" }).notNull(),
+  method: varchar("method", { length: 32 }).notNull().default('DM'),
+  summary: text("summary"),
+  checkedInAt: timestamp("checked_in_at").defaultNow().notNull(),
+}, (table) => ({
+  userIdIdx: index("revert_check_in_user_id_idx").on(table.userId),
+  staffIdIdx: index("revert_check_in_staff_id_idx").on(table.staffId),
+}));
+
 // ============================================================================
 // COURSE PLATFORM TABLES
 // ============================================================================
@@ -573,6 +619,121 @@ export const quizAnswers = pgTable("quiz_answers", {
 });
 
 // ============================================================================
+// RAMADAN TRACKER TABLES
+// ============================================================================
+
+// --- User Settings ---
+
+export const ramadanUserSettings = pgTable("ramadan_user_settings", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => authUser.id, { onDelete: "cascade" }),
+  timezone: text("timezone").notNull(),
+  boardVisible: boolean("board_visible").default(false).notNull(),
+  pushEnabled: boolean("push_enabled").default(false).notNull(),
+  pushReminderTimeMinutes: integer("push_reminder_time_minutes").default(1260).notNull(), // 9:00 PM
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// --- Daily Log ---
+
+export const ramadanDailyLog = pgTable("ramadan_daily_log", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => authUser.id, { onDelete: "cascade" }),
+  date: date("date").notNull(),
+  timezone: text("timezone").notNull(),
+  reflection: text("reflection"),
+  checkedInAt: timestamp("checked_in_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  unique("ramadan_daily_log_user_date").on(table.userId, table.date),
+  index("ramadan_daily_log_date_idx").on(table.date),
+]);
+
+// --- Daily Item (tri-state values for fundamentals/extras/curated) ---
+
+export const ramadanDailyItem = pgTable("ramadan_daily_item", {
+  id: serial("id").primaryKey(),
+  logId: integer("log_id")
+    .notNull()
+    .references(() => ramadanDailyLog.id, { onDelete: "cascade" }),
+  key: text("key").notNull(),
+  status: ramadanItemStatusEnum("status").notNull(),
+  valueInt: integer("value_int"), // for prayer count (0-5)
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  unique("ramadan_daily_item_log_key").on(table.logId, table.key),
+]);
+
+// --- Custom Goals ---
+
+export const ramadanCustomGoal = pgTable("ramadan_custom_goal", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => authUser.id, { onDelete: "cascade" }),
+  label: text("label").notNull(),
+  orderIndex: integer("order_index").notNull(),
+  isActive: boolean("is_active").default(true).notNull(),
+  archivedAt: timestamp("archived_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// --- Custom Goal Log (binary per day) ---
+
+export const ramadanCustomGoalLog = pgTable("ramadan_custom_goal_log", {
+  id: serial("id").primaryKey(),
+  logId: integer("log_id")
+    .notNull()
+    .references(() => ramadanDailyLog.id, { onDelete: "cascade" }),
+  customGoalId: integer("custom_goal_id")
+    .notNull()
+    .references(() => ramadanCustomGoal.id, { onDelete: "cascade" }),
+  status: ramadanItemStatusEnum("status").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  unique("ramadan_custom_goal_log_unique").on(table.logId, table.customGoalId),
+]);
+
+// --- Push Subscriptions ---
+
+export const ramadanPushSubscription = pgTable("ramadan_push_subscription", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => authUser.id, { onDelete: "cascade" }),
+  endpoint: text("endpoint").notNull().unique(),
+  p256dh: text("p256dh").notNull(),
+  auth: text("auth").notNull(),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// --- Reminder Times (up to 3 per user) ---
+
+export const ramadanReminderTime = pgTable("ramadan_reminder_time", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => authUser.id, { onDelete: "cascade" }),
+  minutesAfterMidnight: integer("minutes_after_midnight").notNull(), // 0-1439
+  lastSentDate: date("last_sent_date"), // nullable — tracks if reminder was already sent today
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  unique("ramadan_reminder_time_user_minutes").on(table.userId, table.minutesAfterMidnight),
+  index("ramadan_reminder_time_user_idx").on(table.userId),
+]);
+
+// ============================================================================
 // RELATIONS
 // ============================================================================
 
@@ -597,6 +758,8 @@ export const usersRelations = relations(users, ({ many }) => ({
   infractionsGiven: many(infractions, { relationName: "userGivenInfractions" }),
   pardonsGiven: many(infractions, { relationName: "userGivenPardons" }),
   appealReviews: many(infractionAppeals),
+  tagAssignments: many(revertTagAssignments, { relationName: "userTagAssignments" }),
+  checkIns: many(revertCheckIns, { relationName: "userCheckIns" }),
 }));
 
 export const messagesRelations = relations(messages, ({ one }) => ({
@@ -898,6 +1061,94 @@ export const quizAnswersRelations = relations(quizAnswers, ({ one }) => ({
   selectedOption: one(quizOptions, {
     fields: [quizAnswers.selectedOptionId],
     references: [quizOptions.id],
+  }),
+}));
+
+// ============================================================================
+// REVERT TAG & CHECK-IN RELATIONS
+// ============================================================================
+
+export const revertTagsRelations = relations(revertTags, ({ many }) => ({
+  assignments: many(revertTagAssignments),
+}));
+
+export const revertTagAssignmentsRelations = relations(revertTagAssignments, ({ one }) => ({
+  user: one(users, {
+    fields: [revertTagAssignments.userId],
+    references: [users.discordId],
+    relationName: "userTagAssignments",
+  }),
+  tag: one(revertTags, {
+    fields: [revertTagAssignments.tagId],
+    references: [revertTags.id],
+  }),
+}));
+
+export const revertCheckInsRelations = relations(revertCheckIns, ({ one }) => ({
+  user: one(users, {
+    fields: [revertCheckIns.userId],
+    references: [users.discordId],
+    relationName: "userCheckIns",
+  }),
+}));
+
+// ============================================================================
+// RAMADAN TRACKER RELATIONS
+// ============================================================================
+
+export const ramadanUserSettingsRelations = relations(ramadanUserSettings, ({ one }) => ({
+  user: one(authUser, {
+    fields: [ramadanUserSettings.userId],
+    references: [authUser.id],
+  }),
+}));
+
+export const ramadanDailyLogRelations = relations(ramadanDailyLog, ({ one, many }) => ({
+  user: one(authUser, {
+    fields: [ramadanDailyLog.userId],
+    references: [authUser.id],
+  }),
+  items: many(ramadanDailyItem),
+  customGoalLogs: many(ramadanCustomGoalLog),
+}));
+
+export const ramadanDailyItemRelations = relations(ramadanDailyItem, ({ one }) => ({
+  log: one(ramadanDailyLog, {
+    fields: [ramadanDailyItem.logId],
+    references: [ramadanDailyLog.id],
+  }),
+}));
+
+export const ramadanCustomGoalRelations = relations(ramadanCustomGoal, ({ one, many }) => ({
+  user: one(authUser, {
+    fields: [ramadanCustomGoal.userId],
+    references: [authUser.id],
+  }),
+  logs: many(ramadanCustomGoalLog),
+}));
+
+export const ramadanCustomGoalLogRelations = relations(ramadanCustomGoalLog, ({ one }) => ({
+  log: one(ramadanDailyLog, {
+    fields: [ramadanCustomGoalLog.logId],
+    references: [ramadanDailyLog.id],
+  }),
+  customGoal: one(ramadanCustomGoal, {
+    fields: [ramadanCustomGoalLog.customGoalId],
+    references: [ramadanCustomGoal.id],
+  }),
+}));
+
+export const ramadanPushSubscriptionRelations = relations(ramadanPushSubscription, ({ one }) => ({
+  user: one(authUser, {
+    fields: [ramadanPushSubscription.userId],
+    references: [authUser.id],
+  }),
+}));
+
+export const ramadanReminderTimeRelations = relations(ramadanReminderTime, ({ one }) => ({
+  user: one(authUser, {
+    fields: [ramadanReminderTime.userId],
+    references: [authUser.id],
   }),
 }));
 

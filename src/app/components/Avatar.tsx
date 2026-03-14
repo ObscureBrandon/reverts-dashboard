@@ -1,8 +1,24 @@
 'use client';
 
-import { useState } from 'react';
+import { MouseEvent, useState } from 'react';
 
-// Avatar component with fallback
+import {
+  Avatar as SharedAvatar,
+  AvatarFallback,
+  AvatarImage,
+  UserAvatar,
+  type AvatarSize,
+} from '@/components/ui/avatar';
+import { cn } from '@/lib/utils';
+
+const canonicalAvatarSizes: Record<number, AvatarSize> = {
+  20: 'xs',
+  24: 'sm',
+  32: 'md',
+  40: 'lg',
+  64: 'xl',
+};
+
 export function Avatar({ 
   src, 
   name, 
@@ -12,54 +28,54 @@ export function Avatar({
   src: string | null; 
   name: string; 
   size?: number;
-  onClick?: (e: React.MouseEvent) => void;
+  onClick?: (e: MouseEvent) => void;
 }) {
   const [imageError, setImageError] = useState(false);
-  
-  const initials = name
-    .split(' ')
-    .map(word => word[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2);
-  
-  const getColorFromName = (name: string) => {
-    let hash = 0;
-    for (let i = 0; i < name.length; i++) {
-      hash = name.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    const hue = Math.abs(hash % 360);
-    return `hsl(${hue}, 60%, 50%)`;
-  };
-  
-  const baseClasses = "rounded-full flex items-center justify-center border-2 border-gray-200 dark:border-gray-700 flex-shrink-0";
-  const clickableClasses = onClick ? "cursor-pointer hover:opacity-80 transition-opacity" : "";
-  
-  if (!src || imageError) {
+  const canonicalSize = canonicalAvatarSizes[size];
+
+  if (canonicalSize) {
     return (
-      <div 
-        className={`${baseClasses} ${clickableClasses} font-semibold text-white`}
-        style={{ 
-          width: `${size}px`, 
-          height: `${size}px`,
-          backgroundColor: getColorFromName(name),
-          fontSize: `${size * 0.4}px`
-        }}
+      <UserAvatar
+        src={src}
+        name={name}
+        size={canonicalSize}
+        className={cn(
+          'shrink-0 border border-border',
+          onClick && 'cursor-pointer transition-opacity hover:opacity-80'
+        )}
         onClick={onClick}
-      >
-        {initials}
-      </div>
+      />
     );
   }
-  
+
   return (
-    <img 
-      src={src}
-      alt={`${name}'s avatar`}
-      className={`${baseClasses} ${clickableClasses}`}
-      style={{ width: `${size}px`, height: `${size}px` }}
-      onError={() => setImageError(true)}
+    <SharedAvatar
+      size={canonicalSize ?? 'md'}
+      className={cn(
+        'shrink-0 border border-border',
+        onClick && 'cursor-pointer transition-opacity hover:opacity-80'
+      )}
+      style={{ width: size, height: size }}
       onClick={onClick}
-    />
+    >
+      {!imageError && src ? (
+        <AvatarImage
+          src={src}
+          alt={`${name}'s avatar`}
+          onError={() => setImageError(true)}
+        />
+      ) : null}
+      <AvatarFallback
+        className="font-semibold"
+        style={{ fontSize: Math.max(10, size * 0.4) }}
+      >
+        {name
+          .split(' ')
+          .map(word => word[0])
+          .join('')
+          .toUpperCase()
+          .slice(0, 2)}
+      </AvatarFallback>
+    </SharedAvatar>
   );
 }

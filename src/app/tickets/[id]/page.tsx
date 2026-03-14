@@ -1,19 +1,28 @@
 'use client';
 
-import { Avatar } from '@/app/components/Avatar';
-import { roleColorToHex } from '@/app/components/utils';
-import { useGenerateTicketSummary } from '@/lib/hooks/mutations/useTicketMutations';
-import { useTicket, useTicketMessages } from '@/lib/hooks/queries/useTickets';
-import { useUserRole } from '@/lib/hooks/queries/useUserRole';
-import Link from 'next/link';
-import { useParams, useRouter } from 'next/navigation';
-import { useRef, useState } from 'react';
-import TicketDetailSkeleton from './skeleton';
-// UserPopover replaced with global panel context
+import { NavigationHeader } from '@/app/components/navigation-header';
+import { PageHeader } from '@/app/components/page-header';
 import { ChannelPopover } from '@/app/components/popovers/ChannelPopover';
 import { RolePopover } from '@/app/components/popovers/RolePopover';
+import { AvatarGroup, AvatarGroupCount, UserAvatar } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { DeferredMessageContent, MessageContent, type MentionLookup } from '@/components/ui/message-content';
+import { useGlobalSearchOverlay } from '@/lib/contexts/global-search-context';
 import { useUserPanel } from '@/lib/contexts/user-panel-context';
+import { useGenerateTicketSummary } from '@/lib/hooks/mutations/useTicketMutations';
+import { useTicket, useTicketMessages } from '@/lib/hooks/queries/useTickets';
 import { usePrefetchUserDetails } from '@/lib/hooks/queries/useUserDetails';
+import { useUserRole } from '@/lib/hooks/queries/useUserRole';
+import { getTicketStatusDescriptor } from '@/lib/status-system';
+import { cn, formatRelativeTime } from '@/lib/utils';
+import { ArrowLeft, Check, Clock3, Copy, ExternalLink, Hash, MessageSquare, Sparkles, Users } from 'lucide-react';
+import Link from 'next/link';
+import { useParams, useSearchParams } from 'next/navigation';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { Position } from '@/app/components/popovers/PopoverWrapper';
+import TicketDetailSkeleton from './skeleton';
 
 type Message = {
   id: string;
@@ -58,57 +67,50 @@ type Ticket = {
   summaryTokensUsed?: number | null;
 };
 
-type MentionLookup = {
-  users: Record<string, { name: string; displayName: string | null; displayAvatar: string | null }>;
-  roles: Record<string, { name: string; color: number }>;
-  channels: Record<string, { name: string }>;
-};
-
-type UserRole = {
-  id: string;
-  name: string;
-  color: number;
-  position: number;
-};
-
 // UserModalData type removed - using global panel context now
 
 type RoleModalData = { 
   type: 'role'; 
   id: string; 
   data: { name: string; color: number }; 
-  position: { x: number; y: number; triggerWidth?: number; triggerHeight?: number } 
+  triggerElement: HTMLElement | null;
+  triggerRect: Position;
 };
 
 type ChannelModalData = { 
   type: 'channel'; 
   id: string; 
   data: { name: string }; 
-  position: { x: number; y: number; triggerWidth?: number; triggerHeight?: number } 
+  triggerElement: HTMLElement | null;
+  triggerRect: Position;
 };
 
-// Sparkles Icon component for AI Summary
-function SparklesIcon({ size = 40 }: { size?: number }) {
-  return (
-    <div 
-      className="rounded-full flex items-center justify-center border-2 border-gray-200 dark:border-gray-700 flex-shrink-0 bg-gradient-to-br from-emerald-500 to-emerald-600"
-      style={{ 
-        width: `${size}px`, 
-        height: `${size}px`,
-      }}
-    >
-      <svg 
-        className="text-white" 
-        style={{ width: `${size * 0.6}px`, height: `${size * 0.6}px` }}
-        fill="none"
-        viewBox="0 0 24 24"
-        strokeWidth={2}
-        stroke="currentColor"
-      >
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z" />
-      </svg>
-    </div>
-  );
+const BOT_AUTHOR_ID = '1346564959835787284';
+
+function safeReturnHref(rawReturnTo: string | null, fallback: string) {
+  if (!rawReturnTo || !rawReturnTo.startsWith('/')) {
+    return fallback;
+  }
+
+  return rawReturnTo;
+}
+
+function formatDateTime(value: string) {
+  return new Date(value).toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+function formatTime(value: string) {
+  return new Date(value).toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
 }
 
 // Attachment helper functions
@@ -182,130 +184,6 @@ function AttachmentIcon({ type }: { type: string }) {
   );
 }
 
-// Component to render a single mention
-function Mention({ 
-  type, 
-  id, 
-  mentionLookup,
-  onClick,
-  onMouseEnter
-}: { 
-  type: 'user' | 'role' | 'channel'; 
-  id: string; 
-  mentionLookup: MentionLookup;
-  onClick: (e: React.MouseEvent) => void;
-  onMouseEnter?: () => void;
-}) {
-  if (type === 'user') {
-    const user = mentionLookup.users[id];
-    const displayName = user?.displayName || user?.name || `Unknown User`;
-    return (
-      <span 
-        onClick={onClick}
-        onMouseEnter={onMouseEnter}
-        className="inline-flex items-center px-1 py-0.5 mx-0.5 rounded text-sm font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 cursor-pointer hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors"
-      >
-        @{displayName}
-      </span>
-    );
-  } else if (type === 'role') {
-    const role = mentionLookup.roles[id];
-    const roleName = role?.name || 'Unknown Role';
-    const roleColor = role?.color ? roleColorToHex(role.color) : '#99aab5';
-    return (
-      <span 
-        onClick={onClick}
-        className="inline-flex items-center px-1 py-0.5 mx-0.5 rounded text-sm font-medium cursor-pointer hover:opacity-80 transition-opacity"
-        style={{ 
-          backgroundColor: `${roleColor}20`,
-          color: roleColor,
-        }}
-      >
-        @{roleName}
-      </span>
-    );
-  } else if (type === 'channel') {
-    const channel = mentionLookup.channels[id];
-    const channelName = channel?.name || 'unknown-channel';
-    return (
-      <span 
-        onClick={onClick}
-        className="inline-flex items-center px-1 py-0.5 mx-0.5 rounded text-sm font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 cursor-pointer hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors"
-      >
-        #{channelName}
-      </span>
-    );
-  }
-  return null;
-}
-
-// Parse message content and replace mentions with styled components
-function parseMessageContent(
-  content: string, 
-  mentionLookup: MentionLookup,
-  onMentionClick: (type: 'user' | 'role' | 'channel', id: string, event: React.MouseEvent) => void,
-  onUserMentionHover?: (userId: string) => void
-) {
-  if (!content) return null;
-  
-  const mentionPattern = /<@!?(\d+)>|<@&(\d+)>|<#(\d+)>/g;
-  
-  const parts: React.ReactNode[] = [];
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-  let key = 0;
-  
-  while ((match = mentionPattern.exec(content)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push(content.substring(lastIndex, match.index));
-    }
-    
-    if (match[1]) {
-      const userId = match[1];
-      parts.push(
-        <Mention 
-          key={key++} 
-          type="user" 
-          id={userId} 
-          mentionLookup={mentionLookup}
-          onClick={(e) => onMentionClick('user', userId, e)}
-          onMouseEnter={onUserMentionHover ? () => onUserMentionHover(userId) : undefined}
-        />
-      );
-    } else if (match[2]) {
-      const roleId = match[2];
-      parts.push(
-        <Mention 
-          key={key++} 
-          type="role" 
-          id={roleId} 
-          mentionLookup={mentionLookup}
-          onClick={(e) => onMentionClick('role', roleId, e)}
-        />
-      );
-    } else if (match[3]) {
-      const channelId = match[3];
-      parts.push(
-        <Mention 
-          key={key++} 
-          type="channel" 
-          id={channelId} 
-          mentionLookup={mentionLookup}
-          onClick={(e) => onMentionClick('channel', channelId, e)}
-        />
-      );
-    }
-    
-    lastIndex = match.index + match[0].length;
-  }
-  
-  if (lastIndex < content.length) {
-    parts.push(content.substring(lastIndex));
-  }
-  
-  return parts.length > 0 ? parts : content;
-}
-
 // Component to render message attachments
 function MessageAttachments({ attachments }: { attachments: string[] }) {
   if (!attachments || attachments.length === 0) return null;
@@ -329,7 +207,7 @@ function MessageAttachments({ attachments }: { attachments: string[] }) {
               <img 
                 src={url} 
                 alt={filename}
-                className="rounded border border-gray-300 dark:border-gray-600 max-h-80 object-contain"
+                className="max-h-80 rounded-xl border border-border bg-muted/30 object-contain"
               />
             </a>
           );
@@ -341,7 +219,7 @@ function MessageAttachments({ attachments }: { attachments: string[] }) {
               key={index}
               src={url}
               controls
-              className="rounded border border-gray-300 dark:border-gray-600 max-w-md max-h-80"
+              className="max-h-80 max-w-md rounded-xl border border-border bg-muted/30"
             >
               Your browser does not support the video tag.
             </video>
@@ -355,7 +233,7 @@ function MessageAttachments({ attachments }: { attachments: string[] }) {
             href={url}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 border border-gray-300 dark:border-gray-600 transition-colors text-sm"
+            className="inline-flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm transition-colors hover:bg-muted"
           >
             <AttachmentIcon type={type} />
             <span className="font-medium truncate max-w-xs">{filename}</span>
@@ -417,10 +295,10 @@ function DiscordEmbedDisplay({
   return (
     <div className="mt-2 max-w-[520px]">
       <div 
-        className="bg-gray-100 dark:bg-gray-800 border-l-4 rounded overflow-hidden"
+        className="overflow-hidden rounded-xl border border-border bg-muted/40"
         style={{ borderLeftColor: embedColor }}
       >
-        <div className="p-3 space-y-2">
+        <div className="border-l-4 p-3 space-y-2" style={{ borderLeftColor: embedColor }}>
           {/* Author */}
           {embed.author && (
             <div className="flex items-center gap-2">
@@ -428,7 +306,7 @@ function DiscordEmbedDisplay({
                 <img 
                   src={embed.author.icon_url} 
                   alt=""
-                  className="w-6 h-6 rounded-full"
+                  className="h-6 w-6 rounded-full"
                 />
               )}
               {embed.author.url ? (
@@ -436,12 +314,12 @@ function DiscordEmbedDisplay({
                   href={embed.author.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-sm font-semibold text-gray-900 dark:text-white hover:underline"
+                  className="text-sm font-semibold text-foreground hover:underline"
                 >
                   {embed.author.name}
                 </a>
               ) : (
-                <span className="text-sm font-semibold text-gray-900 dark:text-white">
+                <span className="text-sm font-semibold text-foreground">
                   {embed.author.name}
                 </span>
               )}
@@ -456,12 +334,12 @@ function DiscordEmbedDisplay({
                   href={embed.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-base font-semibold text-blue-600 dark:text-blue-400 hover:underline"
+                  className="text-base font-semibold text-brand-accent-text hover:underline"
                 >
                   {embed.title}
                 </a>
               ) : (
-                <h3 className="text-base font-semibold text-gray-900 dark:text-white">
+                <h3 className="text-base font-semibold text-foreground">
                   {embed.title}
                 </h3>
               )}
@@ -470,9 +348,13 @@ function DiscordEmbedDisplay({
 
           {/* Description */}
           {embed.description && (
-            <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-words">
-              {parseMessageContent(embed.description, mentions, onMentionClick, onUserMentionHover)}
-            </p>
+            <MessageContent
+              content={embed.description}
+              mentions={mentions}
+              onMentionClick={onMentionClick}
+              onUserMentionHover={onUserMentionHover}
+              className="text-sm text-muted-foreground"
+            />
           )}
 
           {/* Fields */}
@@ -485,12 +367,20 @@ function DiscordEmbedDisplay({
                   key={idx}
                   className={field.inline ? '' : 'col-span-full'}
                 >
-                  <div className="text-sm font-semibold text-gray-900 dark:text-white mb-0.5">
-                    {parseMessageContent(field.name, mentions, onMentionClick, onUserMentionHover)}
-                  </div>
-                  <div className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-words">
-                    {parseMessageContent(field.value, mentions, onMentionClick, onUserMentionHover)}
-                  </div>
+                  <MessageContent
+                    content={field.name}
+                    mentions={mentions}
+                    onMentionClick={onMentionClick}
+                    onUserMentionHover={onUserMentionHover}
+                    className="text-sm font-semibold text-foreground"
+                  />
+                  <MessageContent
+                    content={field.value}
+                    mentions={mentions}
+                    onMentionClick={onMentionClick}
+                    onUserMentionHover={onUserMentionHover}
+                    className="text-sm text-muted-foreground"
+                  />
                 </div>
               ))}
             </div>
@@ -518,12 +408,12 @@ function DiscordEmbedDisplay({
 
           {/* Footer */}
           {(embed.footer || embed.timestamp) && (
-            <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 pt-1">
+            <div className="flex items-center gap-2 pt-1 text-xs text-muted-foreground">
               {embed.footer?.icon_url && (
                 <img 
                   src={embed.footer.icon_url}
                   alt=""
-                  className="w-5 h-5 rounded-full"
+                  className="h-5 w-5 rounded-full"
                 />
               )}
               <span>
@@ -578,15 +468,46 @@ function groupMessagesByDate(messages: Message[]): Map<string, Message[]> {
   return groups;
 }
 
+function JumpToMessageLink({
+  guildId,
+  channelId,
+  messageId,
+  className,
+  compact = false,
+}: {
+  guildId: string;
+  channelId: string;
+  messageId: string;
+  className?: string;
+  compact?: boolean;
+}) {
+  return (
+    <a
+      href={`discord://discord.com/channels/${guildId}/${channelId}/${messageId}`}
+      className={cn(
+        compact
+          ? 'inline-flex h-7 w-7 items-center justify-center rounded-md text-brand-accent-text transition-colors hover:bg-muted/70'
+          : 'inline-flex items-center gap-1 text-xs font-medium text-brand-accent-text transition-opacity',
+        className,
+      )}
+      aria-label="Open message in Discord"
+    >
+      <ExternalLink className="h-3 w-3" />
+      {compact ? null : 'Jump to Message'}
+    </a>
+  );
+}
+
 export default function TicketDetailPage() {
   const params = useParams();
-  const router = useRouter();
+  const searchParams = useSearchParams();
   const ticketId = params.id as string;
+  const { isOpen: isGlobalSearchOpen } = useGlobalSearchOverlay();
   
   const [roleModalData, setRoleModalData] = useState<RoleModalData | null>(null);
   const [channelModalData, setChannelModalData] = useState<ChannelModalData | null>(null);
   
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [copiedLink, setCopiedLink] = useState(false);
   
   // Role-based access
   const { isMod, discordId, isLoading: roleLoading } = useUserRole();
@@ -603,7 +524,7 @@ export default function TicketDetailPage() {
   // Extract data from hook responses
   const ticket = ticketData?.ticket || null;
   const messages = messagesData?.messages || [];
-  const mentions = messagesData?.mentions || { users: {}, roles: {}, channels: {} };
+  const mentions = useMemo(() => messagesData?.mentions || { users: {}, roles: {}, channels: {} }, [messagesData?.mentions]);
   const guildId = messagesData?.guildId || null;
   
   // Combined loading and error states
@@ -612,18 +533,70 @@ export default function TicketDetailPage() {
   const summaryError = summaryMutationError?.message || null;
 
   // Back link: mods go to /tickets, users go to /my-tickets
-  const backHref = isMod ? '/tickets' : '/my-tickets';
+  const fallbackBackHref = isMod ? '/tickets' : '/my-tickets';
+  const backHref = safeReturnHref(searchParams.get('returnTo'), fallbackBackHref);
   const backLabel = isMod ? 'Back to Tickets' : 'Back to My Tickets';
+  const targetMessageId = searchParams.get('message');
+  const highlightTerm = searchParams.get('highlight');
+  const statusDescriptor = getTicketStatusDescriptor(ticket?.status);
+  const primarySummaryActionLabel = generatingSummary
+    ? 'Generating...'
+    : ticket?.summary
+      ? 'Regenerate Summary'
+      : 'Generate Summary';
+  const canGenerateSummary = messages.length > 0;
+  const hasSummary = Boolean(ticket?.summary?.trim());
+  const hasSummaryMeta = Boolean(ticket?.summaryGeneratedAt || ticket?.summaryModel || ticket?.summaryTokensUsed);
+  const useCompactEmptySummary = !hasSummary && !hasSummaryMeta && !generatingSummary && !summaryError;
+  const participants = useMemo(() => {
+    const uniqueParticipants = new Map<string, NonNullable<Message['author']>>();
+
+    messages.forEach((message) => {
+      if (!message.author || message.author.id === BOT_AUTHOR_ID || uniqueParticipants.has(message.author.id)) {
+        return;
+      }
+
+      uniqueParticipants.set(message.author.id, message.author);
+    });
+
+    return Array.from(uniqueParticipants.values());
+  }, [messages]);
+  const visibleParticipants = participants.slice(0, 4);
+  const hiddenParticipantCount = Math.max(participants.length - visibleParticipants.length, 0);
+  const participantSummary = participants.length === 0
+    ? 'No recorded authors'
+    : participants.length <= 3
+      ? participants.map((participant) => participant.displayName || participant.name).join(', ')
+      : `${participants.slice(0, 3).map((participant) => participant.displayName || participant.name).join(', ')} +${participants.length - 3} more`;
+  const ticketAuthor = ticket?.author ?? null;
+  const ticketAuthorId = ticket?.author?.id;
+
+  useEffect(() => {
+    if (!targetMessageId || messages.length === 0) {
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      const targetElement = document.getElementById(`message-${targetMessageId}`)
+      targetElement?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 150)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [messages.length, targetMessageId])
 
   
-  const handleMentionClick = (type: 'user' | 'role' | 'channel', id: string, event: React.MouseEvent) => {
+  const handleMentionClick = useCallback((type: 'user' | 'role' | 'channel', id: string, event: React.MouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
-    
-    const rect = (event.target as HTMLElement).getBoundingClientRect();
-    const position = {
+    const triggerElement = event.currentTarget as HTMLElement;
+    const rect = triggerElement.getBoundingClientRect();
+    const triggerRect: Position = {
       x: rect.left,
-      y: rect.bottom,
+      y: rect.top,
+      width: rect.width,
+      height: rect.height,
+      right: rect.right,
+      bottom: rect.bottom,
     };
 
     if (type === 'user') {
@@ -632,19 +605,25 @@ export default function TicketDetailPage() {
     } else if (type === 'role') {
       const roleData = mentions.roles[id];
       if (roleData) {
-        setRoleModalData({ type: 'role', id, data: roleData, position });
+        setRoleModalData({ type: 'role', id, data: roleData, triggerElement, triggerRect });
       }
     } else if (type === 'channel') {
       const channelData = mentions.channels[id];
       if (channelData) {
-        setChannelModalData({ type: 'channel', id, data: channelData, position });
+        setChannelModalData({ type: 'channel', id, data: channelData, triggerElement, triggerRect });
       }
     }
-  };
+  }, [mentions, openUserPanel]);
   
   const handleGenerateSummary = () => {
     generateSummary();
   };
+
+  const handleCopyLink = useCallback(async () => {
+    await navigator.clipboard.writeText(window.location.href);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2000);
+  }, []);
   
   // While loading, show the skeleton UI
   if (loading) {
@@ -654,22 +633,18 @@ export default function TicketDetailPage() {
   // Access control: non-mods can only see their own tickets
   if (!loading && ticket && !isMod && ticket.author?.id !== discordId) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
-        <div className="text-center max-w-md">
-          <svg className="mx-auto h-12 w-12 text-red-500 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-          </svg>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Access Denied</h1>
-          <p className="text-gray-600 dark:text-gray-400 mb-6">You don&apos;t have permission to view this ticket.</p>
-          <Link 
-            href="/my-tickets"
-            className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-          >
-            <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-            </svg>
-            Back to My Tickets
-          </Link>
+      <div className="min-h-screen bg-background">
+        <NavigationHeader />
+        <div className="mx-auto max-w-5xl px-4 py-8">
+          <PageHeader
+            title="Access denied"
+            description="You do not have permission to view this ticket."
+            actions={(
+              <Button asChild variant="outline">
+                <Link href="/my-tickets">Back to My Tickets</Link>
+              </Button>
+            )}
+          />
         </div>
       </div>
     );
@@ -678,22 +653,18 @@ export default function TicketDetailPage() {
   // Show error only if we have an actual error or ticket doesn't exist after loading
   if (error || !ticket) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
-        <div className="text-center max-w-md">
-          <svg className="mx-auto h-12 w-12 text-red-500 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-          </svg>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Ticket Not Found</h1>
-          <p className="text-gray-600 dark:text-gray-400 mb-6">{error?.message || 'The ticket you are looking for does not exist.'}</p>
-          <Link 
-            href={backHref}
-            className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-          >
-            <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-            </svg>
-            {backLabel}
-          </Link>
+      <div className="min-h-screen bg-background">
+        <NavigationHeader />
+        <div className="mx-auto max-w-5xl px-4 py-8">
+          <PageHeader
+            title="Ticket not found"
+            description={error?.message || 'The ticket you are looking for does not exist.'}
+            actions={(
+              <Button asChild variant="outline">
+                <Link href={backHref}>{backLabel}</Link>
+              </Button>
+            )}
+          />
         </div>
       </div>
     );
@@ -702,13 +673,15 @@ export default function TicketDetailPage() {
   const messageGroups = groupMessagesByDate(messages);
   
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col">
+    <div className="min-h-screen bg-background">
+      <NavigationHeader />
       
       {roleModalData && (
         <RolePopover
           isOpen={true}
           onClose={() => setRoleModalData(null)}
-          triggerPosition={roleModalData.position}
+          triggerElement={roleModalData.triggerElement}
+          triggerRect={roleModalData.triggerRect}
           roleData={{
             id: roleModalData.id,
             name: roleModalData.data.name,
@@ -721,7 +694,8 @@ export default function TicketDetailPage() {
         <ChannelPopover
           isOpen={true}
           onClose={() => setChannelModalData(null)}
-          triggerPosition={channelModalData.position}
+          triggerElement={channelModalData.triggerElement}
+          triggerRect={channelModalData.triggerRect}
           channelData={{
             id: channelModalData.id,
             name: channelModalData.data.name,
@@ -729,247 +703,272 @@ export default function TicketDetailPage() {
         />
       )}
       
-      {/* Header */}
-      <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 py-4">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-3">
-              <Link 
-                href={backHref}
-                className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors"
-                title={backLabel}
-              >
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                </svg>
-              </Link>
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-                  Ticket {ticket.sequence !== null ? `#${ticket.sequence}` : ticket.id}
-                </h1>
-                {ticket.channel && (
-                  <p className="text-sm text-gray-600 dark:text-gray-400">
-                    #{ticket.channel.name}
-                  </p>
-                )}
-              </div>
-              <span className={`inline-flex items-center px-2.5 py-1 rounded text-sm font-medium ${
-                ticket.status === 'OPEN' 
-                  ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                  : ticket.status === 'CLOSED'
-                  ? 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
-                  : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-              }`}>
-                {ticket.status}
-              </span>
-            </div>
-            
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => {
-                  const url = window.location.href;
-                  navigator.clipboard.writeText(url);
-                  alert('Link copied to clipboard!');
-                }}
-                className="px-3 py-2 text-sm bg-gray-200 text-gray-700 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600 rounded-md font-medium transition-colors"
-                title="Copy share link"
-              >
-                <svg className="w-4 h-4 inline-block mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
-                </svg>
-                Share
-              </button>
-            </div>
-          </div>
-          
-          {/* Ticket metadata */}
-          <div className="flex flex-wrap gap-4 text-sm text-gray-600 dark:text-gray-400">
-            {ticket.author && (
-              <div className="flex items-center gap-2">
-                <div 
-                  className={isMod ? 'cursor-pointer' : ''}
-                  onClick={isMod ? (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    openUserPanel(ticket.author!.id);
-                  } : undefined}
-                  onMouseEnter={isMod ? () => prefetchUserDetails(ticket.author!.id) : undefined}
-                >
-                  <Avatar 
-                    src={ticket.author.displayAvatar}
-                    name={ticket.author.displayName || ticket.author.name}
-                    size={24}
-                  />
-                </div>
-                <span>
-                  Created by <span className="font-medium">{ticket.author.displayName || ticket.author.name}</span>
-                </span>
-              </div>
-            )}
-            <span>•</span>
-            <span>{new Date(ticket.createdAt).toLocaleString()}</span>
-            {ticket.closedAt && (
-              <>
-                <span>•</span>
-                <span>Closed {new Date(ticket.closedAt).toLocaleString()}</span>
-              </>
-            )}
-            <span>•</span>
-            <span>{ticket.messageCount} messages</span>
-          </div>
-        </div>
-      </div>
-      
-      {/* Messages Container - Discord style */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="max-w-5xl mx-auto px-4 py-6">
-          {messages.length === 0 ? (
-            <div className="text-center py-12">
-              <svg className="mx-auto h-12 w-12 text-gray-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-              </svg>
-              <p className="text-gray-500 dark:text-gray-400">No messages in this ticket</p>
-            </div>
-          ) : (
+      <div className="mx-auto max-w-7xl px-4 py-8">
+        <PageHeader
+          title={`Ticket #${ticket.sequence !== null ? ticket.sequence : ticket.id}`}
+          context={(
+            <Badge tone={statusDescriptor.tone} kind={statusDescriptor.kind} emphasis={statusDescriptor.emphasis}>
+              {statusDescriptor.label}
+            </Badge>
+          )}
+          actions={(
             <>
-              {/* AI Summary Message - Mod only: full controls; User: read-only summary if exists */}
-              {isMod && (ticket.summary || ticket.status === 'CLOSED' || messages.length > 0) && (
-                <div className="mb-6">
-                  <div className="group hover:bg-gray-100 dark:hover:bg-gray-800/50 transition-colors py-3 px-4 rounded-md">
-                    <div className="flex gap-3">
-                      <SparklesIcon size={40} />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          <span className="font-semibold text-gray-900 dark:text-white">
-                            AI Summary
-                          </span>
-                          {ticket.summaryGeneratedAt && (
-                            <span className="text-xs text-gray-500 dark:text-gray-400">
-                              {new Date(ticket.summaryGeneratedAt).toLocaleTimeString('en-US', { 
-                                hour: 'numeric', 
-                                minute: '2-digit',
-                                hour12: true 
-                              })}
-                            </span>
-                          )}
-                        </div>
-                        
-                        {/* Summary Content */}
-                        {ticket.summary ? (
-                          <>
-                            <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-words leading-relaxed">
-                              {ticket.summary}
-                            </p>
-                            
-                            {/* Metadata Footer */}
-                            <div className="flex items-center gap-3 mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 text-xs text-gray-500 dark:text-gray-400">
-                              {ticket.summaryModel && (
-                                <span className="font-mono">{ticket.summaryModel}</span>
-                              )}
-                              {ticket.summaryTokensUsed && (
-                                <>
-                                  <span>•</span>
-                                  <span>~{ticket.summaryTokensUsed} tokens</span>
-                                </>
-                              )}
-                              <button
-                                onClick={handleGenerateSummary}
-                                disabled={generatingSummary}
-                                className="ml-auto px-3 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                              >
-                                {generatingSummary ? 'Regenerating...' : 'Regenerate Summary'}
-                              </button>
-                            </div>
-                          </>
-                        ) : generatingSummary ? (
-                          <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
-                            <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-                            <span>Generating summary...</span>
-                          </div>
-                        ) : summaryError ? (
-                          <div className="text-sm">
-                            <p className="text-red-600 dark:text-red-400 mb-2">{summaryError}</p>
-                            <button
-                              onClick={handleGenerateSummary}
-                              className="px-3 py-1.5 text-xs font-medium bg-emerald-600 hover:bg-emerald-700 text-white rounded-md transition-colors"
-                            >
-                              Try Again
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="text-sm">
-                            <p className="text-gray-600 dark:text-gray-400 mb-2">
-                              No summary generated yet. Click below to generate an AI summary of this ticket.
-                            </p>
-                            <button
-                              onClick={handleGenerateSummary}
-                              disabled={messages.length === 0}
-                              className="px-3 py-1.5 text-xs font-medium bg-emerald-600 hover:bg-emerald-700 text-white rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                              title={messages.length === 0 ? 'No messages to summarize' : 'Generate AI summary'}
-                            >
-                              Generate Summary
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
+              <Button asChild variant="outline">
+                <Link href={backHref}>
+                  <ArrowLeft className="h-4 w-4" />
+                  {backLabel}
+                </Link>
+              </Button>
+              <Button onClick={handleCopyLink} variant="outline">
+                {copiedLink ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                {copiedLink ? 'Copied' : 'Copy Link'}
+              </Button>
+            </>
+          )}
+        />
+
+        <div className="mt-0 space-y-6">
+          <Card className="gap-0 border-border py-0 shadow-sm">
+            <CardContent className="px-6 py-4">
+              <div className="grid gap-3 sm:grid-cols-2 xl:flex xl:flex-nowrap xl:items-stretch xl:overflow-hidden">
+                <div className="rounded-lg border border-border bg-muted/30 px-3 py-2.5 xl:w-[220px] xl:shrink-0">
+                  <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                    <Users className="h-3.5 w-3.5" />
+                    Opened by
+                  </div>
+                  <div
+                    className={cn('mt-1 flex min-w-0 items-center gap-2.5', isMod && ticketAuthor && 'cursor-pointer')}
+                    onClick={isMod && ticketAuthorId ? (e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      openUserPanel(ticketAuthorId);
+                    } : undefined}
+                    onMouseEnter={isMod && ticketAuthorId ? () => prefetchUserDetails(ticketAuthorId) : undefined}
+                  >
+                    <UserAvatar
+                      src={ticketAuthor?.displayAvatar}
+                      name={ticketAuthor?.displayName || ticketAuthor?.name || 'Unknown User'}
+                      size="sm"
+                      className="shrink-0 border border-border"
+                    />
+                    <p className="truncate text-sm font-medium text-foreground">
+                      {ticketAuthor?.displayName || ticketAuthor?.name || 'Unknown User'}
+                    </p>
                   </div>
                 </div>
-              )}
-              {/* Read-only summary for non-mod users */}
-              {!isMod && ticket.summary && (
-                <div className="mb-6">
-                  <div className="py-3 px-4 rounded-md">
-                    <div className="flex gap-3">
-                      <SparklesIcon size={40} />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="font-semibold text-gray-900 dark:text-white">
-                            AI Summary
-                          </span>
-                        </div>
-                        <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-words leading-relaxed">
-                          {ticket.summary}
+
+                <div className="rounded-lg border border-border bg-muted/30 px-3 py-2.5 xl:w-[180px] xl:shrink-0">
+                    <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      <Clock3 className="h-3.5 w-3.5" />
+                      Created
+                    </div>
+                    <p className="mt-1 text-sm font-medium text-foreground">{formatDateTime(ticket.createdAt)}</p>
+                </div>
+
+                <div className="rounded-lg border border-border bg-muted/30 px-3 py-2.5 xl:w-[120px] xl:shrink-0">
+                    <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      <MessageSquare className="h-3.5 w-3.5" />
+                      Messages
+                    </div>
+                    <p className="mt-1 text-sm font-medium text-foreground">{ticket.messageCount}</p>
+                </div>
+
+                {ticket.closedAt ? (
+                  <div className="rounded-lg border border-border bg-muted/30 px-3 py-2.5 xl:w-[180px] xl:shrink-0">
+                    <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      <Clock3 className="h-3.5 w-3.5" />
+                      Closed
+                    </div>
+                    <p className="mt-1 text-sm font-medium text-foreground">{formatDateTime(ticket.closedAt)}</p>
+                  </div>
+                ) : null}
+
+                <div className="rounded-lg border border-border bg-muted/30 px-3 py-2.5 xl:w-[180px] xl:shrink-0">
+                    <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      <Hash className="h-3.5 w-3.5" />
+                      Channel
+                    </div>
+                    <p className="mt-1 truncate text-sm font-medium text-foreground">{ticket.channel ? `#${ticket.channel.name}` : 'No channel recorded'}</p>
+                </div>
+
+                <div className="rounded-lg border border-border bg-muted/30 px-3 py-2.5 xl:w-[220px] xl:shrink-0">
+                    <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      <Users className="h-3.5 w-3.5" />
+                      Participants
+                    </div>
+
+                    {participants.length > 0 ? (
+                      <div className="mt-1 flex min-w-0 items-center justify-between gap-3">
+                        <p className="truncate text-sm font-medium text-foreground">
+                          {participants.length} participant{participants.length === 1 ? '' : 's'}
                         </p>
+
+                        <AvatarGroup className="shrink-0">
+                          {visibleParticipants.map((participant) => {
+                            const participantName = participant.displayName || participant.name;
+
+                            return (
+                              <UserAvatar
+                                key={participant.id}
+                                src={participant.displayAvatar}
+                                name={participantName}
+                                size="sm"
+                                className={cn('border border-border', isMod && 'cursor-pointer')}
+                                onClick={isMod ? (e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  openUserPanel(participant.id);
+                                } : undefined}
+                                onMouseEnter={isMod ? () => prefetchUserDetails(participant.id) : undefined}
+                              />
+                            );
+                          })}
+
+                          {hiddenParticipantCount > 0 ? (
+                            <AvatarGroupCount>+{hiddenParticipantCount}</AvatarGroupCount>
+                          ) : null}
+                        </AvatarGroup>
                       </div>
-                    </div>
-                  </div>
+                    ) : (
+                      <p className="mt-1 text-sm text-muted-foreground">No recorded authors</p>
+                    )}
                 </div>
-              )}
-              
-              {/* Date-grouped Messages */}
-              {Array.from(messageGroups.entries()).map(([dateKey, dateMessages]) => (
-                <div key={dateKey}>
-                  {/* Date divider */}
-                  <div className="flex items-center justify-center my-6">
-                    <div className="flex-1 border-t border-gray-300 dark:border-gray-600"></div>
-                    <div className="px-4 py-1 text-xs font-semibold text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 rounded-full">
-                      {formatDateHeader(new Date(dateKey))}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="gap-0 border-border py-0 shadow-sm">
+            <CardHeader className={cn('border-b border-border px-6', useCompactEmptySummary ? 'py-4' : 'py-5')}>
+              <CardTitle>AI Summary</CardTitle>
+            </CardHeader>
+
+            {hasSummary ? (
+              <CardContent className="px-6 py-6">
+                <p className="whitespace-pre-wrap break-words text-sm leading-6 text-foreground/90">
+                  {ticket.summary}
+                </p>
+              </CardContent>
+            ) : generatingSummary ? (
+              <CardContent className="px-6 py-4">
+                <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+                  Generating summary from the current transcript...
+                </div>
+              </CardContent>
+            ) : summaryError ? (
+              <CardContent className="px-6 py-4">
+                <div className="rounded-lg border border-status-danger-border bg-status-danger-soft px-4 py-3 text-sm text-status-danger-text">
+                  {summaryError}
+                </div>
+              </CardContent>
+            ) : useCompactEmptySummary ? (
+              <CardContent className="px-6 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-sm text-muted-foreground">No summary generated yet.</p>
+                  {isMod ? (
+                    <Button
+                      onClick={handleGenerateSummary}
+                      disabled={!canGenerateSummary}
+                      size="sm"
+                    >
+                      <Sparkles className="h-4 w-4" />
+                      {primarySummaryActionLabel}
+                    </Button>
+                  ) : null}
+                </div>
+              </CardContent>
+            ) : null}
+
+            {(hasSummary || generatingSummary || summaryError || hasSummaryMeta) ? (
+              <CardFooter className="flex flex-wrap items-center gap-2 border-t border-border px-6 py-4">
+                {ticket.summaryGeneratedAt ? (
+                  <Badge tone="neutral" kind="meta" emphasis="outline">Updated {formatRelativeTime(ticket.summaryGeneratedAt)}</Badge>
+                ) : null}
+                {ticket.summaryModel ? (
+                  <Badge tone="neutral" kind="meta" emphasis="outline">{ticket.summaryModel}</Badge>
+                ) : null}
+                {ticket.summaryTokensUsed ? (
+                  <Badge tone="neutral" kind="meta" emphasis="outline">~{ticket.summaryTokensUsed} tokens</Badge>
+                ) : null}
+                {isMod ? (
+                  <Button
+                    onClick={handleGenerateSummary}
+                    disabled={generatingSummary || !canGenerateSummary}
+                    className="ml-auto"
+                    size="sm"
+                  >
+                    <Sparkles className="h-4 w-4" />
+                    {primarySummaryActionLabel}
+                  </Button>
+                ) : null}
+              </CardFooter>
+            ) : null}
+          </Card>
+
+          <Card className="relative gap-0 overflow-hidden border-border py-0 shadow-sm">
+            <div className="absolute left-0 right-0 top-0 h-0.5 bg-gradient-to-r from-brand-accent-solid/30 via-brand-accent-solid to-brand-accent-solid/30" />
+            <CardHeader className="border-b border-border px-6 py-5">
+              <CardTitle>Transcript</CardTitle>
+            </CardHeader>
+
+            <CardContent className="px-6 py-6">
+              {messages.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-border bg-muted/20 px-6 py-12 text-center">
+                  <MessageSquare className="mx-auto h-10 w-10 text-muted-foreground" />
+                  <p className="mt-4 font-medium text-foreground">No transcript messages yet</p>
+                  <p className="mt-2 text-sm text-muted-foreground">This ticket does not have any recorded conversation history.</p>
+                </div>
+              ) : (
+                Array.from(messageGroups.entries()).map(([dateKey, dateMessages]) => (
+                  <div key={dateKey}>
+                    <div className="flex items-center justify-center gap-3 py-2">
+                      <div className="h-px flex-1 bg-border" />
+                      <Badge tone="neutral" kind="meta" emphasis="outline">{formatDateHeader(new Date(dateKey))}</Badge>
+                      <div className="h-px flex-1 bg-border" />
                     </div>
-                    <div className="flex-1 border-t border-gray-300 dark:border-gray-600"></div>
-                  </div>
-                  
-                  {/* Messages for this date */}
-                  {dateMessages.map((msg, idx) => {
-                    const prevMsg = idx > 0 ? dateMessages[idx - 1] : null;
-                    const isGrouped = prevMsg && 
-                      prevMsg.author?.id === msg.author?.id && 
-                      (new Date(msg.createdAt).getTime() - new Date(prevMsg.createdAt).getTime()) < 5 * 60 * 1000;
-                    
-                    return (
-                      <div 
-                        key={msg.id} 
-                        className={`group hover:bg-gray-100 dark:hover:bg-gray-800/50 transition-colors ${
-                          isGrouped ? 'py-0.5' : 'py-3 mt-4'
-                        } px-4 rounded-md`}
-                      >
-                        {!isGrouped ? (
-                          // Full message with avatar
-                          <div className="flex gap-3">
-                            {msg.author && (
-                              <>
-                                <div 
-                                  className={`flex-shrink-0 self-start ${isMod ? 'cursor-pointer' : ''}`}
+
+                    {dateMessages.map((msg, idx) => {
+                      const prevMsg = idx > 0 ? dateMessages[idx - 1] : null;
+                      const jumpGuildId = guildId;
+                      const jumpChannelId = msg.channel?.id ?? null;
+                      const hasJumpLink = Boolean(jumpGuildId && jumpChannelId);
+                      const isGrouped = prevMsg && 
+                        prevMsg.author?.id === msg.author?.id && 
+                        (new Date(msg.createdAt).getTime() - new Date(prevMsg.createdAt).getTime()) < 5 * 60 * 1000;
+
+                      return (
+                        <div
+                          key={msg.id}
+                          id={`message-${msg.id}`}
+                          className={cn(
+                            'group rounded-xl px-3 transition-colors hover:bg-muted/40',
+                            targetMessageId === msg.id && 'bg-brand-accent-soft/70 ring-1 ring-brand-accent-border',
+                            isGrouped ? 'mt-0.5 py-1' : 'mt-3 py-2.5',
+                          )}
+                        >
+                          {!isGrouped ? (
+                            <div className="relative flex gap-3">
+                              {hasJumpLink ? (
+                                <JumpToMessageLink
+                                  guildId={jumpGuildId!}
+                                  channelId={jumpChannelId!}
+                                  messageId={msg.id}
+                                  className="absolute right-0 top-0 md:hidden"
+                                  compact
+                                />
+                              ) : null}
+
+                              {hasJumpLink ? (
+                                <JumpToMessageLink
+                                  guildId={jumpGuildId!}
+                                  channelId={jumpChannelId!}
+                                  messageId={msg.id}
+                                  className="absolute right-0 top-0 hidden md:inline-flex md:opacity-0 md:group-hover:opacity-100"
+                                />
+                              ) : null}
+
+                              {msg.author ? (
+                                <div
+                                  className={cn('flex-shrink-0 self-start', isMod && 'cursor-pointer')}
                                   onClick={isMod ? (e) => {
                                     e.preventDefault();
                                     e.stopPropagation();
@@ -977,134 +976,140 @@ export default function TicketDetailPage() {
                                   } : undefined}
                                   onMouseEnter={isMod ? () => prefetchUserDetails(msg.author!.id) : undefined}
                                 >
-                                  <Avatar 
+                                  <UserAvatar
                                     src={msg.author.displayAvatar}
                                     name={msg.author.displayName || msg.author.name}
-                                    size={40}
+                                    size="lg"
+                                    className="border border-border"
                                   />
                                 </div>
-                              </>
-                            )}
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 mb-1 flex-wrap">
-                                <span className="font-semibold text-gray-900 dark:text-white">
-                                  {msg.author?.displayName || msg.author?.name || 'Unknown User'}
-                                </span>
-                                {msg.author?.id === '1346564959835787284' && (
-                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200">
-                                    BOT
+                              ) : null}
+
+                              <div className={cn('min-w-0 flex-1 md:pr-28', hasJumpLink && 'pr-10')}>
+                                <div className="mb-1 flex flex-wrap items-center gap-2">
+                                  <span className="font-semibold text-foreground">
+                                    {msg.author?.displayName || msg.author?.name || 'Unknown User'}
                                   </span>
-                                )}
-                                {msg.isStaff && (
-                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200">
-                                    STAFF
-                                  </span>
-                                )}
-                                 <span className="text-xs text-gray-500 dark:text-gray-400">
-                                  {new Date(msg.createdAt).toLocaleTimeString('en-US', { 
-                                    hour: 'numeric', 
-                                    minute: '2-digit',
-                                    hour12: true 
-                                  })}
-                                 </span>
+                                  {msg.author?.id === BOT_AUTHOR_ID ? (
+                                    <Badge tone="info" kind="attribute" emphasis="soft">Bot</Badge>
+                                  ) : null}
+                                  {msg.isStaff ? (
+                                    <Badge tone="neutral" kind="attribute" emphasis="soft">Staff</Badge>
+                                  ) : null}
+                                  <span className="text-xs text-muted-foreground">{formatTime(msg.createdAt)}</span>
+                                </div>
+
+                                <DeferredMessageContent
+                                  content={highlightTerm && targetMessageId === msg.id && msg.content
+                                    ? msg.content.replace(new RegExp(`(${highlightTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'ig'), '==$1==')
+                                    : msg.content || (msg.attachments?.length || msg.embeds?.length ? '' : '(No content)')}
+                                  mentions={mentions}
+                                  onMentionClick={handleMentionClick}
+                                  onUserMentionHover={prefetchUserDetails}
+                                  className="text-foreground/90"
+                                  eager={idx < 12}
+                                />
+
+                                {msg.embeds && msg.embeds.length > 0 ? (
+                                  <div className="space-y-2">
+                                    {msg.embeds.map((embed, embedIdx) => (
+                                      <DiscordEmbedDisplay
+                                        key={embedIdx}
+                                        embed={embed}
+                                        mentions={mentions}
+                                        onMentionClick={handleMentionClick}
+                                        onUserMentionHover={prefetchUserDetails}
+                                      />
+                                    ))}
+                                  </div>
+                                ) : null}
+
+                                {msg.attachments && msg.attachments.length > 0 ? (
+                                  <MessageAttachments attachments={msg.attachments} />
+                                ) : null}
+
                               </div>
-                              <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-words">
-                                {parseMessageContent(msg.content || (msg.attachments?.length ? '' : '(No content)'), mentions, handleMentionClick, prefetchUserDetails)}
-                              </p>
-                              
-                              {/* Render embeds if present */}
-                              {msg.embeds && msg.embeds.length > 0 && (
-                                <div className="space-y-2">
-                                  {msg.embeds.map((embed, embedIdx) => (
-                                    <DiscordEmbedDisplay 
-                                      key={embedIdx} 
-                                      embed={embed} 
-                                      mentions={mentions}
-                                      onMentionClick={handleMentionClick}
-                                      onUserMentionHover={prefetchUserDetails}
-                                    />
-                                  ))}
-                                </div>
-                              )}
-                              
-                              {/* Render attachments if present */}
-                              {msg.attachments && msg.attachments.length > 0 && (
-                                <MessageAttachments attachments={msg.attachments} />
-                              )}
-                              
-                              {guildId && msg.channel && (
-                                <a
-                                  href={`discord://discord.com/channels/${guildId}/${msg.channel.id}/${msg.id}`}
-                                  className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 text-xs font-medium text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
-                                >
-                                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                                  </svg>
-                                  Jump to Message
-                                </a>
-                              )}
                             </div>
-                          </div>
-                        ) : (
-                          // Compact message (grouped)
-                          <div className="flex gap-3">
-                            <div className="w-10 flex-shrink-0 flex items-start justify-center">
-                              <span className="text-xs text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 transition-opacity">
-                                {new Date(msg.createdAt).toLocaleTimeString('en-US', { 
-                                  hour: 'numeric', 
-                                  minute: '2-digit',
-                                  hour12: true 
-                                })}
-                              </span>
+                          ) : (
+                            <div className="relative flex gap-3">
+                              {hasJumpLink ? (
+                                <JumpToMessageLink
+                                  guildId={jumpGuildId!}
+                                  channelId={jumpChannelId!}
+                                  messageId={msg.id}
+                                  className="absolute right-0 top-0 md:hidden"
+                                  compact
+                                />
+                              ) : null}
+
+                              {hasJumpLink ? (
+                                <JumpToMessageLink
+                                  guildId={jumpGuildId!}
+                                  channelId={jumpChannelId!}
+                                  messageId={msg.id}
+                                  className="absolute right-0 top-0 hidden md:inline-flex md:opacity-0 md:group-hover:opacity-100"
+                                />
+                              ) : null}
+
+                              <div className="relative flex w-10 flex-shrink-0 items-start justify-center overflow-visible">
+                                <span className="absolute right-0 top-0 whitespace-nowrap text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
+                                  {formatTime(msg.createdAt)}
+                                </span>
+                              </div>
+
+                              <div className={cn('min-w-0 flex-1 md:pr-28', hasJumpLink && 'pr-10')}>
+                                <DeferredMessageContent
+                                  content={highlightTerm && targetMessageId === msg.id && msg.content
+                                    ? msg.content.replace(new RegExp(`(${highlightTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'ig'), '==$1==')
+                                    : msg.content || (msg.attachments?.length || msg.embeds?.length ? '' : '(No content)')}
+                                  mentions={mentions}
+                                  onMentionClick={handleMentionClick}
+                                  onUserMentionHover={prefetchUserDetails}
+                                  className="text-foreground/90"
+                                  eager={idx < 12}
+                                />
+
+                                {msg.embeds && msg.embeds.length > 0 ? (
+                                  <div className="space-y-2">
+                                    {msg.embeds.map((embed, embedIdx) => (
+                                      <DiscordEmbedDisplay
+                                        key={embedIdx}
+                                        embed={embed}
+                                        mentions={mentions}
+                                        onMentionClick={handleMentionClick}
+                                        onUserMentionHover={prefetchUserDetails}
+                                      />
+                                    ))}
+                                  </div>
+                                ) : null}
+
+                                {msg.attachments && msg.attachments.length > 0 ? (
+                                  <MessageAttachments attachments={msg.attachments} />
+                                ) : null}
+
+                              </div>
                             </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-words">
-                                {parseMessageContent(msg.content || (msg.attachments?.length ? '' : '(No content)'), mentions, handleMentionClick, prefetchUserDetails)}
-                              </p>
-                              
-                              {/* Render embeds if present */}
-                              {msg.embeds && msg.embeds.length > 0 && (
-                                <div className="space-y-2">
-                                  {msg.embeds.map((embed, embedIdx) => (
-                                    <DiscordEmbedDisplay 
-                                      key={embedIdx} 
-                                      embed={embed} 
-                                      mentions={mentions}
-                                      onMentionClick={handleMentionClick}
-                                      onUserMentionHover={prefetchUserDetails}
-                                    />
-                                  ))}
-                                </div>
-                              )}
-                              
-                              {/* Render attachments if present */}
-                              {msg.attachments && msg.attachments.length > 0 && (
-                                <MessageAttachments attachments={msg.attachments} />
-                              )}
-                              
-                              {guildId && msg.channel && (
-                                <a
-                                  href={`discord://discord.com/channels/${guildId}/${msg.channel.id}/${msg.id}`}
-                                  className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 text-xs font-medium text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
-                                >
-                                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                                  </svg>
-                                  Jump to Message
-                                </a>
-                              )}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              ))}
-              <div ref={messagesEndRef} />
-            </>
-          )}
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
         </div>
+
+        {!isGlobalSearchOpen ? (
+          <div className="sticky bottom-4 mt-6 rounded-2xl border border-border bg-background/95 p-3 shadow-lg backdrop-blur md:hidden">
+            <div className="flex items-center gap-2">
+              <Button onClick={handleCopyLink} variant="outline" className="flex-1">
+                {copiedLink ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                {copiedLink ? 'Copied' : 'Copy Link'}
+              </Button>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );

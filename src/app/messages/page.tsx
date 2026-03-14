@@ -1,52 +1,32 @@
 'use client';
 
-import { Avatar } from '@/app/components/Avatar';
 import { NavigationHeader } from '@/app/components/navigation-header';
+import { PageHeader } from '@/app/components/page-header';
 import { ChannelPopover } from '@/app/components/popovers/ChannelPopover';
 import { RolePopover } from '@/app/components/popovers/RolePopover';
-import { roleColorToHex } from '@/app/components/utils';
+import { UserAvatar } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
+import { MessageContent } from '@/components/ui/message-content';
 import { useUserPanel } from '@/lib/contexts/user-panel-context';
 import { useMessages, usePrefetchMessages } from '@/lib/hooks/queries/useMessages';
 import { usePrefetchUserDetails } from '@/lib/hooks/queries/useUserDetails';
 import { useUserRole } from '@/lib/hooks/queries/useUserRole';
-import { useDebounce } from '@/lib/hooks/useDebounce';
-import { ChevronLeft, ChevronRight, Loader2, MessageSquare, Search } from 'lucide-react';
+import { getTicketStatusDescriptor } from '@/lib/status-system';
+import { cn, formatRelativeTime } from '@/lib/utils';
+import { useDebouncedCallback } from '@tanstack/react-pacer';
+import { ChevronLeft, ChevronRight, ExternalLink, Hash, MessageSquare, Search } from 'lucide-react';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { parseAsInteger, parseAsString, useQueryStates } from 'nuqs';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import MessagesPageSkeleton, { MessagesResultsSkeleton } from './skeleton';
 
-type Message = {
-  id: string;
-  content: string;
-  createdAt: string;
-  isStaff: boolean;
-  author: {
-    id: string;
-    name: string;
-    displayName: string | null;
-    nick: string | null;
-    displayAvatar: string | null;
-  } | null;
-  channel: {
-    id: string;
-    name: string;
-  } | null;
-  ticket: {
-    id: number;
-    sequence: number | null;
-    status: string | null;
-    createdAt: string;
-  } | null;
-};
-
-type MentionLookup = {
-  users: Record<string, { name: string; displayName: string | null; displayAvatar: string | null }>;
-  roles: Record<string, { name: string; color: number }>;
-  channels: Record<string, { name: string }>;
+const searchParamsSchema = {
+  page: parseAsInteger.withDefault(1),
+  q: parseAsString.withDefault(''),
 };
 
 type RoleModalData = { 
@@ -63,166 +43,72 @@ type ChannelModalData = {
   position: { x: number; y: number; triggerWidth?: number; triggerHeight?: number } 
 };
 
-// Component to render a single mention
-function Mention({ 
-  type, 
-  id, 
-  mentionLookup,
-  onClick
-}: { 
-  type: 'user' | 'role' | 'channel'; 
-  id: string; 
-  mentionLookup: MentionLookup;
-  onClick: (e: React.MouseEvent) => void;
-}) {
-  if (type === 'user') {
-    const user = mentionLookup.users[id];
-    const displayName = user?.displayName || user?.name || `Unknown User`;
-    return (
-      <span 
-        onClick={onClick}
-        className="inline-flex items-center px-1 py-0.5 mx-0.5 rounded text-sm font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 cursor-pointer hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors"
-      >
-        @{displayName}
-      </span>
-    );
-  } else if (type === 'role') {
-    const role = mentionLookup.roles[id];
-    const roleName = role?.name || 'Unknown Role';
-    const roleColor = role?.color ? roleColorToHex(role.color) : '#99aab5';
-    return (
-      <span 
-        onClick={onClick}
-        className="inline-flex items-center px-1 py-0.5 mx-0.5 rounded text-sm font-medium cursor-pointer hover:opacity-80 transition-opacity"
-        style={{ 
-          backgroundColor: `${roleColor}20`,
-          color: roleColor,
-        }}
-      >
-        @{roleName}
-      </span>
-    );
-  } else if (type === 'channel') {
-    const channel = mentionLookup.channels[id];
-    const channelName = channel?.name || 'unknown-channel';
-    return (
-      <span 
-        onClick={onClick}
-        className="inline-flex items-center px-1 py-0.5 mx-0.5 rounded text-sm font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 cursor-pointer hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors"
-      >
-        #{channelName}
-      </span>
-    );
-  }
-  return null;
-}
-
-// Parse message content and replace mentions with styled components
-function parseMessageContent(
-  content: string, 
-  mentionLookup: MentionLookup,
-  onMentionClick: (type: 'user' | 'role' | 'channel', id: string, event: React.MouseEvent) => void
-) {
-  if (!content) return null;
-  
-  const mentionPattern = /<@!?(\d+)>|<@&(\d+)>|<#(\d+)>/g;
-  
-  const parts: React.ReactNode[] = [];
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-  let key = 0;
-  
-  while ((match = mentionPattern.exec(content)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push(content.substring(lastIndex, match.index));
-    }
-    
-    if (match[1]) {
-      const userId = match[1];
-      parts.push(
-        <Mention 
-          key={key++} 
-          type="user" 
-          id={userId} 
-          mentionLookup={mentionLookup}
-          onClick={(e) => onMentionClick('user', userId, e)}
-        />
-      );
-    } else if (match[2]) {
-      const roleId = match[2];
-      parts.push(
-        <Mention 
-          key={key++} 
-          type="role" 
-          id={roleId} 
-          mentionLookup={mentionLookup}
-          onClick={(e) => onMentionClick('role', roleId, e)}
-        />
-      );
-    } else if (match[3]) {
-      const channelId = match[3];
-      parts.push(
-        <Mention 
-          key={key++} 
-          type="channel" 
-          id={channelId} 
-          mentionLookup={mentionLookup}
-          onClick={(e) => onMentionClick('channel', channelId, e)}
-        />
-      );
-    }
-    
-    lastIndex = match.index + match[0].length;
-  }
-  
-  if (lastIndex < content.length) {
-    parts.push(content.substring(lastIndex));
-  }
-  
-  return parts.length > 0 ? parts : content;
+function formatMessageTimestamp(value: string) {
+  return new Date(value).toLocaleString();
 }
 
 function MessagesPageContent() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const { isMod, isLoading: roleLoading } = useUserRole();
-  
-  // Get initial values from URL
-  const urlQuery = searchParams.get('q');
+  const [params, setParams] = useQueryStates(searchParamsSchema, {
+    history: 'replace',
+    shallow: true,
+    throttleMs: 50,
+  });
   
   // Global panel context
   const { openUserPanel } = useUserPanel();
   
-  const [searchQuery, setSearchQuery] = useState(urlQuery || '');
-  const [staffOnly, setStaffOnly] = useState(false);
+  const [searchQuery, setSearchQuery] = useState(params.q);
   const [roleModalData, setRoleModalData] = useState<RoleModalData | null>(null);
   const [channelModalData, setChannelModalData] = useState<ChannelModalData | null>(null);
-  const [page, setPage] = useState(1);
-  
-  const debouncedQuery = useDebounce(searchQuery, 150);
-  
-  // Reset page when search params change
-  const prevQueryRef = useRef(debouncedQuery);
-  const prevStaffOnlyRef = useRef(staffOnly);
-  
-  if (prevQueryRef.current !== debouncedQuery || prevStaffOnlyRef.current !== staffOnly) {
-    setPage(1);
-    prevQueryRef.current = debouncedQuery;
-    prevStaffOnlyRef.current = staffOnly;
-  }
+  const [expandedMessageIds, setExpandedMessageIds] = useState<Set<string>>(() => new Set());
+  const page = params.page;
+
+  const debouncedSearch = useDebouncedCallback(
+    (query: string) => {
+      setParams({ q: query || null, page: 1 });
+    },
+    { wait: 150 }
+  );
+
+  useEffect(() => {
+    setSearchQuery(params.q);
+  }, [params.q]);
+
+  const handleSearch = useCallback((query: string) => {
+    setSearchQuery(query);
+    debouncedSearch(query);
+  }, [debouncedSearch]);
+
+  const handlePageChange = useCallback((nextPage: number) => {
+    setParams({ page: nextPage === 1 ? null : nextPage });
+  }, [setParams]);
+
+  const toggleExpandedMessage = useCallback((messageId: string) => {
+    setExpandedMessageIds((current) => {
+      const next = new Set(current);
+
+      if (next.has(messageId)) {
+        next.delete(messageId);
+      } else {
+        next.add(messageId);
+      }
+
+      return next;
+    });
+  }, []);
   
   // Use TanStack Query hook for data fetching
   const { data, isLoading, isFetching, error } = useMessages({
-    q: debouncedQuery || undefined,
-    staffOnly: staffOnly || undefined,
+    q: params.q || undefined,
     page,
     limit: 50,
   });
   
   // Prefetch adjacent pages for instant navigation
   const { prefetchPage } = usePrefetchMessages({
-    q: debouncedQuery || undefined,
-    staffOnly: staffOnly || undefined,
+    q: params.q || undefined,
     page,
     limit: 50,
   });
@@ -249,10 +135,11 @@ function MessagesPageContent() {
   
   // Extract data from the hook response
   const messages = data?.messages || [];
-  const mentions = data?.mentions || { users: {}, roles: {}, channels: {} };
+  const mentions = useMemo(() => data?.mentions || { users: {}, roles: {}, channels: {} }, [data?.mentions]);
   const totalPages = data?.pagination.totalPages || 1;
   const total = data?.pagination.total || 0;
   const guildId = data?.guildId || null;
+  const hasActiveQuery = Boolean(params.q);
   
   const handleMentionClick = useCallback((type: 'user' | 'role' | 'channel', id: string, event: React.MouseEvent) => {
     event.preventDefault();
@@ -294,19 +181,13 @@ function MessagesPageContent() {
     }
   }, [isMod, roleLoading, router]);
 
+  if (roleLoading) {
+    return <MessagesPageSkeleton />;
+  }
+
   // Don't render content if redirecting
   if (!roleLoading && !isMod) {
-    return (
-      <div className="min-h-screen bg-background">
-        <NavigationHeader />
-        <div className="flex items-center justify-center pt-32">
-          <div className="text-center">
-            <Loader2 className="h-8 w-8 animate-spin text-emerald-500 mx-auto mb-4" />
-            <p className="text-muted-foreground">Redirecting...</p>
-          </div>
-        </div>
-      </div>
-    );
+    return <MessagesPageSkeleton />;
   }
 
   return (
@@ -337,59 +218,32 @@ function MessagesPageContent() {
         />
       )}
       <div className="max-w-7xl mx-auto px-4 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-2xl font-semibold text-foreground tracking-tight">
-            Message Search
-          </h1>
-          <div className="h-1 w-12 bg-emerald-500 rounded-full mt-2" />
-          <p className="text-muted-foreground mt-2">
-            Search through Discord messages
-          </p>
-        </div>
-        
-        {/* Search Bar */}
-        <Card className="mb-6">
-          <CardContent className="pt-6">
-            <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-end">
-              <div className="flex-1 w-full">
-                <label className="block text-sm font-medium text-muted-foreground mb-2">
-                  Search Messages
-                </label>
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search message content..."
-                    className="pl-9"
-                  />
-                </div>
-              </div>
-              
-              <label className="flex items-center gap-2 cursor-pointer">
-                <Checkbox
-                  checked={staffOnly}
-                  onCheckedChange={(checked: boolean | 'indeterminate') => setStaffOnly(checked === true)}
-                  className="data-[state=checked]:bg-emerald-600 data-[state=checked]:border-emerald-600"
+        <PageHeader
+          title="Messages"
+          utility={
+            <div className="space-y-3 pt-2 sm:pt-3">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => handleSearch(e.target.value)}
+                  placeholder="Search by username, Discord ID, or message content..."
+                  className="h-10 bg-background pl-9"
                 />
-                <span className="text-sm font-medium text-foreground whitespace-nowrap">
-                  Staff Only
-                </span>
-              </label>
-            </div>
-            
-            {total > 0 && (
-              <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
-                {isFetching && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                <span>
-                  Found <span className="font-medium text-foreground">{total.toLocaleString()}</span> message{total !== 1 ? 's' : ''}
-                </span>
               </div>
-            )}
-          </CardContent>
-        </Card>
+
+              <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                {hasActiveQuery ? (
+                  <span>
+                    <span className="font-medium text-foreground">{total.toLocaleString()}</span> matching message{total === 1 ? '' : 's'}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          }
+          className="mb-0"
+        />
         
         {/* Error Message */}
         {error && (
@@ -401,21 +255,15 @@ function MessagesPageContent() {
         )}
         
         {/* Results */}
-        <Card className="overflow-hidden relative">
-          {/* Accent gradient at top */}
-          <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-emerald-500/30 via-emerald-500 to-emerald-500/30" />
+        <Card className="relative gap-0 overflow-hidden border-border py-0 shadow-sm">
+          <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-brand-accent-solid/30 via-brand-accent-solid to-brand-accent-solid/30" />
           
-          {isLoading ? (
-            <CardContent className="py-12">
-              <div className="flex flex-col items-center justify-center gap-4">
-                <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
-                <p className="text-muted-foreground">Loading messages...</p>
-              </div>
-            </CardContent>
+          {isLoading || isFetching ? (
+            <MessagesResultsSkeleton />
           ) : messages.length === 0 ? (
             <CardContent className="py-12">
               <div className="flex flex-col items-center justify-center gap-3">
-                {debouncedQuery || staffOnly ? (
+                {params.q ? (
                   <>
                     <div className="p-4 rounded-full bg-muted">
                       <Search className="h-8 w-8 text-muted-foreground" />
@@ -425,114 +273,149 @@ function MessagesPageContent() {
                   </>
                 ) : (
                   <>
-                    <div className="p-4 rounded-full bg-emerald-50 dark:bg-emerald-950/50">
-                      <MessageSquare className="h-8 w-8 text-emerald-500" />
+                    <div className="rounded-full bg-brand-accent-soft p-4">
+                      <MessageSquare className="h-8 w-8 text-brand-accent-text" />
                     </div>
                     <p className="text-lg font-medium text-foreground">Start searching</p>
-                    <p className="text-sm text-muted-foreground">Enter a search term to find messages</p>
+                    <p className="text-sm text-muted-foreground">Enter a username, Discord ID, or message phrase to find relevant results.</p>
                   </>
-              )}
+                )}
               </div>
             </CardContent>
           ) : (
             <>
-              <div className="divide-y divide-gray-200 dark:divide-gray-700">
-                {messages.map((msg) => (
-                  <div key={msg.id} className="p-6 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
-                    <div className="flex items-start justify-between mb-3 flex-wrap gap-2">
-                      <div className="flex items-center gap-3 flex-wrap">
-                        {msg.author && (
-                          <div className="flex items-center gap-2">
-                            <div 
-                              className="cursor-pointer"
-                              onClick={(e) => handleUserClick(e, msg.author!.id)}
-                              onMouseEnter={() => prefetchUserDetails(msg.author!.id)}
-                            >
-                              <Avatar 
-                                src={msg.author.displayAvatar}
-                                name={msg.author.displayName || msg.author.name}
-                                size={40}
-                              />
+              <div className="divide-y divide-border">
+                {messages.map((msg) => {
+                  const isExpanded = expandedMessageIds.has(msg.id);
+                  const isExpandable = (msg.content?.length ?? 0) > 280;
+
+                  return (
+                    <div key={msg.id} className="p-5 transition-colors hover:bg-muted/35 sm:p-6">
+                      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                        <div className="min-w-0 flex-1 space-y-3">
+                          <div className="flex items-start gap-3">
+                            {msg.author ? (
+                              <div
+                                className="cursor-pointer"
+                                onClick={(e) => handleUserClick(e, msg.author!.id)}
+                                onMouseEnter={() => prefetchUserDetails(msg.author!.id)}
+                              >
+                                <UserAvatar
+                                  src={msg.author.displayAvatar}
+                                  name={msg.author.displayName || msg.author.name}
+                                  size="lg"
+                                  className="border border-border"
+                                />
+                              </div>
+                            ) : null}
+
+                            <div className="min-w-0 flex-1 space-y-3">
+                              <div className="flex flex-wrap items-start justify-between gap-3">
+                                <div className="min-w-0 space-y-1">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="truncate text-base font-semibold text-foreground">
+                                      {msg.author?.displayName || msg.author?.name || 'Unknown User'}
+                                    </span>
+                                    {msg.author?.id === '1346564959835787284' ? (
+                                      <Badge tone="info" kind="attribute" emphasis="soft">
+                                        Bot
+                                      </Badge>
+                                    ) : null}
+                                    {msg.isStaff ? (
+                                      <Badge tone="neutral" kind="attribute" emphasis="soft">
+                                        Staff
+                                      </Badge>
+                                    ) : null}
+                                  </div>
+                                  {msg.author?.displayName && msg.author?.name && msg.author.displayName !== msg.author.name ? (
+                                    <span className="block truncate text-xs text-muted-foreground">
+                                      @{msg.author.name}
+                                    </span>
+                                  ) : null}
+                                </div>
+
+                                <div className="text-sm text-muted-foreground lg:text-right">
+                                  <p className="font-medium text-foreground">{formatRelativeTime(msg.createdAt)}</p>
+                                  <p>{formatMessageTimestamp(msg.createdAt)}</p>
+                                </div>
+                              </div>
+
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                {msg.ticket ? (
+                                  <Badge asChild tone="info" kind="meta" emphasis="soft">
+                                    <Link href={`/tickets/${msg.ticket.id}`}>
+                                      Ticket {msg.ticket.sequence !== null ? `#${msg.ticket.sequence}` : msg.ticket.id}
+                                    </Link>
+                                  </Badge>
+                                ) : null}
+                                {msg.ticket?.status ? (
+                                  <Badge
+                                    tone={getTicketStatusDescriptor(msg.ticket.status).tone}
+                                    kind={getTicketStatusDescriptor(msg.ticket.status).kind}
+                                    emphasis={getTicketStatusDescriptor(msg.ticket.status).emphasis}
+                                  >
+                                    {getTicketStatusDescriptor(msg.ticket.status).label}
+                                  </Badge>
+                                ) : null}
+                                {msg.channel ? (
+                                  <Badge tone="neutral" kind="meta" emphasis="outline" className="gap-1.5">
+                                    <Hash className="h-3 w-3" />
+                                    {msg.channel.name}
+                                  </Badge>
+                                ) : null}
+                              </div>
+
+                              <div className="space-y-2">
+                                <div
+                                  className={cn(
+                                    'relative text-sm leading-6 text-foreground whitespace-pre-wrap break-words',
+                                    !isExpanded && isExpandable && 'max-h-24 overflow-hidden'
+                                  )}
+                                >
+                                  <MessageContent
+                                    content={msg.content || '(No content)'}
+                                    mentions={mentions}
+                                    onMentionClick={handleMentionClick}
+                                    className="text-sm leading-6 text-foreground"
+                                  />
+                                  {!isExpanded && isExpandable ? (
+                                    <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-card via-card/95 to-transparent" />
+                                  ) : null}
+                                </div>
+
+                                {isExpandable ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleExpandedMessage(msg.id)}
+                                    className="text-xs font-medium text-brand-accent-text hover:underline"
+                                  >
+                                    {isExpanded ? 'Show less' : 'Show full message'}
+                                  </button>
+                                ) : null}
+                              </div>
+
+                              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                {msg.author ? (
+                                  <Badge tone="neutral" kind="meta" emphasis="outline">
+                                    ID: {msg.author.id}
+                                  </Badge>
+                                ) : null}
+                                {guildId && msg.channel ? (
+                                  <Button asChild variant="outline" size="xs">
+                                    <a href={`discord://discord.com/channels/${guildId}/${msg.channel.id}/${msg.id}`}>
+                                      <ExternalLink className="h-3 w-3" />
+                                      Jump to Message
+                                    </a>
+                                  </Button>
+                                ) : null}
+                              </div>
                             </div>
                           </div>
-                        )}
-                        <div className="flex flex-col">
-                          <span className="font-semibold text-gray-900 dark:text-white">
-                            {msg.author?.displayName || msg.author?.name || 'Unknown User'}
-                          </span>
-                          {msg.author?.displayName && msg.author?.name && msg.author.displayName !== msg.author.name && (
-                            <span className="text-xs text-gray-500 dark:text-gray-400">
-                              @{msg.author.name}
-                            </span>
-                          )}
                         </div>
-                        {msg.author?.id === '1346564959835787284' && (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200">
-                            BOT
-                          </span>
-                        )}
-                        {msg.isStaff && (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200">
-                            STAFF
-                          </span>
-                        )}
-                        {msg.ticket && (
-                          <Link
-                            href={`/tickets/${msg.ticket.id}`}
-                            className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors"
-                          >
-                            Ticket {msg.ticket.sequence !== null ? `#${msg.ticket.sequence}` : msg.ticket.id}
-                          </Link>
-                        )}
-                        {msg.ticket?.status && (
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                            msg.ticket.status === 'OPEN' 
-                              ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                              : msg.ticket.status === 'CLOSED'
-                              ? 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
-                              : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-                          }`}>
-                            {msg.ticket.status}
-                          </span>
-                        )}
                       </div>
-                      <span className="text-sm text-gray-500 dark:text-gray-400">
-                        {new Date(msg.createdAt).toLocaleString()}
-                      </span>
                     </div>
-                    
-                    <p className="text-gray-700 dark:text-gray-300 mb-3 whitespace-pre-wrap break-words">
-                      {parseMessageContent(msg.content || '(No content)', mentions, handleMentionClick)}
-                    </p>
-                    
-                    <div className="flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400">
-                      {msg.channel && (
-                        <span className="flex items-center gap-1">
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14" />
-                          </svg>
-                          {msg.channel.name}
-                        </span>
-                      )}
-                      {msg.author && (
-                        <span className="text-xs">
-                          ID: {msg.author.id}
-                        </span>
-                      )}
-                      {guildId && msg.channel && (
-                        <a
-                          href={`discord://discord.com/channels/${guildId}/${msg.channel.id}/${msg.id}`}
-                          className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-900/20 dark:hover:bg-emerald-900/30 rounded transition-colors"
-                        >
-                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                          </svg>
-                          Jump to Message
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
               
               {/* Pagination */}
@@ -547,15 +430,15 @@ function MessagesPageContent() {
                       variant="outline"
                       size="sm"
                       className="h-8 w-8 p-0"
-                      onClick={() => setPage(p => Math.max(1, p - 1))}
+                      onClick={() => handlePageChange(Math.max(1, page - 1))}
                       disabled={page === 1 || isLoading}
                     >
                       <ChevronLeft className="h-4 w-4" />
                     </Button>
                     <div className="flex items-center gap-1.5 px-2 text-sm">
-                      <span className="font-medium px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400">
+                      <Badge tone="brand" kind="meta" emphasis="soft">
                         {page}
-                      </span>
+                      </Badge>
                       <span className="text-muted-foreground">/</span>
                       <span className="text-muted-foreground">{totalPages}</span>
                     </div>
@@ -563,7 +446,7 @@ function MessagesPageContent() {
                       variant="outline"
                       size="sm"
                       className="h-8 w-8 p-0"
-                      onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                      onClick={() => handlePageChange(Math.min(totalPages, page + 1))}
                       disabled={page === totalPages || isLoading}
                     >
                       <ChevronRight className="h-4 w-4" />
@@ -582,17 +465,7 @@ function MessagesPageContent() {
 // Wrapper component with Suspense boundary
 export default function MessagesPage() {
   return (
-    <Suspense fallback={
-      <div className="min-h-screen bg-background">
-        <NavigationHeader />
-        <div className="flex items-center justify-center pt-32">
-          <div className="text-center">
-            <Loader2 className="h-8 w-8 animate-spin text-emerald-500 mx-auto mb-4" />
-            <p className="text-muted-foreground">Loading...</p>
-          </div>
-        </div>
-      </div>
-    }>
+    <Suspense fallback={<MessagesPageSkeleton />}>
       <MessagesPageContent />
     </Suspense>
   );

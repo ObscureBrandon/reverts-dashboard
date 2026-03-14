@@ -63,23 +63,38 @@ export const ticketsRoutes = new Elysia({ prefix: '/tickets' })
     const authorIdParam = query.author
     const panelParam = query.panel
     const search = query.search || undefined
-    const sortBy = query.sortBy as 'newest' | 'oldest' | 'messages' | undefined
+    const sortBy = query.sortBy as
+      | 'newest'
+      | 'oldest'
+      | 'messages'
+      | 'fewestMessages'
+      | 'sequence'
+      | 'createdAt'
+      | 'messageCount'
+      | undefined
+    const sortOrder = query.sortOrder as 'asc' | 'desc' | undefined
     const page = parseInt(query.page || '1')
     const limit = parseInt(query.limit || '50')
 
     try {
       const offset = (page - 1) * limit
 
-      // Parse authorId and panelId if provided
+      // Parse authorId and panelIds if provided
       const authorId = authorIdParam ? BigInt(authorIdParam) : undefined
-      const panelId = panelParam ? parseInt(panelParam) : undefined
+      const panelIds = panelParam
+        ? panelParam
+            .split(',')
+            .map((value) => parseInt(value, 10))
+            .filter((value) => Number.isInteger(value))
+        : undefined
 
       const results = await getTickets({
         status: status || undefined,
         authorId,
-        panelId,
+        panelIds,
         search,
-        sortBy: sortBy || 'newest',
+        sortBy: sortBy || 'createdAt',
+        sortOrder,
         limit,
         offset,
       })
@@ -87,7 +102,7 @@ export const ticketsRoutes = new Elysia({ prefix: '/tickets' })
       const total = await getTicketCount({
         status: status || undefined,
         authorId,
-        panelId,
+        panelIds,
         search,
       })
 
@@ -115,6 +130,7 @@ export const ticketsRoutes = new Elysia({ prefix: '/tickets' })
             title: r.panel.title,
           } : null,
           messageCount: r.messageCount || 0,
+          searchMatchedByParticipant: Boolean(r.searchMatchedByParticipant),
         })),
         pagination: {
           total,

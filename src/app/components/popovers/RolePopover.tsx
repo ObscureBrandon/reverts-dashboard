@@ -1,8 +1,10 @@
 'use client';
 
 import { useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { Check, Copy } from 'lucide-react';
 import { roleColorToHex } from '../utils';
-import { PopoverWrapper, Position } from './PopoverWrapper';
+import { PopoverWrapper } from './PopoverWrapper';
 
 export type RolePopoverData = {
   id: string;
@@ -13,11 +15,12 @@ export type RolePopoverData = {
 type RolePopoverProps = {
   isOpen: boolean;
   onClose: () => void;
-  triggerPosition: Position | null;
+  triggerElement: HTMLElement | null;
+  triggerRect: Position | null;
   roleData: RolePopoverData;
 };
 
-export function RolePopover({ isOpen, onClose, triggerPosition, roleData }: RolePopoverProps) {
+export function RolePopover({ isOpen, onClose, triggerElement, triggerRect, roleData }: RolePopoverProps) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const copyToClipboard = async (text: string) => {
@@ -34,48 +37,54 @@ export function RolePopover({ isOpen, onClose, triggerPosition, roleData }: Role
     <PopoverWrapper
       isOpen={isOpen}
       onClose={onClose}
-      triggerPosition={triggerPosition}
+      triggerElement={triggerElement}
+      triggerRect={triggerRect}
       title="Role"
     >
       <div>
-        <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">Name</label>
-        <p className="text-sm text-gray-900 dark:text-white mt-1">{roleData.name}</p>
+        <label className="text-xs font-medium text-muted-foreground">Name</label>
+        <div className="mt-1 flex items-center gap-2 rounded-md bg-muted px-2.5 py-2 text-sm font-medium text-foreground">
+          <span
+            className="h-2.5 w-2.5 rounded-full"
+            style={{ backgroundColor: roleColorToHex(roleData.color) }}
+          />
+          <span className="truncate">{roleData.name}</span>
+        </div>
       </div>
       
       <div>
-        <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">Color</label>
+        <label className="text-xs font-medium text-muted-foreground">Color</label>
         <div className="flex items-center gap-2 mt-1">
           <div 
-            className="w-5 h-5 rounded border border-gray-300 dark:border-gray-600"
+            className="h-5 w-5 rounded border border-border"
             style={{ backgroundColor: roleColorToHex(roleData.color) }}
           />
-          <p className="text-xs text-gray-900 dark:text-white font-mono">
+          <p className="font-mono text-xs text-foreground">
             {roleColorToHex(roleData.color)}
           </p>
         </div>
       </div>
       
       <div>
-        <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">Role ID</label>
+        <label className="text-xs font-medium text-muted-foreground">Role ID</label>
         <div className="flex items-center gap-2 mt-1">
-          <p className="text-xs text-gray-900 dark:text-white font-mono bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded flex-1">
+          <p className="flex-1 rounded-md bg-muted px-2 py-1 font-mono text-xs text-foreground">
             {roleData.id}
           </p>
-          <button
+          <Button
+            type="button"
             onClick={() => copyToClipboard(roleData.id)}
-            className="p-1.5 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
+            variant="ghost"
+            size="icon-xs"
+            className="shrink-0 rounded-full text-muted-foreground hover:text-foreground"
             title="Copy ID"
           >
             {copiedId === roleData.id ? (
-              <svg className="w-3.5 h-3.5 text-green-600 dark:text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
+              <Check className="h-3.5 w-3.5 text-status-success-text" />
             ) : (
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-              </svg>
+              <Copy className="h-3.5 w-3.5" />
             )}
-          </button>
+          </Button>
         </div>
       </div>
     </PopoverWrapper>

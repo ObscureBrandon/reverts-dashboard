@@ -1,6 +1,8 @@
 'use client';
 
+import { GlobalSearchPalette } from '@/app/components/global-search-palette';
 import { GlobalUserPanel } from '@/app/components/global-user-panel';
+import { GlobalSearchProvider } from '@/lib/contexts/global-search-context';
 import { UserPanelProvider, useUserPanel } from '@/lib/contexts/user-panel-context';
 import { cn } from '@/lib/utils';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -62,12 +64,15 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <QueryClientProvider client={queryClient}>
       <Suspense fallback={null}>
         <NuqsAdapter>
-          <UserPanelProvider>
-            <PageContentWrapper>
-              {children}
-            </PageContentWrapper>
-            <GlobalUserPanel />
-          </UserPanelProvider>
+          <GlobalSearchProvider>
+            <UserPanelProvider>
+              <PageContentWrapper>
+                {children}
+              </PageContentWrapper>
+              <GlobalUserPanel />
+              <GlobalSearchPalette />
+            </UserPanelProvider>
+          </GlobalSearchProvider>
         </NuqsAdapter>
       </Suspense>
       {/* Only show devtools in development */}

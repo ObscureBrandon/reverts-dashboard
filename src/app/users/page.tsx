@@ -1,18 +1,19 @@
 'use client';
 
 import { NavigationHeader } from '@/app/components/navigation-header';
+import { PageHeader } from '@/app/components/page-header';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useSession } from '@/lib/auth-client';
 import { useUserPanel } from '@/lib/contexts/user-panel-context';
 import { StaffListItem, useStaffTable } from '@/lib/hooks/queries/useStaffTable';
 import { usePrefetchUserDetails } from '@/lib/hooks/queries/useUserDetails';
 import { useUserRole } from '@/lib/hooks/queries/useUserRole';
-import { usePrefetchUsersTable, UserListItem, useUsersTable } from '@/lib/hooks/queries/useUsersTable';
+import { usePrefetchUsersTable, UserListItem, UsersTableParams, useUsersTable } from '@/lib/hooks/queries/useUsersTable';
 import { useDebouncedCallback } from '@tanstack/react-pacer';
 import { SortingState, VisibilityState } from '@tanstack/react-table';
 import { useRouter } from 'next/navigation';
 import { parseAsArrayOf, parseAsInteger, parseAsString, parseAsStringLiteral, useQueryStates } from 'nuqs';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { columns, staffColumns, viewColumnDefaults } from './components/columns';
 import { DataTable } from './components/data-table';
 import { DataTableToolbar, FilterState, QuickFilter, ViewPreset } from './components/data-table-toolbar';
@@ -35,13 +36,42 @@ const searchParamsSchema = {
   filters: parseAsArrayOf(parseAsString).withDefault([]),
 };
 
+const staffViewColumnIds = ['user', 'superviseeCount', 'supervisees', 'topRoles'] as const;
+const allUsersColumnIds = ['user', 'relationToIslam', 'attention', 'currentAssignmentStatus', 'topRoles', 'createdAt'] as const;
+const allUsersColumnLabels: Record<(typeof allUsersColumnIds)[number], string> = {
+  user: 'User',
+  relationToIslam: 'Relation',
+  attention: 'Attention',
+  currentAssignmentStatus: 'Assignment',
+  topRoles: 'Roles',
+  createdAt: 'Joined',
+};
+const staffColumnLabels: Record<(typeof staffViewColumnIds)[number], string> = {
+  user: 'Staff Member',
+  superviseeCount: 'Load',
+  supervisees: 'Supervisees',
+  topRoles: 'Roles',
+};
+
+function getColumnVisibilityForView(view: ViewPreset): VisibilityState {
+  if (view === 'staff') {
+    return Object.fromEntries(staffViewColumnIds.map((id) => [id, true]));
+  }
+
+  const visibleColumns = viewColumnDefaults[view] || viewColumnDefaults.all;
+
+  return Object.fromEntries(
+    allUsersColumnIds.map((id) => [id, visibleColumns.includes(id)])
+  );
+}
+
 // Loading skeleton component
 function UsersLoading() {
   return (
     <div className="min-h-screen bg-background">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-7xl mx-auto px-4 py-6">
         {/* Header skeleton */}
-        <div className="mb-8">
+        <div className="mb-2">
           <Skeleton className="h-8 w-32 mb-2" />
           <Skeleton className="h-5 w-64" />
         </div>
@@ -109,24 +139,20 @@ export default function UsersPage() {
   const [searchInput, setSearchInput] = useState(params.q);
   
   // Column visibility (local state, not URL-synced)
-  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(() => getColumnVisibilityForView(params.view as ViewPreset));
   
   // User details panel prefetching
   const { prefetch: prefetchUserDetails } = usePrefetchUserDetails();
 
   // Derive state from URL params
-  const page = params.page;
   const activeView = params.view as ViewPreset;
   const sorting: SortingState = [{ id: params.sort, desc: params.order === 'desc' }];
-  const activeQuickFilters = new Set(params.filters as QuickFilter[]);
+  const activeQuickFilters = useMemo(() => new Set(params.filters as QuickFilter[]), [params.filters]);
   
   // Panel state from context
   const { panelState, openUserPanel, openStaffPanel } = useUserPanel();
   const selectedStaffId = panelState.stack.find(e => e.panelType === 'staff')?.userId ?? null;
   const selectedUserId = panelState.stack.find(e => e.panelType === 'user')?.userId ?? null;
-
-  // Track if we've ever loaded data (to prevent full-page skeleton on view switches)
-  const hasInitiallyLoaded = useRef(false);
 
   const filters: FilterState = {
     query: searchInput,
@@ -144,34 +170,6 @@ export default function UsersPage() {
       router.replace('/my-tickets');
     }
   }, [session, isSessionLoading, isMod, roleLoading, router]);
-
-  // Sync search input with URL on mount/navigation
-  useEffect(() => {
-    setSearchInput(params.q);
-  }, [params.q]);
-
-  // Update column visibility when view changes
-  useEffect(() => {
-    if (activeView === 'staff') {
-      // Staff view uses its own columns, so just show all of them
-      const staffColumnIds = ['user', 'superviseeCount', 'supervisees', 'topRoles'];
-      const newVisibility: VisibilityState = {};
-      staffColumnIds.forEach(id => {
-        newVisibility[id] = true;
-      });
-      setColumnVisibility(newVisibility);
-    } else {
-      const visibleColumns = viewColumnDefaults[activeView] || viewColumnDefaults.all;
-      const allColumnIds = ['user', 'relationToIslam', 'status', 'currentAssignmentStatus', 'topRoles', 'createdAt'];
-      
-      const newVisibility: VisibilityState = {};
-      allColumnIds.forEach(id => {
-        newVisibility[id] = visibleColumns.includes(id);
-      });
-      
-      setColumnVisibility(newVisibility);
-    }
-  }, [activeView]);
 
   // Debounced search - updates URL after typing stops
   const debouncedSearch = useDebouncedCallback(
@@ -198,6 +196,8 @@ export default function UsersPage() {
   }, [setParams]);
 
   const handleViewChange = useCallback((view: ViewPreset) => {
+    setColumnVisibility(getColumnVisibilityForView(view));
+
     if (view === 'staff') {
       // Set sort to a valid staff column
       setParams({ 
@@ -261,11 +261,17 @@ export default function UsersPage() {
 
   // Build query params for API based on all filters
   const queryParams = useMemo(() => {
-    const apiParams: Record<string, any> = {
+    const sortBy = params.sort === 'user'
+      ? 'name'
+      : params.sort === 'createdAt'
+        ? 'createdAt'
+        : undefined;
+
+    const apiParams: UsersTableParams = {
       query: params.q || undefined,
       page: params.page,
       limit: 50,
-      sortBy: params.sort === 'user' ? 'name' : params.sort,
+      sortBy,
       sortOrder: params.order,
     };
 
@@ -329,6 +335,7 @@ export default function UsersPage() {
   const tableData = isStaffView 
     ? (staffQuery.data?.staff || []) 
     : (usersQuery.data?.users || []);
+  const hasInitiallyLoaded = Boolean(usersQuery.data || staffQuery.data);
 
   // Prefetch adjacent pages (only for users view)
   useEffect(() => {
@@ -344,19 +351,52 @@ export default function UsersPage() {
     }
   }, [isStaffView, usersQuery.data?.pagination, prefetchPage, queryParams]);
 
-  // Mark as initially loaded once we have data from either view
-  useEffect(() => {
-    if (data && !hasInitiallyLoaded.current) {
-      hasInitiallyLoaded.current = true;
-    }
-  }, [data]);
-
   // Only show full-page skeleton on initial visit (before any data has loaded)
   // After initial load, view switches will show table skeleton only
-  const showInitialLoading = isSessionLoading || roleLoading || (!hasInitiallyLoaded.current && isLoading && !data);
+  const showInitialLoading = isSessionLoading || roleLoading || (!hasInitiallyLoaded && isLoading && !data);
   
   // For view switches: show table skeleton when loading new view data
-  const isViewSwitching = hasInitiallyLoaded.current && isLoading && !data;
+  const isViewSwitching = hasInitiallyLoaded && isLoading && !data;
+
+  const resultCount = data?.pagination?.total ?? tableData.length;
+
+  const columnOptions = useMemo(() => {
+    if (isStaffView) {
+      return staffViewColumnIds.map((id) => ({
+        id,
+        label: staffColumnLabels[id],
+        visible: columnVisibility[id] !== false,
+      }));
+    }
+
+    return allUsersColumnIds.map((id) => ({
+      id,
+      label: allUsersColumnLabels[id],
+      visible: columnVisibility[id] !== false,
+    }));
+  }, [columnVisibility, isStaffView]);
+
+  const handleColumnVisibilityToggle = useCallback((columnId: string, visible: boolean) => {
+    setColumnVisibility((current) => ({
+      ...current,
+      [columnId]: visible,
+    }));
+  }, []);
+
+  const toolbar = (
+    <DataTableToolbar
+      filters={filters}
+      onFiltersChange={handleFiltersChange}
+      onSearch={handleSearch}
+      activeView={activeView}
+      onViewChange={handleViewChange}
+      activeQuickFilters={activeQuickFilters}
+      onQuickFilterToggle={handleQuickFilterToggle}
+      columnOptions={columnOptions}
+      onColumnVisibilityToggle={handleColumnVisibilityToggle}
+      isFetching={isFetching}
+    />
+  );
   
   if (showInitialLoading) {
     return <UsersLoading />;
@@ -370,17 +410,19 @@ export default function UsersPage() {
   return (
     <div className="min-h-screen bg-background">
       <NavigationHeader />
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          {/* Header */}
-          <div className="mb-8">
-            <h1 className="text-2xl font-semibold text-foreground tracking-tight">
-              Users
-            </h1>
-            <div className="h-1 w-12 bg-emerald-500 rounded-full mt-2" />
-            <p className="text-muted-foreground mt-2">
-              Manage and view all community members
-            </p>
-          </div>
+      <main className="max-w-7xl mx-auto px-4 py-6">
+          <PageHeader
+            title="Users"
+            description={
+              isStaffView
+                ? 'Review supervisee load and choose the next drill-in target without leaving the queue.'
+                : undefined
+            }
+            utility={
+              toolbar
+            }
+            className="mb-0"
+          />
 
           {/* Error state */}
           {error && (
@@ -392,36 +434,41 @@ export default function UsersPage() {
           )}
 
           {/* Data Table */}
-          <DataTable
-            columns={(isStaffView ? staffColumns : columns) as any}
-            data={tableData as any}
-            isLoading={isLoading || isViewSwitching}
-            isFetching={isFetching}
-            pagination={data?.pagination}
-            onPageChange={handlePageChange}
-            columnVisibility={columnVisibility}
-            onColumnVisibilityChange={setColumnVisibility}
-            sorting={sorting}
-            onSortingChange={handleSortingChange}
-            onRowClick={isStaffView ? handleStaffRowClick as any : handleRowClick}
-            onRowHoverStart={isStaffView ? undefined : handleRowHover}
-            selectedRowId={isStaffView ? selectedStaffId : selectedUserId}
-            getRowId={(row) => row.id}
-            renderToolbar={(table) => (
-              <DataTableToolbar
-                filters={filters}
-                onFiltersChange={handleFiltersChange}
-                onSearch={handleSearch}
-                activeView={activeView}
-                onViewChange={handleViewChange}
-                activeQuickFilters={activeQuickFilters}
-                onQuickFilterToggle={handleQuickFilterToggle}
-                table={table}
-                isFetching={isFetching}
-              />
-            )}
-          />
-      </div>
+          {isStaffView ? (
+            <DataTable<StaffListItem, unknown>
+              columns={staffColumns}
+              data={staffQuery.data?.staff || []}
+              isLoading={isLoading || isViewSwitching}
+              isFetching={isFetching}
+              pagination={data?.pagination}
+              onPageChange={handlePageChange}
+              columnVisibility={columnVisibility}
+              onColumnVisibilityChange={setColumnVisibility}
+              sorting={sorting}
+              onSortingChange={handleSortingChange}
+              onRowClick={handleStaffRowClick}
+              selectedRowId={selectedStaffId}
+              getRowId={(row) => row.id}
+            />
+          ) : (
+            <DataTable<UserListItem, unknown>
+              columns={columns}
+              data={usersQuery.data?.users || []}
+              isLoading={isLoading || isViewSwitching}
+              isFetching={isFetching}
+              pagination={data?.pagination}
+              onPageChange={handlePageChange}
+              columnVisibility={columnVisibility}
+              onColumnVisibilityChange={setColumnVisibility}
+              sorting={sorting}
+              onSortingChange={handleSortingChange}
+              onRowClick={handleRowClick}
+              onRowHoverStart={handleRowHover}
+              selectedRowId={selectedUserId}
+              getRowId={(row) => row.id}
+            />
+          )}
+      </main>
     </div>
   );
 }

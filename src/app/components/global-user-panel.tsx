@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/drawer'
 import { useUserPanel } from '@/lib/contexts/user-panel-context'
 import { useStaffDetails } from '@/lib/hooks/queries/useStaffDetails'
-import { usePrefetchUserDetails, useUserDetails } from '@/lib/hooks/queries/useUserDetails'
+import { useUserDetails } from '@/lib/hooks/queries/useUserDetails'
 import { useMediaQuery } from '@/lib/hooks/useMediaQuery'
 import { cn } from '@/lib/utils'
 import * as VisuallyHidden from '@radix-ui/react-visually-hidden'
@@ -53,9 +53,6 @@ export function GlobalUserPanel() {
   const { data: parentStaffData } = useStaffDetails(
     parentPanel?.panelType === 'staff' ? parentPanel.userId : null
   )
-
-  // Prefetch user details for supervisee hover
-  const { prefetch: prefetchUserDetails } = usePrefetchUserDetails()
   
   // Auto-switch to staff panel if user is staff
   useEffect(() => {
@@ -121,7 +118,6 @@ export function GlobalUserPanel() {
       data={staffData}
       isLoading={staffLoading}
       error={staffError}
-      isMobile={isMobile}
       onSuperviseeClick={handleSuperviseeClick}
       breadcrumb={breadcrumb}
     />
@@ -139,7 +135,7 @@ export function GlobalUserPanel() {
   if (isMobile) {
     return (
       <Drawer open={isOpen} onOpenChange={(open) => !open && closePanel()}>
-        <DrawerContent className="max-h-[85vh] flex flex-col p-0">
+        <DrawerContent className="max-h-[85vh] flex flex-col overflow-hidden rounded-t-2xl bg-card p-0 text-card-foreground shadow-2xl">
           <VisuallyHidden.Root>
             <DrawerTitle>{isStaffPanel ? 'Staff Details' : 'User Details'}</DrawerTitle>
             <DrawerDescription>
@@ -159,10 +155,10 @@ export function GlobalUserPanel() {
       aria-modal="false"
       aria-label={isStaffPanel ? 'Staff details' : 'User details'}
       className={cn(
-        'fixed top-0 right-0 h-full w-[420px] bg-background border-l border-border shadow-lg',
-        'flex flex-col overflow-hidden z-50',
+        'fixed top-0 right-0 z-50 flex h-full w-[440px] max-w-[calc(100vw-0.75rem)] flex-col overflow-hidden',
+        'border-l border-border bg-card text-card-foreground shadow-2xl ring-1 ring-border/50',
         'transform transition-transform duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]',
-        isOpen ? 'translate-x-0' : 'translate-x-full'
+        isOpen ? 'translate-x-0 pointer-events-auto' : 'translate-x-full pointer-events-none'
       )}
       style={{ willChange: 'transform' }}
     >
@@ -170,7 +166,7 @@ export function GlobalUserPanel() {
       <button
         ref={closeButtonRef}
         onClick={() => closePanel()}
-        className="absolute top-4 right-4 z-20 p-1.5 rounded-md bg-muted/80 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+        className="absolute right-4 top-4 z-20 rounded-full border border-border bg-background/95 p-2 text-muted-foreground shadow-sm backdrop-blur transition-colors hover:bg-accent hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
         aria-label="Close panel"
       >
         <X className="h-4 w-4" />

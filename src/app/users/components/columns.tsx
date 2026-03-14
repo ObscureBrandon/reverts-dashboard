@@ -1,6 +1,7 @@
 'use client';
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
 import {
     Tooltip,
     TooltipContent,
@@ -8,9 +9,15 @@ import {
 } from '@/components/ui/tooltip';
 import { StaffListItem } from '@/lib/hooks/queries/useStaffTable';
 import { UserListItem } from '@/lib/hooks/queries/useUsersTable';
+import {
+  formatStatusLabel,
+  getAssignmentStatusDescriptor,
+  getUserAttributeStatusDescriptor,
+} from '@/lib/status-system';
 import { formatRelativeTime, roleColorToHex } from '@/lib/utils';
-import { ColumnDef } from '@tanstack/react-table';
-import { ArrowUpDown, Mic, ShieldCheck, UserX } from 'lucide-react';
+import { AlertTriangle, ArrowUpDown, ChevronRight, Clock3, LifeBuoy, Ticket, UserX } from 'lucide-react';
+import { getUserAttentionSignals } from './workspace-signals';
+import { Column, ColumnDef } from '@tanstack/react-table';
 
 // Helper to get initials from name
 function getInitials(name: string | null): string {
@@ -23,50 +30,15 @@ function getInitials(name: string | null): string {
     .slice(0, 2);
 }
 
-// Status dot component for compact visual indicators
-function StatusDot({ status }: { status: string | null }) {
-  const config: Record<string, { color: string; label: string }> = {
-    'NEEDS_SUPPORT': { color: 'bg-red-500', label: 'Needs Support' },
-    'INACTIVE': { color: 'bg-gray-400', label: 'Inactive' },
-    'SELF_SUFFICIENT': { color: 'bg-emerald-500', label: 'Self-Sufficient' },
-    'PAUSED': { color: 'bg-amber-500', label: 'Paused' },
-    'NOT_READY': { color: 'bg-amber-400', label: 'Not Ready' },
-  };
-  
-  if (!status) return null;
-  
-  const { color, label } = config[status] || { color: 'bg-gray-400', label: status };
-  
-  return (
-    <div className="flex items-center gap-1.5" title={label}>
-      <span className={`w-2 h-2 rounded-full ${color}`} />
-      <span className="text-xs text-muted-foreground">{label}</span>
-    </div>
-  );
-}
-
-// Avatar with status ring
 function UserAvatar({ 
   src, 
-  name, 
-  status 
+  name 
 }: { 
   src: string | null; 
   name: string | null;
-  status: string | null;
 }) {
-  const ringColor: Record<string, string> = {
-    'NEEDS_SUPPORT': 'ring-red-500',
-    'INACTIVE': 'ring-gray-400',
-    'SELF_SUFFICIENT': 'ring-emerald-500',
-    'PAUSED': 'ring-amber-500',
-    'NOT_READY': 'ring-amber-400',
-  };
-  
-  const ring = status ? ringColor[status] : '';
-  
   return (
-    <Avatar className={`h-9 w-9 ${ring ? `ring-2 ${ring}` : 'border border-border'}`}>
+    <Avatar className="h-9 w-9 border border-border">
       <AvatarImage src={src || undefined} alt={name || 'User'} />
       <AvatarFallback className="text-xs font-medium bg-muted">
         {getInitials(name)}
@@ -75,9 +47,24 @@ function UserAvatar({
   );
 }
 
+function getAttentionSignalIcon(signalKey: string) {
+  switch (signalKey) {
+    case 'active-risk':
+      return <AlertTriangle className="h-3 w-3" />;
+    case 'support-needs':
+      return <LifeBuoy className="h-3 w-3" />;
+    case 'open-tickets':
+      return <Ticket className="h-3 w-3" />;
+    case 'left-server':
+      return <UserX className="h-3 w-3" />;
+    default:
+      return <Clock3 className="h-3 w-3" />;
+  }
+}
+
 // Sortable header component
 interface SortableHeaderProps {
-  column: any;
+  column: Column<UserListItem, unknown>;
   children: React.ReactNode;
 }
 
@@ -103,21 +90,25 @@ export const columns: ColumnDef<UserListItem>[] = [
       const displayName = user.displayName || user.name || 'Unknown';
       
       return (
-        <div className="flex items-center gap-3 group">
+        <div className="flex items-center gap-3 group min-w-[260px]">
           <UserAvatar 
             src={user.displayAvatar} 
             name={displayName} 
-            status={user.currentAssignmentStatus}
           />
-          <div className="flex flex-col min-w-0">
-            <span className="font-medium text-foreground group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors truncate">
-              {displayName}
-            </span>
-            {user.displayName && user.name && user.displayName !== user.name && (
-              <span className="text-xs text-muted-foreground truncate">
-                @{user.name}
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="truncate font-medium text-foreground transition-colors group-hover:text-brand-accent-text">
+                {displayName}
               </span>
-            )}
+              <ChevronRight className="h-4 w-4 flex-shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {user.displayName && user.name && user.displayName !== user.name && (
+                <span className="text-xs text-muted-foreground truncate">
+                  @{user.name}
+                </span>
+              )}
+            </div>
           </div>
         </div>
       );
@@ -135,47 +126,58 @@ export const columns: ColumnDef<UserListItem>[] = [
                        relation.toLowerCase().includes('convert');
       
       return (
-        <span className={`text-sm capitalize ${isRevert ? 'text-emerald-600 dark:text-emerald-400 font-medium' : ''}`}>
-          {relation.toLowerCase().replace(/_/g, ' ')}
-        </span>
+        <Badge tone="neutral" kind="meta" emphasis="outline">
+          {isRevert ? getUserAttributeStatusDescriptor('revert').label : formatStatusLabel(relation)}
+        </Badge>
       );
     },
   },
   {
-    accessorKey: 'status',
-    header: 'Status',
+    id: 'attention',
+    header: 'Attention',
     cell: ({ row }) => {
       const user = row.original;
-      
+      const signals = getUserAttentionSignals(user);
+      const primarySignal = signals[0];
+      const secondarySignals = signals.slice(1, 3);
+      const overflowCount = Math.max(signals.length - 3, 0);
+
+      if (!primarySignal) {
+        return (
+          <div className="space-y-1">
+            <Badge tone="success" kind="status" emphasis="soft">
+              Stable
+            </Badge>
+            <p className="text-xs text-muted-foreground">No urgent follow-up signals</p>
+          </div>
+        );
+      }
+
       return (
-        <div className="flex items-center gap-1.5">
-          {user.isVerified && (
-            <span 
-              className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-emerald-100 dark:bg-emerald-950" 
-              title="Verified"
-            >
-              <ShieldCheck className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
-            </span>
-          )}
-          {user.isVoiceVerified && (
-            <span 
-              className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-blue-100 dark:bg-blue-950" 
-              title="Voice Verified"
-            >
-              <Mic className="w-3 h-3 text-blue-600 dark:text-blue-400" />
-            </span>
-          )}
-          {!user.inGuild && (
-            <span 
-              className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-red-100 dark:bg-red-950" 
-              title="Left Server"
-            >
-              <UserX className="w-3 h-3 text-red-600 dark:text-red-400" />
-            </span>
-          )}
-          {user.inGuild && !user.isVerified && !user.isVoiceVerified && (
-            <span className="text-muted-foreground text-sm">—</span>
-          )}
+        <div className="min-w-[220px] space-y-1.5">
+          <Badge tone={primarySignal.tone} kind={primarySignal.kind} emphasis={primarySignal.emphasis} className="gap-1.5">
+            {getAttentionSignalIcon(primarySignal.key)}
+            {primarySignal.label}
+          </Badge>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {secondarySignals.map((signal) => (
+              <Badge
+                key={signal.key}
+                tone={signal.tone}
+                kind={signal.kind}
+                emphasis={signal.emphasis}
+                className="gap-1.5"
+              >
+                {getAttentionSignalIcon(signal.key)}
+                {signal.label}
+              </Badge>
+            ))}
+            {overflowCount > 0 && (
+              <Badge tone="neutral" kind="meta" emphasis="outline">
+                +{overflowCount}
+              </Badge>
+            )}
+          </div>
         </div>
       );
     },
@@ -185,7 +187,38 @@ export const columns: ColumnDef<UserListItem>[] = [
     header: 'Assignment',
     cell: ({ row }) => {
       const status = row.original.currentAssignmentStatus;
-      return <StatusDot status={status} />;
+      const activeSupervisorCount = row.original.activeSupervisorCount;
+      const supervisorName = row.original.supervisorDisplayName || row.original.supervisorName;
+      const supervisorAvatar = row.original.supervisorAvatar;
+
+      return (
+        <div className="space-y-1">
+          {status ? (
+            <Badge
+              tone={getAssignmentStatusDescriptor(status).tone}
+              kind={getAssignmentStatusDescriptor(status).kind}
+              emphasis={getAssignmentStatusDescriptor(status).emphasis}
+            >
+              {getAssignmentStatusDescriptor(status).label}
+            </Badge>
+          ) : null}
+          {supervisorName ? (
+            <div className="flex items-center gap-2 text-xs text-foreground">
+              <UserAvatar src={supervisorAvatar} name={supervisorName} />
+              <div className="min-w-0">
+                <p className="truncate font-medium">{supervisorName}</p>
+                <p className="text-muted-foreground">Assigned supervisor</p>
+              </div>
+            </div>
+          ) : activeSupervisorCount > 0 ? (
+            <p className="text-xs text-muted-foreground">
+              {activeSupervisorCount} active supervisor{activeSupervisorCount === 1 ? '' : 's'}
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground">No supervisor assigned</p>
+          )}
+        </div>
+      );
     },
   },
   {
@@ -253,7 +286,7 @@ export const columns: ColumnDef<UserListItem>[] = [
 // Column visibility defaults for different views
 // Note: 'staff' view uses completely separate staffColumns defined below
 export const viewColumnDefaults: Record<string, string[]> = {
-  all: ['user', 'relationToIslam', 'status', 'currentAssignmentStatus', 'topRoles', 'createdAt'],
+  all: ['user', 'relationToIslam', 'currentAssignmentStatus', 'attention', 'createdAt'],
 };
 
 // Staff-specific columns for Staff Overview view
@@ -275,9 +308,12 @@ export const staffColumns: ColumnDef<StaffListItem>[] = [
             </AvatarFallback>
           </Avatar>
           <div className="flex flex-col min-w-0">
-            <span className="font-medium text-foreground group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors truncate">
-              {displayName}
-            </span>
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="font-medium text-foreground group-hover:text-brand-accent-text transition-colors truncate">
+                {displayName}
+              </span>
+              <ChevronRight className="h-4 w-4 flex-shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+            </div>
             {staff.displayName && staff.name && staff.displayName !== staff.name && (
               <span className="text-xs text-muted-foreground truncate">
                 @{staff.name}
@@ -291,17 +327,15 @@ export const staffColumns: ColumnDef<StaffListItem>[] = [
   {
     id: 'superviseeCount',
     accessorKey: 'superviseeCount',
-    header: 'Supporting',
+    header: 'Load',
     cell: ({ row }) => {
       const count = row.original.superviseeCount;
       return (
-        <div className="flex items-center gap-1.5">
-          <span className="inline-flex items-center justify-center min-w-[24px] h-6 px-2 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 text-sm font-medium">
+        <div className="space-y-1">
+          <Badge tone={count > 0 ? 'info' : 'neutral'} kind="status" emphasis={count > 0 ? 'soft' : 'outline'} className="min-w-[24px] h-6 px-2 text-sm">
             {count}
-          </span>
-          <span className="text-muted-foreground text-sm">
-            {count === 1 ? 'person' : 'people'}
-          </span>
+          </Badge>
+          <span className="text-xs text-muted-foreground">{count === 1 ? 'person assigned' : 'people assigned'}</span>
         </div>
       );
     },

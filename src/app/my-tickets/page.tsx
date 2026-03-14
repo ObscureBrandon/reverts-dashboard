@@ -1,23 +1,22 @@
 'use client';
 
 import { NavigationHeader } from '@/app/components/navigation-header';
+import { PageHeader } from '@/app/components/page-header';
+import { Badge } from '@/components/ui/badge';
 import { MyTicket, useMyTickets, usePrefetchMyTickets } from '@/lib/hooks/queries/useMyTickets';
+import { getTicketStatusDescriptor } from '@/lib/status-system';
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 
 type StatusFilter = 'all' | 'OPEN' | 'CLOSED';
 
 function StatusBadge({ status }: { status: string | null }) {
-  const colorMap: Record<string, string> = {
-    OPEN: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400',
-    CLOSED: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300',
-    DELETED: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400',
-  };
+  const descriptor = getTicketStatusDescriptor(status);
 
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${colorMap[status || ''] || 'bg-gray-100 text-gray-800'}`}>
-      {status || 'Unknown'}
-    </span>
+    <Badge tone={descriptor.tone} kind={descriptor.kind} emphasis={descriptor.emphasis}>
+      {descriptor.label}
+    </Badge>
   );
 }
 
@@ -82,7 +81,7 @@ function MyTicketsSkeleton() {
     <div className="min-h-screen bg-background">
       <NavigationHeader />
       <div className="max-w-4xl mx-auto px-4 py-8">
-        <div className="mb-8">
+        <div className="mb-6">
           <div className="h-8 w-40 bg-muted rounded animate-pulse" />
           <div className="h-1 w-12 bg-emerald-500 rounded-full mt-2" />
           <div className="h-4 w-60 bg-muted rounded animate-pulse mt-2" />
@@ -148,33 +147,28 @@ export default function MyTicketsPage() {
     <div className="min-h-screen bg-background">
       <NavigationHeader />
       <div className="max-w-4xl mx-auto px-4 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-2xl font-semibold text-foreground tracking-tight">
-            My Tickets
-          </h1>
-          <div className="h-1 w-12 bg-emerald-500 rounded-full mt-2" />
-          <p className="text-muted-foreground mt-2">
-            Your support ticket history
-          </p>
-        </div>
-
-        {/* Status filter tabs */}
-        <div className="flex items-center gap-1 mb-6 p-1 bg-muted/50 rounded-lg w-fit">
-          {(['all', 'OPEN', 'CLOSED'] as StatusFilter[]).map((s) => (
-            <button
-              key={s}
-              onClick={() => handleStatusChange(s)}
-              className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${
-                status === s
-                  ? 'bg-background text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              {s === 'all' ? 'All' : s === 'OPEN' ? 'Open' : 'Closed'}
-            </button>
-          ))}
-        </div>
+        <PageHeader
+          title="My Tickets"
+          description="Track your support ticket history and current conversations."
+          utility={
+            <div className="flex w-full flex-wrap items-center gap-1 rounded-lg border border-border bg-background p-1 sm:w-fit">
+              {(['all', 'OPEN', 'CLOSED'] as StatusFilter[]).map((s) => (
+                <button
+                  key={s}
+                  onClick={() => handleStatusChange(s)}
+                  className={`rounded-md px-4 py-1.5 text-sm font-medium transition-all ${
+                    status === s
+                      ? 'bg-brand-accent-soft text-brand-accent-text shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {s === 'all' ? 'All' : s === 'OPEN' ? 'Open' : 'Closed'}
+                </button>
+              ))}
+            </div>
+          }
+          className="mb-6"
+        />
 
         {/* Error */}
         {error && (

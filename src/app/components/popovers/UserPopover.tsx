@@ -2,7 +2,11 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Avatar } from '../Avatar';
+import { UserAvatar } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { getTicketStatusDescriptor, getUserAttributeStatusDescriptor } from '@/lib/status-system';
+import { Check, Copy, ExternalLink, ShieldCheck, ShieldX } from 'lucide-react';
 import { roleColorToHex } from '../utils';
 import { PopoverWrapper, Position } from './PopoverWrapper';
 
@@ -80,35 +84,37 @@ export function UserPopover({ isOpen, onClose, triggerPosition, userData, popove
       title="User"
       dependencies={[userRoles.length, recentTickets.length]}
     >
-      <div className="flex items-center gap-3 pb-3 border-b border-gray-200 dark:border-gray-700">
-        <Avatar 
+      <div className="flex items-start gap-3 border-b border-border pb-4">
+        <UserAvatar
           src={userData.displayAvatar}
           name={userData.displayName || userData.name}
-          size={64}
+          size="xl"
+          className="border border-border"
         />
         <div className="flex-1 min-w-0">
-          <p className="text-base font-semibold text-gray-900 dark:text-white truncate">
+          <p className="truncate text-base font-semibold text-foreground">
             {userData.displayName || userData.name}
           </p>
-          <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
+          <p className="truncate text-sm text-muted-foreground">
             @{userData.name}
           </p>
           {userDetails && (
-            <div className="flex items-center gap-1.5 mt-1">
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
               {userDetails.inGuild ? (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
-                  <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                  </svg>
+                <Badge tone="success" kind="attribute" emphasis="soft" className="gap-1">
+                  <ShieldCheck className="h-3 w-3" />
                   In Server
-                </span>
+                </Badge>
               ) : (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300">
-                  <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                  </svg>
-                  Left Server
-                </span>
+                <Badge
+                  tone={getUserAttributeStatusDescriptor('left-server').tone}
+                  kind={getUserAttributeStatusDescriptor('left-server').kind}
+                  emphasis={getUserAttributeStatusDescriptor('left-server').emphasis}
+                  className="gap-1"
+                >
+                  <ShieldX className="h-3 w-3" />
+                  {getUserAttributeStatusDescriptor('left-server').label}
+                </Badge>
               )}
             </div>
           )}
@@ -116,32 +122,31 @@ export function UserPopover({ isOpen, onClose, triggerPosition, userData, popove
       </div>
       
       <div>
-        <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">User ID</label>
+        <label className="text-xs font-medium text-muted-foreground">User ID</label>
         <div className="flex items-center gap-2 mt-1">
-          <p className="text-xs text-gray-900 dark:text-white font-mono bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded flex-1">
+          <p className="flex-1 rounded-md bg-muted px-2 py-1 font-mono text-xs text-foreground">
             {userData.id}
           </p>
-          <button
+          <Button
+            type="button"
             onClick={() => copyToClipboard(userData.id)}
-            className="p-1.5 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
+            variant="ghost"
+            size="icon-xs"
+            className="shrink-0 rounded-full text-muted-foreground hover:text-foreground"
             title="Copy ID"
           >
             {copiedId === userData.id ? (
-              <svg className="w-3.5 h-3.5 text-green-600 dark:text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
+              <Check className="h-3.5 w-3.5 text-status-success-text" />
             ) : (
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-              </svg>
+              <Copy className="h-3.5 w-3.5" />
             )}
-          </button>
+          </Button>
         </div>
       </div>
       
       {/* Roles Section */}
       <div>
-        <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+        <label className="text-xs font-medium text-muted-foreground">
           Roles
         </label>
         {userRoles.length > 0 ? (
@@ -149,7 +154,12 @@ export function UserPopover({ isOpen, onClose, triggerPosition, userData, popove
             {userRoles.map(role => (
               <div
                 key={role.id}
-                className="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium bg-gray-100 dark:bg-gray-700/50 text-gray-700 dark:text-gray-300"
+                className="inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-xs font-medium"
+                style={{
+                  backgroundColor: `${role.color === 0 ? '#99AAB5' : roleColorToHex(role.color)}18`,
+                  borderColor: `${role.color === 0 ? '#99AAB5' : roleColorToHex(role.color)}3a`,
+                  color: role.color === 0 ? '#99AAB5' : roleColorToHex(role.color),
+                }}
               >
                 <div
                   className="w-2.5 h-2.5 rounded-full flex-shrink-0"
@@ -160,58 +170,62 @@ export function UserPopover({ isOpen, onClose, triggerPosition, userData, popove
             ))}
           </div>
         ) : (
-          <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">No roles</div>
+          <div className="mt-2 text-xs text-muted-foreground">No roles</div>
         )}
       </div>
       
       {/* Tickets Section */}
-      <div className="pt-3 border-t border-gray-200 dark:border-gray-700">
-        <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+      <div className="border-t border-border pt-4">
+        <label className="text-xs font-medium text-muted-foreground">
           Support Tickets
         </label>
         {ticketStats ? (
           <>
-            <div className="flex gap-4 mt-2 mb-3">
-              <div className="flex-1">
-                <div className="text-2xl font-bold text-green-600 dark:text-green-400">
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <div className="rounded-xl border border-border bg-muted/40 p-3">
+                <div className="text-2xl font-semibold text-foreground">
                   {ticketStats.open}
                 </div>
-                <div className="text-xs text-gray-500 dark:text-gray-400">Open</div>
+                <div className="mt-1">
+                  <Badge tone="neutral" kind="status" emphasis="soft">Open</Badge>
+                </div>
               </div>
-              <div className="flex-1">
-                <div className="text-2xl font-bold text-gray-600 dark:text-gray-400">
+              <div className="rounded-xl border border-border bg-muted/40 p-3">
+                <div className="text-2xl font-semibold text-foreground">
                   {ticketStats.closed}
                 </div>
-                <div className="text-xs text-gray-500 dark:text-gray-400">Closed</div>
+                <div className="mt-1">
+                  <Badge tone="neutral" kind="status" emphasis="soft">Closed</Badge>
+                </div>
               </div>
             </div>
             
             {recentTickets.length > 0 && (
-              <div className="space-y-1.5">
-                <div className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+              <div className="mt-4 space-y-1.5">
+                <div className="text-xs font-medium text-muted-foreground">
                   Recent Tickets
                 </div>
                 {recentTickets.map(ticket => (
                   <Link
                     key={ticket.id}
                     href={`/tickets/${ticket.id}`}
-                    className="block px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors group"
+                    className="group block rounded-xl border border-transparent px-2 py-2 transition-colors hover:border-border hover:bg-muted/50"
                     onClick={onClose}
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-blue-600 dark:text-blue-400 group-hover:underline">
+                        <span className="text-sm font-medium text-brand-accent-text group-hover:underline">
                           #{ticket.sequence !== null ? ticket.sequence : ticket.id}
                         </span>
-                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${
-                          ticket.status === 'OPEN' 
-                            ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
-                            : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
-                        }`}>
-                          {ticket.status}
-                        </span>
+                        <Badge
+                          tone={getTicketStatusDescriptor(ticket.status).tone}
+                          kind={getTicketStatusDescriptor(ticket.status).kind}
+                          emphasis={getTicketStatusDescriptor(ticket.status).emphasis}
+                        >
+                          {getTicketStatusDescriptor(ticket.status).label}
+                        </Badge>
                       </div>
-                      <span className="text-xs text-gray-400 dark:text-gray-500">
+                      <span className="text-xs text-muted-foreground">
                         {new Date(ticket.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                       </span>
                     </div>
@@ -221,20 +235,16 @@ export function UserPopover({ isOpen, onClose, triggerPosition, userData, popove
             )}
             
             {(ticketStats.open > 0 || ticketStats.closed > 0) && (
-              <Link
-                href={`/tickets?author=${userData.id}`}
-                className="mt-3 flex items-center justify-center gap-1 px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm font-medium"
-                onClick={onClose}
-              >
-                <span>View All Tickets</span>
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-              </Link>
+              <Button asChild className="mt-4 w-full justify-center">
+                <Link href={`/tickets?author=${userData.id}`} onClick={onClose}>
+                  View All Tickets
+                  <ExternalLink className="h-4 w-4" />
+                </Link>
+              </Button>
             )}
           </>
         ) : (
-          <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">No tickets found</div>
+          <div className="mt-2 text-xs text-muted-foreground">No tickets found</div>
         )}
       </div>
     </PopoverWrapper>

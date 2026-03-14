@@ -15,7 +15,7 @@ export default function TicketsListSkeleton() {
       <NavigationHeader />
       <div className="max-w-7xl mx-auto px-4 py-8">
         {/* Header skeleton */}
-        <div className="mb-8">
+        <div className="mb-6">
           <Skeleton className="h-8 w-48 mb-2" />
           <div className="h-1 w-12 bg-emerald-500/30 rounded-full mt-2" />
           <Skeleton className="h-5 w-64 mt-2" />
@@ -47,7 +47,7 @@ export default function TicketsListSkeleton() {
         {/* Table skeleton */}
         <div className="rounded-lg border border-border bg-card overflow-hidden relative">
           {/* Accent gradient at top */}
-          <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-emerald-500/30 via-emerald-500 to-emerald-500/30" />
+          <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-brand-accent-solid/30 via-brand-accent-solid to-brand-accent-solid/30" />
           
           {/* Desktop Table View */}
           <div className="hidden md:block">

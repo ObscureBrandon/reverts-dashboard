@@ -1,12 +1,15 @@
 import { auth } from '@/lib/auth'
 import { authMacro } from '@/lib/elysia/auth'
 import { botRoutes } from '@/lib/elysia/routes/bot'
+import { dashboardRoutes } from '@/lib/elysia/routes/dashboard'
 import { messagesRoutes } from '@/lib/elysia/routes/messages'
 import { myTicketsRoutes } from '@/lib/elysia/routes/my-tickets'
 import { panelsRoutes } from '@/lib/elysia/routes/panels'
 import { relationsRoutes } from '@/lib/elysia/routes/relations'
 import { roleRoutes } from '@/lib/elysia/routes/role'
 import { rolesRoutes } from '@/lib/elysia/routes/roles'
+import { searchRoutes } from '@/lib/elysia/routes/search'
+import { tagsRoutes } from '@/lib/elysia/routes/tags'
 import { ticketsRoutes } from '@/lib/elysia/routes/tickets'
 import { usersRoutes } from '@/lib/elysia/routes/users'
 import { Elysia } from 'elysia'
@@ -22,7 +25,10 @@ const apiRoutes = new Elysia({ prefix: '/api' })
   .use(ticketsRoutes)
   .use(messagesRoutes)
   .use(myTicketsRoutes)
+  .use(searchRoutes)
   .use(botRoutes)
+  .use(tagsRoutes)
+  .use(dashboardRoutes)
 
 // Root app - mounts better-auth at root (it handles /api/auth internally)
 // and the API routes separately

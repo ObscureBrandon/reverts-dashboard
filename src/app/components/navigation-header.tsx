@@ -1,9 +1,11 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
+import { useGlobalSearchOverlay } from '@/lib/contexts/global-search-context';
 import { useUserRole } from '@/lib/hooks/queries/useUserRole';
 import { cn } from '@/lib/utils';
-import { Home, Menu, MessageSquare, Ticket, Users, X } from 'lucide-react';
+import { Home, Menu, MessageSquare, Search, Ticket, Users, X } from 'lucide-react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useLayoutEffect, useRef, useState } from 'react';
@@ -24,6 +26,7 @@ const userNavItems = [
 export function NavigationHeader() {
   const pathname = usePathname();
   const { isMod, isLoading } = useUserRole();
+  const { openGlobalSearch } = useGlobalSearchOverlay();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // Select nav items based on role
@@ -65,19 +68,21 @@ export function NavigationHeader() {
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      {/* Accent gradient line at top */}
-      <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-emerald-500/30 via-emerald-500 to-emerald-500/30" />
-      
       <div className="max-w-7xl mx-auto px-4">
         <div className="flex h-14 items-center justify-between">
           {/* Logo/Brand */}
           <Link 
             href={isMod ? '/' : '/my-tickets'}
-            className="flex items-center gap-2 font-semibold text-foreground hover:text-emerald-600 transition-colors"
+            className="flex items-center gap-2 font-semibold text-foreground transition-colors hover:text-brand-accent-text"
           >
-            <div className="p-1.5 rounded-md">
-              <img src="/reverts_logo_cropped.png" alt="Reverts" className="h-4 w-4 object-contain" />
-            </div>
+            <Image
+              src="/reverts_logo_cropped.png"
+              alt="Reverts"
+              width={16}
+              height={16}
+              className="h-4 w-4 object-contain"
+              priority
+            />
             <span className="hidden sm:inline">Reverts Dashboard</span>
           </Link>
 
@@ -99,7 +104,7 @@ export function NavigationHeader() {
                     "flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors rounded-md",
                     isActive
                       ? "text-foreground"
-                      : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
                   )}
                 >
                   <Icon className="h-4 w-4" />
@@ -110,7 +115,7 @@ export function NavigationHeader() {
             {/* Sliding underline */}
             {activeIndex >= desktopActiveOffset && (
               <span
-                className="absolute bottom-0 h-0.5 bg-emerald-500 rounded-full transition-all duration-300 ease-out"
+                className="absolute bottom-0 h-0.5 rounded-full bg-brand-accent-solid transition-all duration-300 ease-out"
                 style={{
                   left: underlineStyle.left,
                   width: underlineStyle.width,
@@ -119,20 +124,49 @@ export function NavigationHeader() {
             )}
           </nav>
 
+          <div className="hidden md:flex items-center gap-2">
+            {isMod ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={openGlobalSearch}
+                className="gap-2 rounded-full"
+              >
+                <Search className="h-4 w-4" />
+                Search
+                <span className="rounded border border-border bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">Ctrl K</span>
+              </Button>
+            ) : null}
+          </div>
+
           {/* Mobile Menu Button */}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="md:hidden"
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
-          >
-            {mobileMenuOpen ? (
-              <X className="h-5 w-5" />
-            ) : (
-              <Menu className="h-5 w-5" />
-            )}
-          </Button>
+          <div className="flex items-center gap-1 md:hidden">
+            {isMod ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={openGlobalSearch}
+                aria-label="Open global search"
+              >
+                <Search className="h-5 w-5" />
+              </Button>
+            ) : null}
+
+            <Button
+              variant="ghost"
+              size="sm"
+              className="md:hidden"
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
+            >
+              {mobileMenuOpen ? (
+                <X className="h-5 w-5" />
+              ) : (
+                <Menu className="h-5 w-5" />
+              )}
+            </Button>
+          </div>
         </div>
 
         {/* Mobile Navigation - Overlay */}
@@ -161,8 +195,8 @@ export function NavigationHeader() {
                         className={cn(
                           "flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-md transition-colors",
                           isActive
-                            ? "bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-400 border-l-2 border-emerald-500"
-                            : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                            ? "border-l-2 border-brand-accent-solid bg-brand-accent-soft text-brand-accent-text"
+                            : "text-muted-foreground hover:bg-muted hover:text-foreground"
                         )}
                       >
                         <Icon className="h-4 w-4" />

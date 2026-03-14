@@ -62,13 +62,14 @@ export function DataTable<TData, TValue>({
   selectedRowId,
   getRowId,
 }: DataTableProps<TData, TValue> & {
-  renderToolbar?: (table: any) => React.ReactNode;
+  renderToolbar?: (table: ReturnType<typeof useReactTable<TData>>) => React.ReactNode;
 }) {
   const [internalSorting, setInternalSorting] = useState<SortingState>([]);
   const [internalVisibility, setInternalVisibility] = useState<VisibilityState>({});
   
   const sorting = externalSorting ?? internalSorting;
   const columnVisibility = externalVisibility ?? internalVisibility;
+  const manualSorting = externalSorting !== undefined && onSortingChange !== undefined;
 
   // Wrap handlers to match TanStack Table's expected signature
   const handleSortingChange = (updater: SortingState | ((old: SortingState) => SortingState)) => {
@@ -93,7 +94,8 @@ export function DataTable<TData, TValue>({
     data,
     columns,
     getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
+    getSortedRowModel: manualSorting ? undefined : getSortedRowModel(),
+    manualSorting,
     onSortingChange: handleSortingChange,
     onColumnVisibilityChange: handleVisibilityChange,
     state: {
@@ -111,7 +113,8 @@ export function DataTable<TData, TValue>({
     return (
       <div className="space-y-4">
         {renderToolbar && renderToolbar(table)}
-        <div className="rounded-lg border border-border bg-card overflow-hidden">
+        <div className="relative overflow-hidden rounded-lg border border-border bg-card">
+          <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-brand-accent-solid/30 via-brand-accent-solid to-brand-accent-solid/30" />
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-transparent border-border bg-muted/30">
@@ -147,13 +150,13 @@ export function DataTable<TData, TValue>({
         {/* Refetch indicator overlay */}
         {isRefetching && (
           <div className="absolute top-2 right-2 z-10">
-            <Loader2 className="h-4 w-4 animate-spin text-emerald-500" />
+            <Loader2 className="h-4 w-4 animate-spin text-brand-accent-text" />
           </div>
         )}
         
-        <div className="rounded-lg border border-border bg-card overflow-hidden relative">
-          {/* Subtle accent gradient at top */}
-          <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-emerald-500/30 via-emerald-500 to-emerald-500/30" />
+                <div className="relative overflow-hidden rounded-lg border border-border bg-card">
+                  <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-brand-accent-solid/30 via-brand-accent-solid to-brand-accent-solid/30" />
+          <div className="overflow-x-auto">
           <Table>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
@@ -186,8 +189,8 @@ export function DataTable<TData, TValue>({
                     className={cn(
                       "border-border transition-colors group cursor-pointer",
                       isSelected 
-                        ? "bg-emerald-50/70 dark:bg-emerald-950/30" 
-                        : "hover:bg-emerald-50/50 dark:hover:bg-emerald-950/20"
+                        ? "bg-brand-accent-soft/60" 
+                        : "hover:bg-muted/60"
                     )}
                     onClick={() => onRowClick?.(row.original)}
                     onMouseEnter={() => onRowHoverStart?.(row.original)}
@@ -199,8 +202,8 @@ export function DataTable<TData, TValue>({
                           "py-3.5 transition-colors",
                           cellIndex === 0 && "border-l-2",
                           cellIndex === 0 && (isSelected 
-                            ? "border-l-emerald-500" 
-                            : "border-l-transparent group-hover:border-l-emerald-500")
+                            ? "border-l-brand-accent-solid" 
+                            : "border-l-transparent group-hover:border-l-brand-accent-border")
                         )}
                       >
                         {flexRender(
@@ -219,8 +222,8 @@ export function DataTable<TData, TValue>({
                   className="h-[400px] text-center align-middle"
                 >
                   <div className="flex flex-col items-center gap-3">
-                    <div className="p-4 rounded-full bg-emerald-50 dark:bg-emerald-950/50">
-                      <Users className="h-8 w-8 text-emerald-500" />
+                    <div className="rounded-full bg-muted p-4">
+                      <Users className="h-8 w-8 text-muted-foreground" />
                     </div>
                     <p className="text-muted-foreground font-medium">No users found</p>
                     <p className="text-sm text-muted-foreground/70">Try adjusting your search or filters</p>
@@ -230,6 +233,7 @@ export function DataTable<TData, TValue>({
             )}
           </TableBody>
           </Table>
+          </div>
         </div>
       </div>
 
@@ -252,7 +256,7 @@ export function DataTable<TData, TValue>({
               <ChevronLeft className="h-4 w-4" />
             </Button>
             <div className="flex items-center gap-1.5 px-2 text-sm">
-              <span className="font-medium px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400">
+              <span className="rounded-md bg-brand-accent-soft px-2 py-0.5 font-medium text-brand-accent-text">
                 {pagination.page}
               </span>
               <span className="text-muted-foreground">/</span>

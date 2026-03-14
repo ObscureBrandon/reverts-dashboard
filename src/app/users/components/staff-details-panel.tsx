@@ -1,14 +1,17 @@
 'use client';
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
     type StaffDetails,
     type StaffSupervisee
 } from '@/lib/hooks/queries/useStaffDetails';
 import { usePrefetchUserDetails } from '@/lib/hooks/queries/useUserDetails';
+import { getAssignmentStatusDescriptor, getStatusDotClassName, getUserAttributeStatusDescriptor } from '@/lib/status-system';
 import { cn, roleColorToHex } from '@/lib/utils';
 import {
+    AlertTriangle,
     ArrowLeft,
     Check,
     ChevronDown,
@@ -85,19 +88,11 @@ function CollapsibleSection({
 // ============================================================================
 
 function StatusDot({ status }: { status: string | null }) {
-  const config: Record<string, { color: string; label: string }> = {
-    'NEEDS_SUPPORT': { color: 'bg-red-500', label: 'Needs Support' },
-    'INACTIVE': { color: 'bg-gray-400', label: 'Inactive' },
-    'SELF_SUFFICIENT': { color: 'bg-emerald-500', label: 'Self-Sufficient' },
-    'PAUSED': { color: 'bg-amber-500', label: 'Paused' },
-    'NOT_READY': { color: 'bg-amber-400', label: 'Not Ready' },
-  };
-  
   if (!status) return null;
-  
-  const { color } = config[status] || { color: 'bg-gray-400' };
-  
-  return <span className={`w-2 h-2 rounded-full ${color} flex-shrink-0`} />;
+
+  const descriptor = getAssignmentStatusDescriptor(status);
+
+  return <span className={cn('h-2 w-2 rounded-full flex-shrink-0', getStatusDotClassName(descriptor.tone))} />;
 }
 
 // ============================================================================
@@ -173,10 +168,7 @@ function StaffHeader({ staff, breadcrumb }: StaffHeaderProps) {
       {breadcrumb && <div className="mb-3">{breadcrumb}</div>}
       <div className="flex items-start gap-4">
         {/* Avatar */}
-        <Avatar className={cn(
-          'h-16 w-16 ring-2',
-          staff.isVerified ? 'ring-emerald-500' : 'ring-border'
-        )}>
+        <Avatar className="h-16 w-16 border border-border">
           <AvatarImage src={staff.displayAvatar || undefined} />
           <AvatarFallback className="text-lg font-medium bg-muted">
             {getInitials(displayName)}
@@ -197,7 +189,7 @@ function StaffHeader({ staff, breadcrumb }: StaffHeaderProps) {
               className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
               title="Copy Discord ID"
             >
-              {copied ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
+              {copied ? <Check className="h-3 w-3 text-status-success-text" /> : <Copy className="h-3 w-3" />}
               <span className="font-mono">{staff.id}</span>
             </button>
           </div>
@@ -205,16 +197,26 @@ function StaffHeader({ staff, breadcrumb }: StaffHeaderProps) {
           {/* Status badges */}
           <div className="flex flex-wrap items-center gap-1.5 mt-2">
             {staff.isVerified && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400">
+              <Badge
+                tone={getUserAttributeStatusDescriptor('verified').tone}
+                kind={getUserAttributeStatusDescriptor('verified').kind}
+                emphasis={getUserAttributeStatusDescriptor('verified').emphasis}
+                className="gap-1"
+              >
                 <ShieldCheck className="h-3 w-3" />
-                Verified
-              </span>
+                {getUserAttributeStatusDescriptor('verified').label}
+              </Badge>
             )}
             {staff.isVoiceVerified && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-400">
+              <Badge
+                tone={getUserAttributeStatusDescriptor('voice').tone}
+                kind={getUserAttributeStatusDescriptor('voice').kind}
+                emphasis={getUserAttributeStatusDescriptor('voice').emphasis}
+                className="gap-1"
+              >
                 <Mic className="h-3 w-3" />
-                Voice
-              </span>
+                {getUserAttributeStatusDescriptor('voice').label}
+              </Badge>
             )}
           </div>
         </div>
@@ -255,7 +257,7 @@ function SuperviseesSection({ supervisees, onSuperviseeClick, onSuperviseeHover 
             </Avatar>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
-                <span className="text-sm font-medium truncate group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
+                <span className="text-sm font-medium truncate group-hover:text-primary transition-colors">
                   {displayName}
                 </span>
                 <StatusDot status={user.assignmentStatus} />
@@ -313,10 +315,9 @@ function StatsFooter({ stats }: { stats: StaffDetails['stats'] }) {
           <span><strong className="text-foreground">{stats.totalSupervisees}</strong> supervisee{stats.totalSupervisees !== 1 ? 's' : ''}</span>
         </div>
         {stats.needsSupport > 0 && (
-          <div className="flex items-center gap-1.5 text-red-600 dark:text-red-400">
-            <span className="w-2 h-2 rounded-full bg-red-500" />
-            <span>{stats.needsSupport} need{stats.needsSupport !== 1 ? '' : 's'} support</span>
-          </div>
+          <Badge tone="danger" kind="status" emphasis="soft">
+            {stats.needsSupport} need{stats.needsSupport !== 1 ? '' : 's'} support
+          </Badge>
         )}
       </div>
     </div>
@@ -365,7 +366,6 @@ interface StaffPanelContentProps {
   data: StaffDetails | undefined;
   isLoading: boolean;
   error: Error | null;
-  isMobile: boolean;
   onSuperviseeClick: (userId: string) => void;
   breadcrumb?: React.ReactNode;
 }
@@ -374,7 +374,6 @@ function StaffPanelContent({
   data, 
   isLoading, 
   error, 
-  isMobile,
   onSuperviseeClick,
   breadcrumb,
 }: StaffPanelContentProps) {
@@ -398,20 +397,23 @@ function StaffPanelContent({
         <>
           <StaffHeader staff={data.staff} breadcrumb={breadcrumb} />
           
+          {/* Operational summary — supervisee load and urgency */}
+          {(data.stats.totalSupervisees > 0 || data.stats.needsSupport > 0) && (
+            <div className="px-4 py-3 border-b border-border space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Supervisees</span>
+                <span className="font-medium text-foreground">{data.stats.totalSupervisees}</span>
+              </div>
+              {data.stats.needsSupport > 0 && (
+                <div className="flex items-center gap-2 rounded-md bg-status-danger-soft px-3 py-2 text-sm text-status-danger-text border border-status-danger-border">
+                  <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                  <span>{data.stats.needsSupport} need{data.stats.needsSupport !== 1 ? '' : 's'} support</span>
+                </div>
+              )}
+            </div>
+          )}
+          
           <div className="flex-1 overflow-y-auto overscroll-contain">
-            <CollapsibleSection
-              title="Roles"
-              icon={<Shield className="h-4 w-4" />}
-              badge={
-                <span className="text-xs text-muted-foreground ml-1">
-                  ({data.roles.length})
-                </span>
-              }
-              defaultOpen={true}
-            >
-              <RolesSection roles={data.roles} />
-            </CollapsibleSection>
-
             <CollapsibleSection
               title="Supervisees"
               icon={<Users className="h-4 w-4" />}
@@ -427,6 +429,19 @@ function StaffPanelContent({
                 onSuperviseeClick={onSuperviseeClick}
                 onSuperviseeHover={handleSuperviseeHover}
               />
+            </CollapsibleSection>
+
+            <CollapsibleSection
+              title="Roles"
+              icon={<Shield className="h-4 w-4" />}
+              badge={
+                <span className="text-xs text-muted-foreground ml-1">
+                  ({data.roles.length})
+                </span>
+              }
+              defaultOpen={false}
+            >
+              <RolesSection roles={data.roles} />
             </CollapsibleSection>
           </div>
 

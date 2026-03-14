@@ -1,9 +1,12 @@
 import { db } from '@/lib/db'
 import {
+    addCheckIn,
+    assignTagToUser,
     getStaffCount,
     getStaffDetails,
     getTickets,
     getUserAssignmentHistory,
+    getUserCheckIns,
     getUserCount,
     getUserInfractions,
     getUserRoles,
@@ -11,7 +14,9 @@ import {
     getUserSupervisionNeeds,
     getUserSupervisorEntries,
     getUserSupervisors,
+    getUserTagAssignments,
     getUserTicketStats,
+    removeTagFromUser,
     searchStaffWithSupervisees,
     searchUsers
 } from '@/lib/db/queries'
@@ -19,6 +24,18 @@ import { authAccount, users } from '@/lib/db/schema'
 import { authMacro } from '@/lib/elysia/auth'
 import { eq } from 'drizzle-orm'
 import { Elysia } from 'elysia'
+
+function serializeDateValue(value: Date | string | null | undefined) {
+  if (!value) {
+    return null
+  }
+
+  if (value instanceof Date) {
+    return value.toISOString()
+  }
+
+  return value
+}
 
 export const usersRoutes = new Elysia({ prefix: '/users' })
   // GET /users - List/search users with pagination
@@ -104,6 +121,14 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
           age: result.user.age,
           region: result.user.region,
           currentAssignmentStatus: result.currentAssignmentStatus,
+          activeSupervisorCount: result.activeSupervisorCount,
+          supervisorName: result.supervisorName,
+          supervisorDisplayName: result.supervisorDisplayName,
+          supervisorAvatar: result.supervisorAvatar,
+          activeSupportNeedsCount: result.activeSupportNeedsCount,
+          activeInfractionCount: result.activeInfractionCount,
+          lastCheckInAt: serializeDateValue(result.lastCheckInAt),
+          openTicketCount: result.openTicketCount,
           topRoles: result.topRoles,
           createdAt: result.user.createdAt.toISOString(),
         })),
@@ -473,5 +498,165 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
     } catch (error) {
       console.error('User ticket stats fetch error:', error)
       throw new Error('Failed to fetch ticket stats')
+    }
+  }, { modAuth: true })
+
+  // GET /users/:id/tags - Get user's active tags + full history
+  .get('/:id/tags', async ({ params }) => {
+    try {
+      const userId = BigInt(params.id)
+      const assignments = await getUserTagAssignments(userId)
+
+      const activeTags = assignments
+        .filter(a => !a.removedAt)
+        .map(a => ({
+          assignmentId: a.id,
+          tagId: a.tagId,
+          name: a.tagName,
+          color: a.tagColor,
+          emoji: a.tagEmoji,
+          category: a.tagCategory,
+          assignedAt: a.assignedAt.toISOString(),
+          assignedBy: a.assignedByName,
+          note: a.note,
+        }))
+
+      const history = assignments.map(a => ({
+        id: a.id,
+        tagId: a.tagId,
+        tagName: a.tagName,
+        tagColor: a.tagColor,
+        tagEmoji: a.tagEmoji,
+        assignedAt: a.assignedAt.toISOString(),
+        assignedBy: a.assignedByName,
+        note: a.note,
+        removedAt: a.removedAt?.toISOString() || null,
+        removedBy: a.removedByName || null,
+        removalNote: a.removalNote,
+      }))
+
+      return { activeTags, history }
+    } catch (error) {
+      console.error('Error fetching user tags:', error)
+      throw new Error('Failed to fetch user tags')
+    }
+  }, { modAuth: true })
+
+  // POST /users/:id/tags - Assign a tag to a user
+  .post('/:id/tags', async ({ params, body, discordId, set }) => {
+    try {
+      const userId = BigInt(params.id)
+      const { tagId, note } = body as { tagId: number; note?: string }
+
+      if (!tagId) {
+        set.status = 400
+        return { error: 'tagId is required' }
+      }
+
+      const assignment = await assignTagToUser({
+        userId,
+        tagId,
+        assignedById: BigInt(discordId),
+        note,
+      })
+
+      return {
+        assignment: {
+          ...assignment,
+          userId: assignment.userId.toString(),
+          assignedById: assignment.assignedById.toString(),
+          removedById: assignment.removedById?.toString() ?? null,
+        }
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('already active')) {
+        set.status = 409
+        return { error: error.message }
+      }
+      console.error('Error assigning tag:', error)
+      throw new Error('Failed to assign tag')
+    }
+  }, { modAuth: true })
+
+  // DELETE /users/:id/tags/:assignmentId - Remove a tag from a user
+  .delete('/:id/tags/:assignmentId', async ({ params, body, discordId, set }) => {
+    try {
+      const assignmentId = parseInt(params.assignmentId)
+      if (isNaN(assignmentId)) {
+        set.status = 400
+        return { error: 'Invalid assignment ID' }
+      }
+
+      const { removalNote } = (body || {}) as { removalNote?: string }
+
+      const result = await removeTagFromUser({
+        assignmentId,
+        removedById: BigInt(discordId),
+        removalNote,
+      })
+
+      if (!result) {
+        set.status = 404
+        return { error: 'Active assignment not found' }
+      }
+
+      return { success: true }
+    } catch (error) {
+      console.error('Error removing tag:', error)
+      throw new Error('Failed to remove tag')
+    }
+  }, { modAuth: true })
+
+  // GET /users/:id/check-ins - List check-ins for a user
+  .get('/:id/check-ins', async ({ params }) => {
+    try {
+      const userId = BigInt(params.id)
+      const checkIns = await getUserCheckIns(userId)
+
+      return {
+        checkIns: checkIns.map(c => ({
+          id: c.id,
+          staffId: c.staffId.toString(),
+          staffName: c.staffName,
+          staffAvatar: c.staffAvatar,
+          method: c.method,
+          summary: c.summary,
+          checkedInAt: c.checkedInAt.toISOString(),
+        }))
+      }
+    } catch (error) {
+      console.error('Error fetching check-ins:', error)
+      throw new Error('Failed to fetch check-ins')
+    }
+  }, { modAuth: true })
+
+  // POST /users/:id/check-ins - Log a new check-in
+  .post('/:id/check-ins', async ({ params, body, discordId, set }) => {
+    try {
+      const userId = BigInt(params.id)
+      const { method, summary } = body as { method: string; summary?: string }
+
+      if (!method) {
+        set.status = 400
+        return { error: 'method is required' }
+      }
+
+      const checkIn = await addCheckIn({
+        userId,
+        staffId: BigInt(discordId),
+        method,
+        summary,
+      })
+
+      return {
+        checkIn: {
+          ...checkIn,
+          userId: checkIn.userId.toString(),
+          staffId: checkIn.staffId.toString(),
+        }
+      }
+    } catch (error) {
+      console.error('Error adding check-in:', error)
+      throw new Error('Failed to add check-in')
     }
   }, { modAuth: true })

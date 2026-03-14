@@ -16,6 +16,14 @@ export type UserListItem = {
   age: string | null
   region: string | null
   currentAssignmentStatus: string | null
+  activeSupervisorCount: number
+  supervisorName: string | null
+  supervisorDisplayName: string | null
+  supervisorAvatar: string | null
+  activeSupportNeedsCount: number
+  activeInfractionCount: number
+  lastCheckInAt: string | null
+  openTicketCount: number
   topRoles: Array<{ id: string; name: string; color: number }>
   createdAt: string
 }

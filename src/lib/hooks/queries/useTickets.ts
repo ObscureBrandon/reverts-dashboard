@@ -1,7 +1,7 @@
 'use client'
 
 import { api } from '@/lib/eden'
-import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 
 export type Ticket = {
   id: number
@@ -24,6 +24,7 @@ export type Ticket = {
     title: string
   } | null
   messageCount: number
+  searchMatchedByParticipant?: boolean
   summary?: string | null
   summaryGeneratedAt?: string | null
   summaryModel?: string | null
@@ -35,7 +36,7 @@ export type Message = {
   content: string
   createdAt: string
   isStaff: boolean
-  embeds?: any[]
+  embeds?: unknown[]
   attachments?: string[]
   author: {
     id: string
@@ -59,10 +60,12 @@ export type MentionLookup = {
 export type TicketsParams = {
   page?: number
   limit?: number
-  sortBy?: 'newest' | 'oldest' | 'messages'
+  sortBy?: 'newest' | 'oldest' | 'messages' | 'fewestMessages' | 'sequence' | 'createdAt' | 'messageCount'
+  sortOrder?: 'asc' | 'desc'
   status?: string
   author?: string
-  panel?: number
+  panels?: number[]
+  search?: string
 }
 
 export type TicketsResponse = {
@@ -89,15 +92,18 @@ export type TicketMessagesResponse = {
  * Fetch a list of tickets with pagination and filters
  */
 export function useTickets(params: TicketsParams = {}, options?: { enabled?: boolean }) {
-  const { page = 1, limit = 50, sortBy = 'newest', status, author, panel } = params
+  const { page = 1, limit = 50, sortBy = 'createdAt', sortOrder = 'desc', status, author, panels, search } = params
+  const normalizedPanels = panels ? [...panels].sort((left, right) => left - right) : undefined
+  const panelKey = normalizedPanels?.join(',')
 
   return useQuery({
-    queryKey: ['tickets', { page, limit, sortBy, status, author, panel }],
+    queryKey: ['tickets', { page, limit, sortBy, sortOrder, status, author, panels: panelKey, search }],
     queryFn: async (): Promise<TicketsResponse> => {
       const query: Record<string, string> = {
         page: page.toString(),
         limit: limit.toString(),
         sortBy,
+        sortOrder,
       }
 
       if (status && status !== 'all') {
@@ -108,8 +114,12 @@ export function useTickets(params: TicketsParams = {}, options?: { enabled?: boo
         query.author = author
       }
 
-      if (panel) {
-        query.panel = panel.toString()
+      if (normalizedPanels && normalizedPanels.length > 0) {
+        query.panel = normalizedPanels.join(',')
+      }
+
+      if (search) {
+        query.search = search
       }
 
       const { data, error } = await api.tickets.get({ query })
@@ -121,7 +131,6 @@ export function useTickets(params: TicketsParams = {}, options?: { enabled?: boo
       return data as TicketsResponse
     },
     staleTime: 30 * 1000, // 30 seconds
-    placeholderData: keepPreviousData, // Keep previous results visible while fetching
     ...options,
   })
 }
@@ -180,16 +189,19 @@ export function useTicketMessages(ticketId: string | number, options?: { enabled
  */
 export function usePrefetchTickets(params: TicketsParams = {}) {
   const queryClient = useQueryClient()
-  const { page = 1, limit = 50, sortBy = 'newest', status, author, panel } = params
+  const { limit = 50, sortBy = 'createdAt', sortOrder = 'desc', status, author, panels, search } = params
+  const normalizedPanels = panels ? [...panels].sort((left, right) => left - right) : undefined
+  const panelKey = normalizedPanels?.join(',')
 
   const prefetchPage = (targetPage: number) => {
     queryClient.prefetchQuery({
-      queryKey: ['tickets', { page: targetPage, limit, sortBy, status, author, panel }],
+      queryKey: ['tickets', { page: targetPage, limit, sortBy, sortOrder, status, author, panels: panelKey, search }],
       queryFn: async (): Promise<TicketsResponse> => {
         const query: Record<string, string> = {
           page: targetPage.toString(),
           limit: limit.toString(),
           sortBy,
+          sortOrder,
         }
 
         if (status && status !== 'all') {
@@ -200,8 +212,12 @@ export function usePrefetchTickets(params: TicketsParams = {}) {
           query.author = author
         }
 
-        if (panel) {
-          query.panel = panel.toString()
+        if (normalizedPanels && normalizedPanels.length > 0) {
+          query.panel = normalizedPanels.join(',')
+        }
+
+        if (search) {
+          query.search = search
         }
 
         const { data, error } = await api.tickets.get({ query })
