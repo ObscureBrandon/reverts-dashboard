@@ -173,6 +173,8 @@ export const users = pgTable("User", {
   region: varchar({ length: 255 }),
   religiousAffiliation: varchar("religious_affiliation", { length: 255 }),
   wantsDiscussion: varchar("wants_discussion", { length: 50 }),
+  whyJoin: text("why_join"),
+  interestInIslam: text("interest_in_islam"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
