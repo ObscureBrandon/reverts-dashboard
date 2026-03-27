@@ -1,5 +1,7 @@
 'use client';
 
+/* eslint-disable @next/next/no-img-element */
+
 import { NavigationHeader } from '@/app/components/navigation-header';
 import { PageHeader } from '@/app/components/page-header';
 import { ChannelPopover } from '@/app/components/popovers/ChannelPopover';
@@ -7,7 +9,7 @@ import { RolePopover } from '@/app/components/popovers/RolePopover';
 import { AvatarGroup, AvatarGroupCount, UserAvatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { DeferredMessageContent, MessageContent, type MentionLookup } from '@/components/ui/message-content';
 import { useGlobalSearchOverlay } from '@/lib/contexts/global-search-context';
 import { useUserPanel } from '@/lib/contexts/user-panel-context';
@@ -29,7 +31,7 @@ type Message = {
   content: string;
   createdAt: string;
   isStaff: boolean;
-  embeds?: any[];
+  embeds?: unknown[];
   attachments?: string[];
   author: {
     id: string;
@@ -42,29 +44,6 @@ type Message = {
     id: string;
     name: string;
   } | null;
-};
-
-type Ticket = {
-  id: number;
-  sequence: number | null;
-  status: string | null;
-  createdAt: string;
-  closedAt: string | null;
-  author: {
-    id: string;
-    name: string;
-    displayName: string | null;
-    displayAvatar: string | null;
-  } | null;
-  channel: {
-    id: string;
-    name: string;
-  } | null;
-  messageCount: number;
-  summary?: string | null;
-  summaryGeneratedAt?: string | null;
-  summaryModel?: string | null;
-  summaryTokensUsed?: number | null;
 };
 
 // UserModalData type removed - using global panel context now
@@ -275,6 +254,10 @@ type DiscordEmbed = {
   };
   timestamp?: string;
 };
+
+function isDiscordEmbed(value: unknown): value is DiscordEmbed {
+  return typeof value === 'object' && value !== null;
+}
 
 function DiscordEmbedDisplay({ 
   embed, 
@@ -523,7 +506,7 @@ export default function TicketDetailPage() {
   
   // Extract data from hook responses
   const ticket = ticketData?.ticket || null;
-  const messages = messagesData?.messages || [];
+  const messages = useMemo(() => messagesData?.messages ?? [], [messagesData?.messages]);
   const mentions = useMemo(() => messagesData?.mentions || { users: {}, roles: {}, channels: {} }, [messagesData?.mentions]);
   const guildId = messagesData?.guildId || null;
   
@@ -563,11 +546,6 @@ export default function TicketDetailPage() {
   }, [messages]);
   const visibleParticipants = participants.slice(0, 4);
   const hiddenParticipantCount = Math.max(participants.length - visibleParticipants.length, 0);
-  const participantSummary = participants.length === 0
-    ? 'No recorded authors'
-    : participants.length <= 3
-      ? participants.map((participant) => participant.displayName || participant.name).join(', ')
-      : `${participants.slice(0, 3).map((participant) => participant.displayName || participant.name).join(', ')} +${participants.length - 3} more`;
   const ticketAuthor = ticket?.author ?? null;
   const ticketAuthorId = ticket?.author?.id;
 
@@ -624,6 +602,8 @@ export default function TicketDetailPage() {
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2000);
   }, []);
+
+  const messageGroups = useMemo(() => groupMessagesByDate(messages), [messages]);
   
   // While loading, show the skeleton UI
   if (loading) {
@@ -669,8 +649,6 @@ export default function TicketDetailPage() {
       </div>
     );
   }
-  
-  const messageGroups = groupMessagesByDate(messages);
   
   return (
     <div className="min-h-screen bg-background">
@@ -1012,7 +990,7 @@ export default function TicketDetailPage() {
 
                                 {msg.embeds && msg.embeds.length > 0 ? (
                                   <div className="space-y-2">
-                                    {msg.embeds.map((embed, embedIdx) => (
+                                    {msg.embeds.filter(isDiscordEmbed).map((embed, embedIdx) => (
                                       <DiscordEmbedDisplay
                                         key={embedIdx}
                                         embed={embed}
@@ -1071,7 +1049,7 @@ export default function TicketDetailPage() {
 
                                 {msg.embeds && msg.embeds.length > 0 ? (
                                   <div className="space-y-2">
-                                    {msg.embeds.map((embed, embedIdx) => (
+                                    {msg.embeds.filter(isDiscordEmbed).map((embed, embedIdx) => (
                                       <DiscordEmbedDisplay
                                         key={embedIdx}
                                         embed={embed}
@@ -1103,6 +1081,12 @@ export default function TicketDetailPage() {
         {!isGlobalSearchOpen ? (
           <div className="sticky bottom-4 mt-6 rounded-2xl border border-border bg-background/95 p-3 shadow-lg backdrop-blur md:hidden">
             <div className="flex items-center gap-2">
+              <Button asChild variant="outline" className="flex-1">
+                <Link href={backHref}>
+                  <ArrowLeft className="h-4 w-4" />
+                  Back
+                </Link>
+              </Button>
               <Button onClick={handleCopyLink} variant="outline" className="flex-1">
                 {copiedLink ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                 {copiedLink ? 'Copied' : 'Copy Link'}

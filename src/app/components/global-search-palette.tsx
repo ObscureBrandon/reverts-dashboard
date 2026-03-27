@@ -174,7 +174,6 @@ export function GlobalSearchPalette() {
   const [operatorChips, setOperatorChips] = useState<SearchOperatorChip[]>([])
   const [freeText, setFreeText] = useState('')
   const [activeChipId, setActiveChipId] = useState<string | null>(null)
-  const [isExpanded, setIsExpanded] = useState(false)
   const serializedQuery = useMemo(
     () => serializeGlobalSearchQuery(operatorChips.map(({ key, value }) => ({ key, value })), freeText),
     [freeText, operatorChips]
@@ -230,13 +229,29 @@ export function GlobalSearchPalette() {
 
   const [selectedIndex, setSelectedIndex] = useState(0)
 
+  const resetPaletteState = useCallback(() => {
+    setOperatorChips([])
+    setFreeText('')
+    setActiveChipId(null)
+    setSelectedIndex(0)
+  }, [])
+
+  const handleClosePalette = useCallback(() => {
+    resetPaletteState()
+    closeGlobalSearch()
+  }, [closeGlobalSearch, resetPaletteState])
+
+  const handleTogglePalette = useCallback(() => {
+    if (isOpen) {
+      handleClosePalette()
+      return
+    }
+
+    toggleGlobalSearch()
+  }, [handleClosePalette, isOpen, toggleGlobalSearch])
+
   useEffect(() => {
     if (!isOpen) {
-      setOperatorChips([])
-      setFreeText('')
-      setActiveChipId(null)
-      setIsExpanded(false)
-      setSelectedIndex(0)
       return
     }
 
@@ -248,26 +263,8 @@ export function GlobalSearchPalette() {
     focusTextInput()
   }, [activeChipId, focusChipInput, focusTextInput, isOpen])
 
-  useEffect(() => {
-    setSelectedIndex(0)
-  }, [data?.query])
-
-  useEffect(() => {
-    if (!isOpen) {
-      return
-    }
-
-    if (!normalizedQuery || !canRunQuery) {
-      setIsExpanded(false)
-      return
-    }
-
-    if (!isLoading && !isFetching && debouncedNormalizedQuery === normalizedQuery && (Boolean(data) || isError)) {
-      setIsExpanded(true)
-    }
-  }, [canRunQuery, data, debouncedNormalizedQuery, isError, isFetching, isLoading, isOpen, normalizedQuery])
-
-  const selectedResult = flatResults[selectedIndex] ?? null
+  const boundedSelectedIndex = flatResults[selectedIndex] ? selectedIndex : 0
+  const selectedResult = flatResults[boundedSelectedIndex] ?? null
 
   useEffect(() => {
     if (!selectedResult) {
@@ -290,21 +287,22 @@ export function GlobalSearchPalette() {
   const handleSelect = useCallback((result: FlatSearchResult) => {
     if (result.kind === 'user') {
       openUserPanel(result.user.id)
-      closeGlobalSearch()
+      handleClosePalette()
       return
     }
 
     if (result.kind === 'ticket') {
-      closeGlobalSearch()
+      handleClosePalette()
       router.push(buildTicketHref(result.ticket.id, returnTo))
       return
     }
 
-    closeGlobalSearch()
+    handleClosePalette()
     router.push(buildMessageHref(result.message.ticketId, result.message.id, returnTo, result.message.highlightTerm))
-  }, [closeGlobalSearch, openUserPanel, returnTo, router])
+  }, [handleClosePalette, openUserPanel, returnTo, router])
 
   const handleFreeTextChange = useCallback((value: string) => {
+    setSelectedIndex(0)
     const tokens = parseGlobalSearchTokens(value)
     const operatorTokens = tokens.filter((token) => token.type === 'operator')
 
@@ -333,12 +331,14 @@ export function GlobalSearchPalette() {
   }, [focusTextInput])
 
   const handleChipValueChange = useCallback((chipId: string, value: string) => {
+    setSelectedIndex(0)
     setOperatorChips((current) => current.map((chip) => chip.id === chipId ? { ...chip, value } : chip))
   }, [])
 
   const removeChip = useCallback((chipId: string, focusMode: 'text' | 'previous' = 'text') => {
     let previousChipId: string | null = null
 
+    setSelectedIndex(0)
     setOperatorChips((current) => {
       const chipIndex = current.findIndex((chip) => chip.id === chipId)
       previousChipId = chipIndex > 0 ? current[chipIndex - 1].id : null
@@ -359,7 +359,7 @@ export function GlobalSearchPalette() {
     if (event.key.toLowerCase() === 'k' && (event.metaKey || event.ctrlKey)) {
       event.preventDefault()
       event.stopPropagation()
-      toggleGlobalSearch()
+      handleTogglePalette()
       return
     }
 
@@ -374,13 +374,13 @@ export function GlobalSearchPalette() {
       setActiveChipId(operatorChips[operatorChips.length - 1].id)
       focusChipInput()
     }
-  }, [focusChipInput, freeText.length, operatorChips, toggleGlobalSearch])
+  }, [focusChipInput, freeText.length, handleTogglePalette, operatorChips])
 
   const handleChipInputKeyDown = useCallback((event: React.KeyboardEvent<HTMLInputElement>, chip: SearchOperatorChip) => {
     if (event.key.toLowerCase() === 'k' && (event.metaKey || event.ctrlKey)) {
       event.preventDefault()
       event.stopPropagation()
-      toggleGlobalSearch()
+      handleTogglePalette()
       return
     }
 
@@ -422,7 +422,7 @@ export function GlobalSearchPalette() {
       setActiveChipId(null)
       focusTextInput()
     }
-  }, [focusTextInput, removeChip, toggleGlobalSearch])
+  }, [focusTextInput, handleTogglePalette, removeChip])
 
   useEffect(() => {
     if (!isOpen) {
@@ -460,7 +460,10 @@ export function GlobalSearchPalette() {
   }, [flatResults.length, handleSelect, isOpen, selectedResult])
 
   const hasResults = flatResults.length > 0
-  const showResultsPanel = isExpanded
+  const showResultsPanel = normalizedQuery.length > 0
+    && canRunQuery
+    && debouncedNormalizedQuery === normalizedQuery
+    && (Boolean(data) || isLoading || isFetching || isError)
   const useTallResultsShell = showResultsPanel && hasResults
   const showInlineSpinner = canRunQuery && (isLoading || isFetching)
   const showNoResults = showResultsPanel && !showInlineSpinner && !isError && normalizedQuery.length > 0 && !hasResults
@@ -590,7 +593,7 @@ export function GlobalSearchPalette() {
                   <SearchResultSection title="Users" count={data.users.length}>
                     {data.users.map((user) => {
                       const resultId = `user-${user.id}`
-                      const isSelected = flatResults[selectedIndex]?.id === resultId
+                      const isSelected = flatResults[boundedSelectedIndex]?.id === resultId
 
                       return (
                         <button
@@ -631,7 +634,7 @@ export function GlobalSearchPalette() {
                   <SearchResultSection title="Tickets" count={data.tickets.length}>
                     {data.tickets.map((ticket) => {
                       const resultId = `ticket-${ticket.id}`
-                      const isSelected = flatResults[selectedIndex]?.id === resultId
+                      const isSelected = flatResults[boundedSelectedIndex]?.id === resultId
 
                       return (
                         <button
@@ -673,7 +676,7 @@ export function GlobalSearchPalette() {
                   <SearchResultSection title="Messages" count={data.messages.length}>
                     {data.messages.map((message) => {
                       const resultId = `message-${message.id}`
-                      const isSelected = flatResults[selectedIndex]?.id === resultId
+                      const isSelected = flatResults[boundedSelectedIndex]?.id === resultId
 
                       return (
                         <button
@@ -746,7 +749,7 @@ export function GlobalSearchPalette() {
 
   if (isMobile) {
     return (
-      <Drawer modal={false} open={isOpen} onOpenChange={(open) => { if (!open) closeGlobalSearch() }}>
+      <Drawer modal={false} open={isOpen} onOpenChange={(open) => { if (!open) handleClosePalette() }}>
         <DrawerContent disableAnimation showHandle={false} overlayClassName="data-[state=open]:animate-none data-[state=closed]:animate-none data-[state=open]:duration-0 data-[state=closed]:duration-0 transition-none"
           className={cn(
           'rounded-t-3xl p-0 data-[state=open]:animate-none data-[state=closed]:animate-none data-[state=open]:duration-0 data-[state=closed]:duration-0 transition-none',
@@ -762,7 +765,7 @@ export function GlobalSearchPalette() {
   }
 
   return (
-    <Sheet modal={false} open={isOpen} onOpenChange={(open) => { if (!open) closeGlobalSearch() }}>
+    <Sheet modal={false} open={isOpen} onOpenChange={(open) => { if (!open) handleClosePalette() }}>
       <SheetContent side="top" showCloseButton={false} disableAnimation
         overlayClassName="data-[state=open]:animate-none data-[state=closed]:animate-none data-[state=open]:duration-0 data-[state=closed]:duration-0 transition-none"
         className={cn(

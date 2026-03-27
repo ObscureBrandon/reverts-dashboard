@@ -205,7 +205,7 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
         return { error: 'Staff member not found' }
       }
 
-      set.headers['Cache-Control'] = 'public, s-maxage=120, stale-while-revalidate=300'
+      set.headers['Cache-Control'] = 'private, s-maxage=120, stale-while-revalidate=300'
 
       return result
     } catch (err) {
@@ -386,7 +386,7 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
       }
 
       // Basic response (backwards compatible)
-      set.headers['Cache-Control'] = 'public, s-maxage=120, stale-while-revalidate=300'
+      set.headers['Cache-Control'] = 'private, s-maxage=120, stale-while-revalidate=300'
 
       // Check if user is staff by matching role names
       const isStaff = userRolesResult.some(r => 
@@ -446,7 +446,7 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
 
       const user = userResult[0]
 
-      set.headers['Cache-Control'] = 'public, s-maxage=60, stale-while-revalidate=120'
+      set.headers['Cache-Control'] = 'private, s-maxage=60, stale-while-revalidate=120'
 
       return {
         user: {
@@ -489,7 +489,7 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
 
       const stats = await getUserTicketStats(userId)
 
-      set.headers['Cache-Control'] = 'public, s-maxage=60, stale-while-revalidate=120'
+      set.headers['Cache-Control'] = 'private, s-maxage=60, stale-while-revalidate=120'
 
       return {
         open: stats.open,

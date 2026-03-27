@@ -33,3 +33,19 @@ export function formatRelativeTime(dateStr: string): string {
   if (diffDays < 365) return `${Math.floor(diffDays / 30)}mo ago`
   return `${Math.floor(diffDays / 365)}y ago`
 }
+
+export function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message) {
+    return error.message
+  }
+
+  if (error && typeof error === 'object' && 'error' in error) {
+    const message = (error as { error?: unknown }).error
+
+    if (typeof message === 'string' && message.length > 0) {
+      return message
+    }
+  }
+
+  return fallback
+}

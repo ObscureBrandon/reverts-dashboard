@@ -113,7 +113,7 @@ export function useMyTicket(ticketId: string | number, options?: { enabled?: boo
  */
 export function usePrefetchMyTickets(params: MyTicketsParams = {}) {
   const queryClient = useQueryClient()
-  const { page = 1, limit = 50, status } = params
+  const { limit = 50, status } = params
 
   const prefetchPage = (targetPage: number) => {
     queryClient.prefetchQuery({

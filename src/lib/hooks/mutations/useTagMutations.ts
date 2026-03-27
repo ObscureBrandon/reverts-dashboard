@@ -2,6 +2,7 @@
 
 import { api } from '@/lib/eden'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { getErrorMessage } from '@/lib/utils'
 
 /**
  * Mutation: Create a new tag
@@ -20,7 +21,7 @@ export function useCreateTag() {
       const { data: result, error } = await api.tags.post(data)
 
       if (error) {
-        throw new Error((error as any).error || 'Failed to create tag')
+        throw new Error(getErrorMessage(error, 'Failed to create tag'))
       }
 
       return result
@@ -49,7 +50,7 @@ export function useUpdateTag() {
       const { data: result, error } = await api.tags({ id: String(tagId) }).patch(data)
 
       if (error) {
-        throw new Error((error as any).error || 'Failed to update tag')
+        throw new Error(getErrorMessage(error, 'Failed to update tag'))
       }
 
       return result
@@ -71,7 +72,7 @@ export function useArchiveTag() {
       const { data: result, error } = await api.tags({ id: String(tagId) }).archive.patch()
 
       if (error) {
-        throw new Error((error as any).error || 'Failed to archive tag')
+        throw new Error(getErrorMessage(error, 'Failed to archive tag'))
       }
 
       return result
@@ -100,7 +101,7 @@ export function useAssignTag() {
       })
 
       if (error) {
-        throw new Error((error as any).error || 'Failed to assign tag')
+        throw new Error(getErrorMessage(error, 'Failed to assign tag'))
       }
 
       return result
@@ -130,7 +131,7 @@ export function useRemoveTag() {
       })
 
       if (error) {
-        throw new Error((error as any).error || 'Failed to remove tag')
+        throw new Error(getErrorMessage(error, 'Failed to remove tag'))
       }
 
       return result

@@ -1417,7 +1417,6 @@ function TimelineFooter({ user }: { user: UserDetails['user'] }) {
 function OperationalSummary({ data, compact = false }: { data: UserDetails; compact?: boolean }) {
   const { data: checkIns } = useCheckIns(data.user.id);
 
-  const currentAssignment = data.assignmentHistory.find((item) => item.active);
   const activeNeeds = data.supervisionNeeds.filter((item) => !item.resolvedAt);
   const activeInfractions = data.infractions.filter((item) => item.status === 'ACTIVE');
   const activeSupervisors = data.supervisors.filter((item) => item.active);

@@ -2,6 +2,7 @@
 
 import { api } from '@/lib/eden'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { getErrorMessage } from '@/lib/utils'
 
 /**
  * Mutation: Log a new check-in for a user
@@ -21,7 +22,7 @@ export function useAddCheckIn() {
       })
 
       if (error) {
-        throw new Error((error as any).error || 'Failed to add check-in')
+        throw new Error(getErrorMessage(error, 'Failed to add check-in'))
       }
 
       return result

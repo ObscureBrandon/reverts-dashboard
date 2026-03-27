@@ -1,4 +1,5 @@
-import { and, asc, desc, eq, ilike, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, exists, ilike, inArray, isNotNull, isNull, or, SQL, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import { db } from './index';
 import {
   assignmentStatuses,
@@ -59,6 +60,32 @@ function buildMessageSearchCondition(search: string) {
   return or(...textConditions);
 }
 
+function buildStaffRoleExistsCondition(staffRoleIds: bigint[]) {
+  if (staffRoleIds.length === 0) {
+    return undefined;
+  }
+
+  return exists(
+    db
+      .select({ userId: userRoles.userId })
+      .from(userRoles)
+      .where(
+        and(
+          eq(userRoles.userId, messages.authorId),
+          inArray(userRoles.roleId, staffRoleIds)
+        )
+      )
+  );
+}
+
+function toIsoString(value: Date | string | null | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  return value instanceof Date ? value.toISOString() : value;
+}
+
 export async function searchMessages(params: MessageSearchParams) {
   const {
     query,
@@ -89,6 +116,8 @@ export async function searchMessages(params: MessageSearchParams) {
     conditions.push(eq(messages.channelId, channelId));
   }
 
+  const staffRoleExistsCondition = buildStaffRoleExistsCondition(staffRoleIds);
+
   // Build base query with staff check
   const queryBuilder = db
     .select({
@@ -96,13 +125,7 @@ export async function searchMessages(params: MessageSearchParams) {
       author: users,
       channel: channels,
       ticket: tickets,
-      isStaff: staffRoleIds.length > 0
-        ? sql<boolean>`EXISTS (
-            SELECT 1 FROM ${userRoles} 
-            WHERE ${userRoles.userId} = ${messages.authorId} 
-            AND ${userRoles.roleId} = ANY(${sql.raw(`ARRAY[${staffRoleIds.join(',')}]::bigint[]`)})
-          )`
-        : sql<boolean>`false`,
+      isStaff: staffRoleExistsCondition ? sql<boolean>`${staffRoleExistsCondition}` : sql<boolean>`false`,
     })
     .from(messages)
     .leftJoin(users, eq(messages.authorId, users.discordId))
@@ -110,14 +133,8 @@ export async function searchMessages(params: MessageSearchParams) {
     .leftJoin(tickets, eq(channels.channelId, tickets.channelId));
 
   // Add staff filter at SQL level using EXISTS subquery
-  if (staffOnly && staffRoleIds.length > 0) {
-    conditions.push(
-      sql`EXISTS (
-        SELECT 1 FROM ${userRoles} 
-        WHERE ${userRoles.userId} = ${messages.authorId} 
-        AND ${userRoles.roleId} = ANY(${sql.raw(`ARRAY[${staffRoleIds.join(',')}]::bigint[]`)})
-      )`
-    );
+  if (staffOnly && staffRoleExistsCondition) {
+    conditions.push(staffRoleExistsCondition);
   }
 
   // Add ticket filter at SQL level
@@ -156,15 +173,11 @@ export async function getMessageCount(params: {
     conditions.push(eq(messages.channelId, channelId));
   }
 
+  const staffRoleExistsCondition = buildStaffRoleExistsCondition(staffRoleIds);
+
   // Add staff filter at SQL level using EXISTS subquery
-  if (staffOnly && staffRoleIds.length > 0) {
-    conditions.push(
-      sql`EXISTS (
-        SELECT 1 FROM ${userRoles} 
-        WHERE ${userRoles.userId} = ${messages.authorId} 
-        AND ${userRoles.roleId} = ANY(${sql.raw(`ARRAY[${staffRoleIds.join(',')}]::bigint[]`)})
-      )`
-    );
+  if (staffOnly && staffRoleExistsCondition) {
+    conditions.push(staffRoleExistsCondition);
   }
 
   // If ticketId filter is needed, join with channels and tickets
@@ -483,6 +496,13 @@ export async function getMentionsForMessages(messageResults: MessageSearchResult
   const userIds = new Set<bigint>();
   const roleIds = new Set<bigint>();
   const channelIds = new Set<bigint>();
+  type MessageEmbedLike = {
+    description?: string;
+    title?: string;
+    author?: { name?: string };
+    footer?: { text?: string };
+    fields?: Array<{ name?: string; value?: string }>;
+  };
 
   // Helper function to extract mention IDs from text
   const extractMentionIds = (text: string) => {
@@ -510,12 +530,14 @@ export async function getMentionsForMessages(messageResults: MessageSearchResult
       const embeds = Array.isArray(result.message.embeds) ? result.message.embeds : [result.message.embeds];
       for (const embed of embeds) {
         if (typeof embed === 'object' && embed !== null) {
-          extractMentionIds(embed.description || '');
-          extractMentionIds(embed.title || '');
-          if (embed.author?.name) extractMentionIds(embed.author.name);
-          if (embed.footer?.text) extractMentionIds(embed.footer.text);
-          if (embed.fields && Array.isArray(embed.fields)) {
-            for (const field of embed.fields) {
+          const embedData = embed as MessageEmbedLike;
+
+          extractMentionIds(embedData.description || '');
+          extractMentionIds(embedData.title || '');
+          if (embedData.author?.name) extractMentionIds(embedData.author.name);
+          if (embedData.footer?.text) extractMentionIds(embedData.footer.text);
+          if (embedData.fields && Array.isArray(embedData.fields)) {
+            for (const field of embedData.fields) {
               extractMentionIds(field.name || '');
               extractMentionIds(field.value || '');
             }
@@ -656,11 +678,9 @@ export type UserSearchParams = {
   offset?: number;
 };
 
-/**
- * Search users with filters for the users list
- * Searches display_name first, then name
- */
-export async function searchUsers(params: UserSearchParams) {
+type UserFilterParams = Omit<UserSearchParams, 'sortBy' | 'sortOrder' | 'limit' | 'offset'>;
+
+function buildUserFilterConditions(params: UserFilterParams): SQL[] {
   const {
     query,
     assignmentStatus,
@@ -672,35 +692,27 @@ export async function searchUsers(params: UserSearchParams) {
     supervisorId,
     hasShahada,
     hasSupport,
-    sortBy = 'createdAt',
-    sortOrder = 'desc',
-    limit = 50,
-    offset = 0,
   } = params;
 
-  const conditions = [];
+  const conditions: SQL[] = [];
 
-  // Search query - prioritize display_name, include name
   if (query) {
     conditions.push(
       or(
         ilike(users.displayName, `%${query}%`),
         ilike(users.name, `%${query}%`)
-      )
+      )!
     );
   }
 
-  // Filter by relation to Islam
   if (relationToIslam) {
     conditions.push(eq(users.relationToIslam, relationToIslam));
   }
 
-  // Filter by in guild status
   if (inGuild !== undefined) {
     conditions.push(eq(users.inGuild, inGuild));
   }
 
-  // Filter by verification status
   if (verified !== undefined) {
     conditions.push(eq(users.isVerified, verified));
   }
@@ -709,18 +721,16 @@ export async function searchUsers(params: UserSearchParams) {
     conditions.push(eq(users.isVoiceVerified, voiceVerified));
   }
 
-  // Filter by role - user must have this role
   if (roleId) {
     conditions.push(
       sql`EXISTS (
-        SELECT 1 FROM ${userRoles} 
-        WHERE ${userRoles.userId} = ${users.discordId} 
+        SELECT 1 FROM ${userRoles}
+        WHERE ${userRoles.userId} = ${users.discordId}
         AND ${userRoles.roleId} = ${roleId}
       )`
     );
   }
 
-  // Filter by current assignment status (active only)
   if (assignmentStatus) {
     conditions.push(
       sql`EXISTS (
@@ -732,7 +742,6 @@ export async function searchUsers(params: UserSearchParams) {
     );
   }
 
-  // Filter by supervisor (for "Assigned to Me" filter)
   if (supervisorId) {
     conditions.push(
       sql`EXISTS (
@@ -744,7 +753,6 @@ export async function searchUsers(params: UserSearchParams) {
     );
   }
 
-  // Filter to users who have at least one shahada recorded
   if (hasShahada) {
     conditions.push(
       sql`EXISTS (
@@ -754,7 +762,6 @@ export async function searchUsers(params: UserSearchParams) {
     );
   }
 
-  // Filter to users who have active support (active supervisors)
   if (hasSupport) {
     conditions.push(
       sql`EXISTS (
@@ -765,81 +772,115 @@ export async function searchUsers(params: UserSearchParams) {
     );
   }
 
+  return conditions;
+}
+
+/**
+ * Search users with filters for the users list
+ * Searches display_name first, then name
+ */
+export async function searchUsers(params: UserSearchParams) {
+  const {
+    sortBy = 'createdAt',
+    sortOrder = 'desc',
+    limit = 50,
+    offset = 0,
+    ...filters
+  } = params;
+
+  const conditions = buildUserFilterConditions(filters);
+  const supervisorUsers = alias(users, 'supervisor_users');
+
+  const currentAssignmentStatuses = db
+    .selectDistinctOn([assignmentStatuses.userId], {
+      userId: assignmentStatuses.userId,
+      currentAssignmentStatus: assignmentStatuses.status,
+    })
+    .from(assignmentStatuses)
+    .where(eq(assignmentStatuses.active, true))
+    .orderBy(assignmentStatuses.userId, desc(assignmentStatuses.createdAt))
+    .as('current_assignment_statuses');
+
+  const activeSupervisorCounts = db
+    .select({
+      userId: userSupervisors.userId,
+      activeSupervisorCount: sql<number>`COUNT(*)::int`.as('activeSupervisorCount'),
+    })
+    .from(userSupervisors)
+    .where(eq(userSupervisors.active, true))
+    .groupBy(userSupervisors.userId)
+    .as('active_supervisor_counts');
+
+  const latestActiveSupervisors = db
+    .selectDistinctOn([userSupervisors.userId], {
+      userId: userSupervisors.userId,
+      supervisorName: supervisorUsers.name,
+      supervisorDisplayName: supervisorUsers.displayName,
+      supervisorAvatar: supervisorUsers.displayAvatar,
+    })
+    .from(userSupervisors)
+    .innerJoin(supervisorUsers, eq(userSupervisors.supervisorId, supervisorUsers.discordId))
+    .where(eq(userSupervisors.active, true))
+    .orderBy(userSupervisors.userId, desc(userSupervisors.createdAt))
+    .as('latest_active_supervisors');
+
+  const activeSupportNeedsCounts = db
+    .select({
+      userId: supervisionNeeds.userId,
+      activeSupportNeedsCount: sql<number>`COUNT(*)::int`.as('activeSupportNeedsCount'),
+    })
+    .from(supervisionNeeds)
+    .where(isNull(supervisionNeeds.resolvedAt))
+    .groupBy(supervisionNeeds.userId)
+    .as('active_support_needs_counts');
+
+  const activeInfractionCounts = db
+    .select({
+      userId: infractions.userId,
+      activeInfractionCount: sql<number>`COUNT(*)::int`.as('activeInfractionCount'),
+    })
+    .from(infractions)
+    .where(eq(infractions.status, 'ACTIVE'))
+    .groupBy(infractions.userId)
+    .as('active_infraction_counts');
+
+  const lastCheckIns = db
+    .select({
+      userId: revertCheckIns.userId,
+      lastCheckInAt: sql<Date | null>`MAX(${revertCheckIns.checkedInAt})`.as('lastCheckInAt'),
+    })
+    .from(revertCheckIns)
+    .groupBy(revertCheckIns.userId)
+    .as('last_check_ins');
+
+  const openTicketCounts = db
+    .select({
+      userId: tickets.authorId,
+      openTicketCount: sql<number>`COUNT(*)::int`.as('openTicketCount'),
+    })
+    .from(tickets)
+    .where(eq(tickets.status, 'OPEN'))
+    .groupBy(tickets.authorId)
+    .as('open_ticket_counts');
+
   // Build sort order
   const orderByClause = sortBy === 'name'
     ? (sortOrder === 'asc' ? asc(sql`COALESCE(${users.displayName}, ${users.name})`) : desc(sql`COALESCE(${users.displayName}, ${users.name})`))
     : (sortOrder === 'asc' ? asc(users.createdAt) : desc(users.createdAt));
 
-  // Single query with subqueries for current assignment status and top 3 roles
+  // Single query with joined aggregates for derived fields and a compact top-role subquery.
   const results = await db
     .select({
       user: users,
-      currentAssignmentStatus: sql<string | null>`(
-        SELECT ${assignmentStatuses.status}
-        FROM ${assignmentStatuses}
-        WHERE ${assignmentStatuses.userId} = ${users.discordId}
-        AND ${assignmentStatuses.active} = true
-        ORDER BY ${assignmentStatuses.createdAt} DESC
-        LIMIT 1
-      )`,
-      activeSupervisorCount: sql<number>`(
-        SELECT COUNT(*)::int
-        FROM ${userSupervisors}
-        WHERE ${userSupervisors.userId} = ${users.discordId}
-        AND ${userSupervisors.active} = true
-      )`,
-      supervisorName: sql<string | null>`(
-        SELECT su.name
-        FROM "UserSupervisor" us
-        INNER JOIN "User" su ON us.supervisor_id = su.discord_id
-        WHERE us.user_id = ${users.discordId}
-        AND us.active = true
-        ORDER BY us.created_at DESC
-        LIMIT 1
-      )`,
-      supervisorDisplayName: sql<string | null>`(
-        SELECT su.display_name
-        FROM "UserSupervisor" us
-        INNER JOIN "User" su ON us.supervisor_id = su.discord_id
-        WHERE us.user_id = ${users.discordId}
-        AND us.active = true
-        ORDER BY us.created_at DESC
-        LIMIT 1
-      )`,
-      supervisorAvatar: sql<string | null>`(
-        SELECT su.display_avatar
-        FROM "UserSupervisor" us
-        INNER JOIN "User" su ON us.supervisor_id = su.discord_id
-        WHERE us.user_id = ${users.discordId}
-        AND us.active = true
-        ORDER BY us.created_at DESC
-        LIMIT 1
-      )`,
-      activeSupportNeedsCount: sql<number>`(
-        SELECT COUNT(*)::int
-        FROM ${supervisionNeeds}
-        WHERE ${supervisionNeeds.userId} = ${users.discordId}
-        AND ${supervisionNeeds.resolvedAt} IS NULL
-      )`,
-      activeInfractionCount: sql<number>`(
-        SELECT COUNT(*)::int
-        FROM ${infractions}
-        WHERE ${infractions.userId} = ${users.discordId}
-        AND ${infractions.status} = 'ACTIVE'
-      )`,
-      lastCheckInAt: sql<Date | null>`(
-        SELECT ${revertCheckIns.checkedInAt}
-        FROM ${revertCheckIns}
-        WHERE ${revertCheckIns.userId} = ${users.discordId}
-        ORDER BY ${revertCheckIns.checkedInAt} DESC
-        LIMIT 1
-      )`,
-      openTicketCount: sql<number>`(
-        SELECT COUNT(*)::int
-        FROM ${tickets}
-        WHERE ${tickets.authorId} = ${users.discordId}
-        AND ${tickets.status} = 'OPEN'
-      )`,
+      currentAssignmentStatus: currentAssignmentStatuses.currentAssignmentStatus,
+      activeSupervisorCount: sql<number>`COALESCE(${activeSupervisorCounts.activeSupervisorCount}, 0)`,
+      supervisorName: latestActiveSupervisors.supervisorName,
+      supervisorDisplayName: latestActiveSupervisors.supervisorDisplayName,
+      supervisorAvatar: latestActiveSupervisors.supervisorAvatar,
+      activeSupportNeedsCount: sql<number>`COALESCE(${activeSupportNeedsCounts.activeSupportNeedsCount}, 0)`,
+      activeInfractionCount: sql<number>`COALESCE(${activeInfractionCounts.activeInfractionCount}, 0)`,
+      lastCheckInAt: lastCheckIns.lastCheckInAt,
+      openTicketCount: sql<number>`COALESCE(${openTicketCounts.openTicketCount}, 0)`,
       topRoles: sql<Array<{ id: string; name: string; color: number }> | null>`(
         SELECT COALESCE(json_agg(role_data), '[]'::json)
         FROM (
@@ -856,6 +897,13 @@ export async function searchUsers(params: UserSearchParams) {
       )`,
     })
     .from(users)
+    .leftJoin(currentAssignmentStatuses, eq(currentAssignmentStatuses.userId, users.discordId))
+    .leftJoin(activeSupervisorCounts, eq(activeSupervisorCounts.userId, users.discordId))
+    .leftJoin(latestActiveSupervisors, eq(latestActiveSupervisors.userId, users.discordId))
+    .leftJoin(activeSupportNeedsCounts, eq(activeSupportNeedsCounts.userId, users.discordId))
+    .leftJoin(activeInfractionCounts, eq(activeInfractionCounts.userId, users.discordId))
+    .leftJoin(lastCheckIns, eq(lastCheckIns.userId, users.discordId))
+    .leftJoin(openTicketCounts, eq(openTicketCounts.userId, users.discordId))
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(orderByClause)
     .limit(limit)
@@ -871,99 +919,7 @@ export async function searchUsers(params: UserSearchParams) {
  * Get total user count for pagination
  */
 export async function getUserCount(params: Omit<UserSearchParams, 'sortBy' | 'sortOrder' | 'limit' | 'offset'>) {
-  const {
-    query,
-    assignmentStatus,
-    relationToIslam,
-    inGuild,
-    verified,
-    voiceVerified,
-    roleId,
-    supervisorId,
-    hasShahada,
-    hasSupport,
-  } = params;
-
-  const conditions = [];
-
-  if (query) {
-    conditions.push(
-      or(
-        ilike(users.displayName, `%${query}%`),
-        ilike(users.name, `%${query}%`)
-      )
-    );
-  }
-
-  if (relationToIslam) {
-    conditions.push(eq(users.relationToIslam, relationToIslam));
-  }
-
-  if (inGuild !== undefined) {
-    conditions.push(eq(users.inGuild, inGuild));
-  }
-
-  if (verified !== undefined) {
-    conditions.push(eq(users.isVerified, verified));
-  }
-
-  if (voiceVerified !== undefined) {
-    conditions.push(eq(users.isVoiceVerified, voiceVerified));
-  }
-
-  if (roleId) {
-    conditions.push(
-      sql`EXISTS (
-        SELECT 1 FROM ${userRoles} 
-        WHERE ${userRoles.userId} = ${users.discordId} 
-        AND ${userRoles.roleId} = ${roleId}
-      )`
-    );
-  }
-
-  if (assignmentStatus) {
-    conditions.push(
-      sql`EXISTS (
-        SELECT 1 FROM ${assignmentStatuses}
-        WHERE ${assignmentStatuses.userId} = ${users.discordId}
-        AND ${assignmentStatuses.active} = true
-        AND ${assignmentStatuses.status} = ${assignmentStatus}
-      )`
-    );
-  }
-
-  // Filter by supervisor (for "Assigned to Me" filter)
-  if (supervisorId) {
-    conditions.push(
-      sql`EXISTS (
-        SELECT 1 FROM ${userSupervisors}
-        WHERE ${userSupervisors.userId} = ${users.discordId}
-        AND ${userSupervisors.supervisorId} = ${supervisorId}
-        AND ${userSupervisors.active} = true
-      )`
-    );
-  }
-
-  // Filter to users who have at least one shahada recorded
-  if (hasShahada) {
-    conditions.push(
-      sql`EXISTS (
-        SELECT 1 FROM ${shahadas}
-        WHERE ${shahadas.userId} = ${users.discordId}
-      )`
-    );
-  }
-
-  // Filter to users who have active support (active supervisors)
-  if (hasSupport) {
-    conditions.push(
-      sql`EXISTS (
-        SELECT 1 FROM ${userSupervisors}
-        WHERE ${userSupervisors.userId} = ${users.discordId}
-        AND ${userSupervisors.active} = true
-      )`
-    );
-  }
+  const conditions = buildUserFilterConditions(params);
 
   const result = await db
     .select({ count: sql<number>`count(*)::int` })
@@ -1020,16 +976,6 @@ export async function getUserSupervisors(userId: bigint) {
  * Get assignment status history for a user
  */
 export async function getUserAssignmentHistory(userId: bigint) {
-  const addedByUsers = db
-    .select()
-    .from(users)
-    .as('added_by_users');
-  
-  const resolvedByUsers = db
-    .select()
-    .from(users)
-    .as('resolved_by_users');
-
   return db
     .select({
       id: assignmentStatuses.id,
@@ -1644,6 +1590,112 @@ export async function addCheckIn(data: {
  * Get dashboard data for a staff member
  */
 export async function getMyDashboardData(staffDiscordId: bigint) {
+  const dashboardSupervisorUsers = alias(users, 'dashboard_supervisor_users');
+  const dashboardTicketAuthors = alias(users, 'dashboard_ticket_authors');
+
+  const currentAssignmentStatuses = db
+    .selectDistinctOn([assignmentStatuses.userId], {
+      userId: assignmentStatuses.userId,
+      currentAssignmentStatus: assignmentStatuses.status,
+    })
+    .from(assignmentStatuses)
+    .where(eq(assignmentStatuses.active, true))
+    .orderBy(assignmentStatuses.userId, desc(assignmentStatuses.createdAt))
+    .as('dashboard_current_assignment_statuses');
+
+  const userLastCheckIns = db
+    .select({
+      userId: revertCheckIns.userId,
+      lastCheckIn: sql<string | null>`MAX(${revertCheckIns.checkedInAt})::text`.as('lastCheckIn'),
+    })
+    .from(revertCheckIns)
+    .groupBy(revertCheckIns.userId)
+    .as('dashboard_user_last_check_ins');
+
+  const activeUserTags = db
+    .select({
+      userId: revertTagAssignments.userId,
+      activeTags: sql<Array<{ id: number; name: string; color: string; emoji: string | null }> | null>`
+        COALESCE(
+          json_agg(
+            json_build_object(
+              'id', ${revertTags.id},
+              'name', ${revertTags.name},
+              'color', ${revertTags.color},
+              'emoji', ${revertTags.emoji}
+            )
+          ),
+          '[]'::json
+        )
+      `.as('activeTags'),
+    })
+    .from(revertTagAssignments)
+    .innerJoin(revertTags, eq(revertTagAssignments.tagId, revertTags.id))
+    .where(isNull(revertTagAssignments.removedAt))
+    .groupBy(revertTagAssignments.userId)
+    .as('dashboard_active_user_tags');
+
+  const latestActiveAssignees = db
+    .selectDistinctOn([userSupervisors.userId], {
+      userId: userSupervisors.userId,
+      assigneeId: sql<string | null>`${userSupervisors.supervisorId}::text`.as('assigneeId'),
+      assigneeName: sql<string | null>`COALESCE(${dashboardSupervisorUsers.displayName}, ${dashboardSupervisorUsers.name})`.as('assigneeName'),
+      assigneeAvatar: dashboardSupervisorUsers.displayAvatar,
+    })
+    .from(userSupervisors)
+    .innerJoin(
+      dashboardSupervisorUsers,
+      eq(userSupervisors.supervisorId, dashboardSupervisorUsers.discordId)
+    )
+    .where(eq(userSupervisors.active, true))
+    .orderBy(userSupervisors.userId, desc(userSupervisors.createdAt))
+    .as('dashboard_latest_active_assignees');
+
+  const activeAssigneeCounts = db
+    .select({
+      userId: userSupervisors.userId,
+      activeAssigneeCount: sql<number>`COUNT(*)::int`.as('activeAssigneeCount'),
+    })
+    .from(userSupervisors)
+    .where(eq(userSupervisors.active, true))
+    .groupBy(userSupervisors.userId)
+    .as('dashboard_active_assignee_counts');
+
+  const recentTicketActivity = db
+    .select({
+      channelId: messages.channelId,
+      latestRelevantActivityAt: sql<Date | null>`MAX(${messages.createdAt})`.as('latestRelevantActivityAt'),
+    })
+    .from(messages)
+    .where(
+      or(
+        eq(messages.authorId, staffDiscordId),
+        sql`array_position(${messages.memberMentions}, ${staffDiscordId}) IS NOT NULL`
+      )
+    )
+    .groupBy(messages.channelId)
+    .as('dashboard_recent_ticket_activity');
+
+  const staffTicketMessages = db
+    .select({
+      channelId: messages.channelId,
+      lastMessageAt: sql<Date | null>`MAX(${messages.createdAt})`.as('lastMessageAt'),
+    })
+    .from(messages)
+    .where(eq(messages.authorId, staffDiscordId))
+    .groupBy(messages.channelId)
+    .as('dashboard_staff_ticket_messages');
+
+  const shahadaWithMeDates = db
+    .select({
+      userId: shahadas.userId,
+      shahadaAt: sql<string | null>`MAX(${shahadas.createdAt})::text`.as('shahadaAt'),
+    })
+    .from(shahadas)
+    .where(eq(shahadas.supervisorId, staffDiscordId))
+    .groupBy(shahadas.userId)
+    .as('dashboard_shahada_with_me_dates');
+
   // 1. Get assigned reverts with their status, active tags, and last check-in
   const assignedReverts = await db
     .select({
@@ -1653,36 +1705,15 @@ export async function getMyDashboardData(staffDiscordId: bigint) {
       userAvatar: users.displayAvatar,
       inGuild: users.inGuild,
       assignedAt: userSupervisors.createdAt,
-      currentAssignmentStatus: sql<string | null>`(
-        SELECT ${assignmentStatuses.status}
-        FROM ${assignmentStatuses}
-        WHERE ${assignmentStatuses.userId} = ${users.discordId}
-        AND ${assignmentStatuses.active} = true
-        ORDER BY ${assignmentStatuses.createdAt} DESC
-        LIMIT 1
-      )`,
-      lastCheckIn: sql<string | null>`(
-        SELECT checked_in_at::text
-        FROM revert_check_in
-        WHERE user_id = ${users.discordId}
-        ORDER BY checked_in_at DESC
-        LIMIT 1
-      )`,
-      activeTags: sql<Array<{ id: number; name: string; color: string; emoji: string | null }> | null>`(
-        SELECT COALESCE(json_agg(json_build_object(
-          'id', rt.id,
-          'name', rt.name,
-          'color', rt.color,
-          'emoji', rt.emoji
-        )), '[]'::json)
-        FROM revert_tag_assignment rta
-        INNER JOIN revert_tag rt ON rta.tag_id = rt.id
-        WHERE rta.user_id = ${users.discordId}
-        AND rta.removed_at IS NULL
-      )`,
+      currentAssignmentStatus: currentAssignmentStatuses.currentAssignmentStatus,
+      lastCheckIn: userLastCheckIns.lastCheckIn,
+      activeTags: activeUserTags.activeTags,
     })
     .from(userSupervisors)
     .innerJoin(users, eq(userSupervisors.userId, users.discordId))
+    .leftJoin(currentAssignmentStatuses, eq(currentAssignmentStatuses.userId, users.discordId))
+    .leftJoin(userLastCheckIns, eq(userLastCheckIns.userId, users.discordId))
+    .leftJoin(activeUserTags, eq(activeUserTags.userId, users.discordId))
     .where(and(
       eq(userSupervisors.supervisorId, staffDiscordId),
       eq(userSupervisors.active, true)
@@ -1695,7 +1726,13 @@ export async function getMyDashboardData(staffDiscordId: bigint) {
     .from(shahadas)
     .where(eq(shahadas.supervisorId, staffDiscordId));
 
-  // 3. Get tickets where staff has sent a message (staff's recent tickets)
+  const relevantOpenTicketCount = await db
+    .select({ count: sql<number>`COUNT(*)::int` })
+    .from(tickets)
+    .innerJoin(recentTicketActivity, eq(recentTicketActivity.channelId, tickets.channelId))
+    .where(eq(tickets.status, 'OPEN'));
+
+  // 3. Get recent tickets where staff replied or was mentioned
   const staffTickets = await db
     .select({
       ticketId: tickets.id,
@@ -1703,30 +1740,25 @@ export async function getMyDashboardData(staffDiscordId: bigint) {
       ticketStatus: tickets.status,
       ticketCreatedAt: tickets.createdAt,
       authorId: tickets.authorId,
-      authorName: sql<string | null>`(
-        SELECT COALESCE(display_name, name) FROM "User" WHERE discord_id = ${tickets.authorId}
-      )`,
-      authorAvatar: sql<string | null>`(
-        SELECT display_avatar FROM "User" WHERE discord_id = ${tickets.authorId}
-      )`,
-      lastMessageAt: sql<string | null>`(
-        SELECT MAX(created_at)::text FROM "Message"
-        WHERE channel_id = ${tickets.channelId}
-        AND author_id = ${staffDiscordId}
-      )`,
+      authorName: sql<string | null>`COALESCE(${dashboardTicketAuthors.displayName}, ${dashboardTicketAuthors.name})`,
+      authorAvatar: dashboardTicketAuthors.displayAvatar,
+      latestRelevantActivityAt: recentTicketActivity.latestRelevantActivityAt,
+      lastMessageAt: staffTicketMessages.lastMessageAt,
     })
     .from(tickets)
+    .innerJoin(recentTicketActivity, eq(recentTicketActivity.channelId, tickets.channelId))
+    .leftJoin(staffTicketMessages, eq(staffTicketMessages.channelId, tickets.channelId))
+    .leftJoin(dashboardTicketAuthors, eq(tickets.authorId, dashboardTicketAuthors.discordId))
     .where(
-      and(
+      or(
         eq(tickets.status, 'OPEN'),
-        sql`EXISTS (
-          SELECT 1 FROM "Message"
-          WHERE "Message".channel_id = ${tickets.channelId}
-          AND "Message".author_id = ${staffDiscordId}
-        )`
+        eq(tickets.status, 'CLOSED')
       )
     )
-    .orderBy(desc(tickets.createdAt))
+    .orderBy(
+      desc(recentTicketActivity.latestRelevantActivityAt),
+      desc(tickets.createdAt)
+    )
     .limit(10);
 
   // 4. Shahada-with-me list (latest shahada per user)
@@ -1737,63 +1769,18 @@ export async function getMyDashboardData(staffDiscordId: bigint) {
       userDisplayName: users.displayName,
       userAvatar: users.displayAvatar,
       inGuild: users.inGuild,
-      shahadaAt: sql<string | null>`(
-        SELECT MAX(s.created_at)::text
-        FROM "Shahada" s
-        WHERE s.user_id = ${users.discordId}
-        AND s.supervisor_id = ${staffDiscordId}
-      )`,
-      activeTags: sql<Array<{ id: number; name: string; color: string; emoji: string | null }> | null>`(
-        SELECT COALESCE(json_agg(json_build_object(
-          'id', rt.id,
-          'name', rt.name,
-          'color', rt.color,
-          'emoji', rt.emoji
-        )), '[]'::json)
-        FROM revert_tag_assignment rta
-        INNER JOIN revert_tag rt ON rta.tag_id = rt.id
-        WHERE rta.user_id = ${users.discordId}
-        AND rta.removed_at IS NULL
-      )`,
-      assigneeId: sql<string | null>`(
-        SELECT us.supervisor_id::text
-        FROM "UserSupervisor" us
-        WHERE us.user_id = ${users.discordId}
-        AND us.active = true
-        ORDER BY us.created_at DESC
-        LIMIT 1
-      )`,
-      assigneeName: sql<string | null>`(
-        SELECT COALESCE(su.display_name, su.name)
-        FROM "UserSupervisor" us
-        INNER JOIN "User" su ON us.supervisor_id = su.discord_id
-        WHERE us.user_id = ${users.discordId}
-        AND us.active = true
-        ORDER BY us.created_at DESC
-        LIMIT 1
-      )`,
-      assigneeAvatar: sql<string | null>`(
-        SELECT su.display_avatar
-        FROM "UserSupervisor" us
-        INNER JOIN "User" su ON us.supervisor_id = su.discord_id
-        WHERE us.user_id = ${users.discordId}
-        AND us.active = true
-        ORDER BY us.created_at DESC
-        LIMIT 1
-      )`,
-      activeAssigneeCount: sql<number>`(
-        SELECT COUNT(*)::int
-        FROM "UserSupervisor" us
-        WHERE us.user_id = ${users.discordId}
-        AND us.active = true
-      )`,
+      shahadaAt: shahadaWithMeDates.shahadaAt,
+      activeTags: activeUserTags.activeTags,
+      assigneeId: latestActiveAssignees.assigneeId,
+      assigneeName: latestActiveAssignees.assigneeName,
+      assigneeAvatar: latestActiveAssignees.assigneeAvatar,
+      activeAssigneeCount: sql<number>`COALESCE(${activeAssigneeCounts.activeAssigneeCount}, 0)`,
     })
     .from(users)
-    .where(sql`EXISTS (
-      SELECT 1 FROM "Shahada" s
-      WHERE s.user_id = ${users.discordId}
-      AND s.supervisor_id = ${staffDiscordId}
-    )`)
+    .innerJoin(shahadaWithMeDates, eq(shahadaWithMeDates.userId, users.discordId))
+    .leftJoin(activeUserTags, eq(activeUserTags.userId, users.discordId))
+    .leftJoin(latestActiveAssignees, eq(latestActiveAssignees.userId, users.discordId))
+    .leftJoin(activeAssigneeCounts, eq(activeAssigneeCounts.userId, users.discordId))
     .orderBy(asc(users.displayName));
 
   // Compute stats
@@ -1805,7 +1792,7 @@ export async function getMyDashboardData(staffDiscordId: bigint) {
     if (!r.lastCheckIn) return true; // Never checked in
     return new Date(r.lastCheckIn) < fourteenDaysAgo;
   }).length;
-  const openTickets = staffTickets.length;
+  const openTickets = relevantOpenTicketCount[0]?.count || 0;
   const shahadaCount = shahadaResult[0]?.count || 0;
 
   return {
@@ -1837,7 +1824,7 @@ export async function getMyDashboardData(staffDiscordId: bigint) {
         name: t.authorName,
         avatar: t.authorAvatar,
       },
-      lastStaffMessageAt: t.lastMessageAt,
+      lastStaffMessageAt: toIsoString(t.lastMessageAt),
     })),
     shahadaWithMe: shahadaWithMe.map(r => ({
       id: r.userId.toString(),

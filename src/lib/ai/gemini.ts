@@ -168,7 +168,7 @@ function generatePrompt(context: TicketContext): string {
     .join('\n\n');
 
   // Base instruction for all ticket types
-  let baseInstruction = `You are summarizing a support ticket from a gender-segregated Islamic Discord server. Provide a clear, concise summary (2-4 sentences) focusing on the key issue, actions taken, and outcome.`;
+  const baseInstruction = `You are summarizing a support ticket from a gender-segregated Islamic Discord server. Provide a clear, concise summary (2-4 sentences) focusing on the key issue, actions taken, and outcome.`;
 
   // Customize prompt based on ticket type
   let specificGuidance = '';

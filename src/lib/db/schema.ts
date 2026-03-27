@@ -219,7 +219,7 @@ export const messages = pgTable("Message", {
   messageId: bigint("message_id", { mode: "bigint" }).primaryKey(),
   categoryId: bigint("category_id", { mode: "bigint" }),
   content: text(),
-  embeds: jsonb("embeds").array().$type<any[]>(),
+  embeds: jsonb("embeds").array().$type<unknown[]>(),
   attachments: text("attachments").array(),
   memberMentions: bigint("member_mentions", { mode: "bigint" }).array(),
   channelMentions: bigint("channel_mentions", { mode: "bigint" }).array(),

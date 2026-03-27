@@ -9,7 +9,7 @@ export const panelsRoutes = new Elysia({ prefix: '/panels' })
       const panels = await getAllPanels()
 
       // Set cache headers
-      set.headers['Cache-Control'] = 'public, s-maxage=300, stale-while-revalidate=600'
+      set.headers['Cache-Control'] = 'private, s-maxage=300, stale-while-revalidate=600'
 
       return { panels }
     } catch (err) {

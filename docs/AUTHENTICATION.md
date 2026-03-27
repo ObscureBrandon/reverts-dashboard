@@ -4,7 +4,7 @@
 
 ## Overview
 
-The dashboard requires authentication via Discord OAuth. Only users with a **moderator role** can access the dashboard.
+The dashboard requires authentication via Discord OAuth. Any Discord user may sign in, but access inside the app is gated by route and API policy.
 
 ```
 User visits → Middleware → No session?
@@ -13,12 +13,11 @@ User visits → Middleware → No session?
                               ↓
                          Discord OAuth
                               ↓
-                         Role verification
-                         (must have mod role)
-                              ↓
                          Session created
                               ↓
-                         Dashboard access
+                        Route / API access check
+                          ↓
+                    Mods: admin surfaces | Non-mods: My Tickets + owned ticket detail
 ```
 
 ---
@@ -51,6 +50,9 @@ NEXT_PUBLIC_BETTER_AUTH_URL="http://localhost:3000"
 
 # Discord Guild (for role lookups)
 DISCORD_GUILD_ID="your_discord_server_id"
+
+# Moderator role used for admin surfaces
+MOD_ROLE_ID="your_moderator_role_id"
 ```
 
 ### 3. Run Database Migration
@@ -79,36 +81,39 @@ Visit `http://localhost:3000` — you'll be redirected to the login page.
 
 ## How It Works
 
-### Role Verification Flow
+### Authentication Flow
 
 1. User clicks "Sign in with Discord"
 2. Discord OAuth redirects to `/api/auth/callback/discord`
-3. **Before** creating the user account, a hook runs:
-   - Queries `UserRoles` and `Role` tables
-   - Checks if user has a role containing "mod" or "moderator"
-4. If no mod role → Account creation rejected with error
-5. If mod role exists → User created, session started
+3. better-auth creates or resumes a local session for that Discord account
+4. Downstream route and API guards determine what the user can access
+
+There is no pre-account moderator gate. The moderator role is checked only when a request targets moderator-only surfaces.
+
+### Access Model
+
+The current product contract is:
+
+1. Any Discord user may authenticate.
+2. Moderator-only admin surfaces are controlled by `MOD_ROLE_ID`.
+3. Non-mod users may access only `/my-tickets` and ticket detail pages for tickets they own.
+4. Ticket queue pages, users pages, messages search, summaries, and other admin APIs remain moderator-only.
+
+Moderator role checks are resolved against the `UserRoles` table using the exact role ID from `MOD_ROLE_ID`.
 
 ### Route Protection
 
 | Layer | File | Protects |
 |-------|------|----------|
-| Middleware | `middleware.ts` | All routes except `/login`, `/api/auth/*` |
-| API Routes | Each route file | Uses `requireAuth()` helper |
+| Proxy | `src/proxy.ts` | Session gating plus page-level access rules |
+| Elysia auth macro | `src/lib/elysia/auth.ts` | `auth` for any session, `modAuth` for moderator-only endpoints |
+| Route-specific ownership checks | ticket and message routes | Owner-or-mod access for ticket detail and transcript fetch |
 
 ```typescript
-// lib/auth-helpers.ts
-export async function requireAuth() {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
-  
-  if (!session) {
-    throw new Error('Unauthorized');
-  }
-  
-  return session;
-}
+// src/proxy.ts
+// - Redirects unauthenticated users to /login
+// - Keeps /tickets, /users, and /messages moderator-only by default
+// - Allows /tickets/:id when the current user is a moderator or the ticket owner
 ```
 
 ---
@@ -124,13 +129,14 @@ Auth tables (created by Drizzle migration):
 | `auth_account` | OAuth account connections |
 | `auth_verification` | Verification tokens |
 
-Existing bot tables used for role verification:
+Existing bot tables used for role and ownership checks:
 
 | Table | Purpose |
 |-------|---------|
 | `User` | Discord user data (discord_id) |
 | `Role` | Discord roles (role_id, name) |
 | `UserRoles` | User-role junction (user_id, role_id) |
+| `Ticket` | Ticket ownership for owner-visible detail access |
 
 ---
 
@@ -154,15 +160,8 @@ export const auth = betterAuth({
       clientSecret: process.env.DISCORD_CLIENT_SECRET!,
     },
   },
-  databaseHooks: {
-    user: {
-      create: {
-        before: async (user) => {
-          // Role verification logic here
-        },
-      },
-    },
-  },
+  // Any Discord user may authenticate.
+  // Access control is enforced later by the proxy and route guards.
 });
 ```
 
@@ -180,27 +179,11 @@ export const authClient = createAuthClient({
 const { data: session } = authClient.useSession();
 ```
 
-### Middleware
+### Proxy
 
 ```typescript
-// middleware.ts
-import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server';
-
-export function middleware(request: NextRequest) {
-  // Check for session cookie
-  const sessionCookie = request.cookies.get('better-auth.session_token');
-  
-  if (!sessionCookie && !isPublicRoute(request.pathname)) {
-    return NextResponse.redirect(new URL('/login', request.url));
-  }
-  
-  return NextResponse.next();
-}
-
-export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
-};
+// src/proxy.ts
+// Session-required app shell with owner-or-mod access for /tickets/:id
 ```
 
 ---
@@ -223,17 +206,26 @@ https://your-production-domain.com/api/auth/callback/discord
 
 ## Troubleshooting
 
-### "Access denied: You must have a moderator role"
+### Signed-in user still cannot access admin pages
 
-1. Check your Discord account has a role with "mod" or "moderator" in the name
+1. Check `MOD_ROLE_ID` is configured correctly.
 2. Verify the role exists in the `Role` table:
    ```sql
-   SELECT * FROM "Role" WHERE name ILIKE '%mod%';
+  SELECT * FROM "Role" WHERE role_id = YOUR_MOD_ROLE_ID;
    ```
 3. Verify user-role connection:
    ```sql
-   SELECT * FROM "UserRoles" WHERE user_id = YOUR_DISCORD_ID;
+  SELECT * FROM "UserRoles" WHERE user_id = YOUR_DISCORD_ID AND role_id = YOUR_MOD_ROLE_ID;
    ```
+
+### Non-mod user cannot open a ticket detail page
+
+1. Confirm the ticket is owned by that user:
+  ```sql
+  SELECT id, author_id FROM "Ticket" WHERE id = YOUR_TICKET_ID;
+  ```
+2. Confirm the signed-in session resolves to the same Discord account in `auth_account`.
+3. If ownership does not match, the user will be redirected to `/my-tickets`.
 
 ### 401 Unauthorized errors
 

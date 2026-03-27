@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Check, Copy } from 'lucide-react';
 import { roleColorToHex } from '../utils';
-import { PopoverWrapper } from './PopoverWrapper';
+import { PopoverWrapper, type Position } from './PopoverWrapper';
 
 export type RolePopoverData = {
   id: string;

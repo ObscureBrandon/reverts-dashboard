@@ -1,5 +1,6 @@
 import { getMentionsForMessages, getMessageCount, getStaffRoles, searchMessages } from '@/lib/db/queries';
 import { authMacro } from '@/lib/elysia/auth';
+import { getUserRole, isTicketOwner } from '@/lib/user-role';
 import { Elysia } from 'elysia';
 
 // In-memory cache for staff role IDs (refresh every 5 minutes)
@@ -26,7 +27,7 @@ async function getStaffRoleIds(): Promise<bigint[]> {
 
 export const messagesRoutes = new Elysia({ prefix: '/messages' })
   .use(authMacro)
-  .get('/', async ({ query }) => {
+  .get('/', async ({ query, set, user }) => {
     const q = query.q || undefined
     const staffOnly = query.staffOnly === 'true'
     const ticketId = query.ticketId
@@ -37,8 +38,40 @@ export const messagesRoutes = new Elysia({ prefix: '/messages' })
     // In transcript mode, use larger page size and don't require search query
     const isTranscriptMode = mode === 'transcript'
     const limit = parseInt(query.limit || (isTranscriptMode ? '200' : '50'))
+    const parsedTicketId = ticketId ? Number.parseInt(ticketId, 10) : undefined
+
+    if (ticketId && parsedTicketId === undefined) {
+      set.status = 400
+      return { error: 'Invalid ticket ID' }
+    }
+
+    if (parsedTicketId !== undefined && Number.isNaN(parsedTicketId)) {
+      set.status = 400
+      return { error: 'Invalid ticket ID' }
+    }
 
     try {
+      const userRole = await getUserRole(user.id)
+
+      if (!userRole) {
+        set.status = 403
+        return { error: 'Access denied' }
+      }
+
+      if (userRole.role !== 'mod') {
+        if (!isTranscriptMode || parsedTicketId === undefined) {
+          set.status = 403
+          return { error: 'Access denied' }
+        }
+
+        const ownsTicket = await isTicketOwner(userRole.discordId, parsedTicketId)
+
+        if (!ownsTicket) {
+          set.status = 403
+          return { error: 'Access denied' }
+        }
+      }
+
       const offset = (page - 1) * limit
 
       // Get staff role IDs for both filtering and marking staff members
@@ -47,7 +80,7 @@ export const messagesRoutes = new Elysia({ prefix: '/messages' })
       const results = await searchMessages({
         query: isTranscriptMode ? undefined : q, // Ignore query in transcript mode
         staffOnly,
-        ticketId: ticketId ? parseInt(ticketId) : undefined,
+        ticketId: parsedTicketId,
         channelId: channelId ? BigInt(channelId) : undefined,
         limit,
         offset,
@@ -61,7 +94,7 @@ export const messagesRoutes = new Elysia({ prefix: '/messages' })
       const total = await getMessageCount({
         query: isTranscriptMode ? undefined : q,
         staffOnly,
-        ticketId: ticketId ? parseInt(ticketId) : undefined,
+        ticketId: parsedTicketId,
         channelId: channelId ? BigInt(channelId) : undefined,
         staffRoleIds,
       })
@@ -106,4 +139,4 @@ export const messagesRoutes = new Elysia({ prefix: '/messages' })
       console.error('Message search error:', error)
       throw new Error('Failed to search messages')
     }
-  }, { modAuth: true })
+  }, { auth: true })

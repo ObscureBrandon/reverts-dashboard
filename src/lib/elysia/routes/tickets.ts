@@ -3,26 +3,48 @@ import { db } from '@/lib/db'
 import { getTicketById, getTicketCount, getTickets } from '@/lib/db/queries'
 import { tickets } from '@/lib/db/schema'
 import { authMacro } from '@/lib/elysia/auth'
+import { getUserRole } from '@/lib/user-role'
 import { eq } from 'drizzle-orm'
 import { Elysia } from 'elysia'
 
 export const ticketsRoutes = new Elysia({ prefix: '/tickets' })
   .use(authMacro)
   // GET /tickets - List tickets with filters
-  .get('/', async ({ query, set }) => {
+  .get('/', async ({ query, set, user }) => {
+    const userRole = await getUserRole(user.id)
+
+    if (!userRole) {
+      set.status = 403
+      return { error: 'Access denied' }
+    }
+
     const ticketId = query.id
 
     // If requesting a specific ticket by ID
     if (ticketId) {
       try {
-        const ticket = await getTicketById(parseInt(ticketId))
+        const parsedTicketId = Number.parseInt(ticketId, 10)
+
+        if (Number.isNaN(parsedTicketId)) {
+          set.status = 400
+          return { error: 'Invalid ticket ID' }
+        }
+
+        const ticket = await getTicketById(parsedTicketId)
 
         if (!ticket) {
           set.status = 404
           return { error: 'Ticket not found' }
         }
 
-        set.headers['Cache-Control'] = 'public, s-maxage=60, stale-while-revalidate=300'
+        const ownsTicket = ticket.ticket.authorId.toString() === userRole.discordId
+
+        if (userRole.role !== 'mod' && !ownsTicket) {
+          set.status = 403
+          return { error: 'Access denied' }
+        }
+
+        set.headers['Cache-Control'] = 'private, s-maxage=60, stale-while-revalidate=300'
 
         return {
           ticket: {
@@ -56,6 +78,11 @@ export const ticketsRoutes = new Elysia({ prefix: '/tickets' })
         console.error('Ticket fetch error:', error)
         throw new Error('Failed to fetch ticket')
       }
+    }
+
+    if (userRole.role !== 'mod') {
+      set.status = 403
+      return { error: 'Access denied' }
     }
 
     // Otherwise, return list of tickets
@@ -106,7 +133,7 @@ export const ticketsRoutes = new Elysia({ prefix: '/tickets' })
         search,
       })
 
-      set.headers['Cache-Control'] = 'public, s-maxage=30, stale-while-revalidate=120'
+      set.headers['Cache-Control'] = 'private, s-maxage=30, stale-while-revalidate=120'
 
       return {
         tickets: results.map(r => ({
@@ -143,7 +170,7 @@ export const ticketsRoutes = new Elysia({ prefix: '/tickets' })
       console.error('Tickets list error:', error)
       throw new Error('Failed to fetch tickets')
     }
-  }, { modAuth: true })
+  }, { auth: true })
 
   // POST /tickets/:id/summary - Generate AI summary
   .post('/:id/summary', async ({ params, set }) => {

@@ -331,10 +331,6 @@ export default function UsersPage() {
   const isFetching = isStaffView ? staffQuery.isFetching : usersQuery.isFetching;
   const error = isStaffView ? staffQuery.error : usersQuery.error;
   
-  // Get the data array based on view
-  const tableData = isStaffView 
-    ? (staffQuery.data?.staff || []) 
-    : (usersQuery.data?.users || []);
   const hasInitiallyLoaded = Boolean(usersQuery.data || staffQuery.data);
 
   // Prefetch adjacent pages (only for users view)
@@ -357,8 +353,6 @@ export default function UsersPage() {
   
   // For view switches: show table skeleton when loading new view data
   const isViewSwitching = hasInitiallyLoaded && isLoading && !data;
-
-  const resultCount = data?.pagination?.total ?? tableData.length;
 
   const columnOptions = useMemo(() => {
     if (isStaffView) {

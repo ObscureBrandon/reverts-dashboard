@@ -13,6 +13,10 @@ export type CheckIn = {
   checkedInAt: string
 }
 
+type CheckInsResponse = {
+  checkIns: CheckIn[]
+}
+
 /**
  * Fetch check-ins for a specific user
  */
@@ -26,7 +30,7 @@ export function useCheckIns(userId: string | null) {
         throw new Error('Failed to fetch check-ins')
       }
 
-      return (data as any).checkIns as CheckIn[]
+      return (data as CheckInsResponse).checkIns
     },
     enabled: !!userId,
     staleTime: 1 * 60 * 1000,

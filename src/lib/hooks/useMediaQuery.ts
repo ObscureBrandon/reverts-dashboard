@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useSyncExternalStore } from 'react'
 
 /**
  * Hook that returns true if the given media query matches
@@ -9,27 +9,23 @@ import { useEffect, useState } from 'react'
  * @returns boolean indicating if the query matches
  */
 export function useMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(false)
-
-  useEffect(() => {
+  const subscribe = (callback: () => void) => {
     const mediaQuery = window.matchMedia(query)
-    
-    // Set initial value
-    setMatches(mediaQuery.matches)
 
-    // Create event handler
-    const handler = (event: MediaQueryListEvent) => {
-      setMatches(event.matches)
-    }
+    mediaQuery.addEventListener('change', callback)
 
-    // Add listener
-    mediaQuery.addEventListener('change', handler)
-
-    // Cleanup
     return () => {
-      mediaQuery.removeEventListener('change', handler)
+      mediaQuery.removeEventListener('change', callback)
     }
-  }, [query])
+  }
 
-  return matches
+  const getSnapshot = () => {
+    if (typeof window === 'undefined') {
+      return false
+    }
+
+    return window.matchMedia(query).matches
+  }
+
+  return useSyncExternalStore(subscribe, getSnapshot, () => false)
 }

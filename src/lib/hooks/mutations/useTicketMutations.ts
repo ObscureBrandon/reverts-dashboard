@@ -2,6 +2,7 @@
 
 import { api } from '@/lib/eden'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { getErrorMessage } from '@/lib/utils'
 
 // Types
 export type TicketSummaryResponse = {
@@ -38,7 +39,7 @@ export function useGenerateTicketSummary(ticketId: string | number) {
       const { data, error } = await api.tickets({ id: String(ticketId) }).summary.post()
 
       if (error) {
-        throw new Error((error as any).error || 'Failed to generate summary')
+        throw new Error(getErrorMessage(error, 'Failed to generate summary'))
       }
 
       return data as TicketSummaryResponse

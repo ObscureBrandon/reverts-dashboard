@@ -16,6 +16,10 @@ export type RevertTag = {
   activeCount?: number
 }
 
+type RevertTagsResponse = {
+  tags: Array<Omit<RevertTag, 'createdAt'> & { createdAt: Date }>
+}
+
 /**
  * Fetch all non-archived tags (for tag picker)
  */
@@ -29,7 +33,10 @@ export function useRevertTags() {
         throw new Error('Failed to fetch tags')
       }
 
-      return (data as any).tags as RevertTag[]
+      return (data as RevertTagsResponse).tags.map((tag) => ({
+        ...tag,
+        createdAt: tag.createdAt.toISOString(),
+      }))
     },
     staleTime: 5 * 60 * 1000,
   })
@@ -48,7 +55,10 @@ export function useAllRevertTags() {
         throw new Error('Failed to fetch tags')
       }
 
-      return (data as any).tags as RevertTag[]
+      return (data as RevertTagsResponse).tags.map((tag) => ({
+        ...tag,
+        createdAt: tag.createdAt.toISOString(),
+      }))
     },
     staleTime: 2 * 60 * 1000,
   })

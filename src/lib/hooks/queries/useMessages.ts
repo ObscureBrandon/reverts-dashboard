@@ -93,7 +93,7 @@ export function useMessages(params: MessagesParams = {}, options?: { enabled?: b
  */
 export function usePrefetchMessages(params: MessagesParams = {}) {
   const queryClient = useQueryClient()
-  const { q, page = 1, limit = 50, staffOnly = false } = params
+  const { q, limit = 50, staffOnly = false } = params
 
   const prefetchPage = (targetPage: number) => {
     queryClient.prefetchQuery({

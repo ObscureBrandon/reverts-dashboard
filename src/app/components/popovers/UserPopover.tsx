@@ -53,12 +53,13 @@ type PopoverData = {
 type UserPopoverProps = {
   isOpen: boolean;
   onClose: () => void;
-  triggerPosition: Position | null;
+  triggerElement: HTMLElement | null;
+  triggerRect: Position | null;
   userData: UserPopoverData;
   popoverData: PopoverData;
 };
 
-export function UserPopover({ isOpen, onClose, triggerPosition, userData, popoverData }: UserPopoverProps) {
+export function UserPopover({ isOpen, onClose, triggerElement, triggerRect, userData, popoverData }: UserPopoverProps) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   
   const userRoles = popoverData.roles || [];
@@ -80,7 +81,8 @@ export function UserPopover({ isOpen, onClose, triggerPosition, userData, popove
     <PopoverWrapper
       isOpen={isOpen}
       onClose={onClose}
-      triggerPosition={triggerPosition}
+      triggerElement={triggerElement}
+      triggerRect={triggerRect}
       title="User"
       dependencies={[userRoles.length, recentTickets.length]}
     >

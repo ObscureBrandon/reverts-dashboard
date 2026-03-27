@@ -160,7 +160,7 @@ function buildTicketResult(row: {
     id: number
     sequence: number | null
     status: string | null
-    channelId: bigint
+    channelId: bigint | null
     createdAt: Date
   }
   author: {
@@ -183,7 +183,7 @@ function buildTicketResult(row: {
     sequence: row.ticket.sequence,
     status: row.ticket.status,
     createdAt: row.ticket.createdAt.toISOString(),
-    channelId: row.channel?.channelId.toString() ?? row.ticket.channelId.toString(),
+    channelId: row.channel?.channelId.toString() ?? row.ticket.channelId?.toString() ?? null,
     channelName: row.channel?.name ?? null,
     panelTitle: row.panel?.title ?? null,
     author: row.author
@@ -326,7 +326,7 @@ export const searchRoutes = new Elysia({ prefix: '/search' })
         sequence: result.ticket.sequence,
         status: result.ticket.status,
         createdAt: result.ticket.createdAt.toISOString(),
-        channelId: result.channel?.channelId.toString() ?? result.ticket.channelId.toString(),
+        channelId: result.channel?.channelId.toString() ?? result.ticket.channelId?.toString() ?? null,
         channelName: result.channel?.name ?? null,
         panelTitle: result.panel?.title ?? null,
         author: result.author
@@ -368,7 +368,7 @@ export const searchRoutes = new Elysia({ prefix: '/search' })
           : null,
         ticketId: result.ticket.id,
         ticketSequence: result.ticket.sequence,
-        channelId: result.channel?.channelId.toString() ?? result.ticket.channelId.toString(),
+        channelId: result.channel?.channelId.toString() ?? result.ticket.channelId?.toString() ?? null,
         channelName: result.channel?.name ?? null,
         matchReason: authorMatch ? 'message_author' : 'message_content',
       }

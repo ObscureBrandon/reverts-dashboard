@@ -1,10 +1,22 @@
 import { auth } from "@/lib/auth";
-import { getUserRole } from "@/lib/user-role";
+import { getUserRole, isTicketOwner } from "@/lib/user-role";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
 // Routes only accessible to mods
 const MOD_ONLY_ROUTES = ["/tickets", "/users", "/messages"];
+
+function getTicketDetailId(pathname: string) {
+  const segments = pathname.split('/').filter(Boolean)
+
+  if (segments.length !== 2 || segments[0] !== 'tickets') {
+    return null
+  }
+
+  const ticketId = Number.parseInt(segments[1], 10)
+
+  return Number.isInteger(ticketId) && ticketId > 0 ? ticketId : null
+}
 
 export async function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
@@ -30,6 +42,26 @@ export async function proxy(request: NextRequest) {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("callbackUrl", pathname);
     return NextResponse.redirect(loginUrl);
+  }
+
+  const ticketDetailId = getTicketDetailId(pathname)
+
+  if (ticketDetailId !== null) {
+    const result = await getUserRole(session.user.id)
+
+    if (!result) {
+      return NextResponse.redirect(new URL('/my-tickets', request.url))
+    }
+
+    if (result.role !== 'mod') {
+      const ownsTicket = await isTicketOwner(result.discordId, ticketDetailId)
+
+      if (!ownsTicket) {
+        return NextResponse.redirect(new URL('/my-tickets', request.url))
+      }
+    }
+
+    return NextResponse.next()
   }
 
   // Redirect non-mods away from mod-only routes

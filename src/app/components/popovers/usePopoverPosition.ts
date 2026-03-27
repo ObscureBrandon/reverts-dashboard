@@ -15,7 +15,7 @@ function getPopoverPosition(anchorRect: Position, popoverRect: DOMRect) {
   const anchorRight = anchorRect.right ?? anchorRect.x + (anchorRect.width ?? 0);
   const anchorBottom = anchorRect.bottom ?? anchorRect.y + (anchorRect.height ?? 0);
 
-  let x = anchorRect.left;
+  let x = anchorRect.x;
   let y = anchorBottom + gap;
 
   const xRight = anchorRight + gap;
@@ -65,7 +65,6 @@ export function usePopoverPosition(
 
   useLayoutEffect(() => {
     if (!isOpen || (!triggerElement && !fallbackRect) || !popoverRef.current) {
-      setPosition(null);
       return;
     }
 

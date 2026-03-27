@@ -4,7 +4,7 @@ import { roleColorToHex } from '@/app/components/utils';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { Children, cloneElement, isValidElement, memo, useEffect, useRef, useState, type MouseEvent, type ReactElement, type ReactNode } from 'react';
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 export type MentionLookup = {
@@ -199,96 +199,98 @@ const MessageContentComponent = ({ content, mentions, onMentionClick, onUserMent
     onUserMentionHover,
   };
 
+  const components: Components = {
+    p: ({ children, className: markdownClassName, ...props }) => (
+      <p {...props} className={cn('whitespace-pre-wrap break-words', markdownClassName)}>
+        {renderNodeWithMentions(children, mentionContext)}
+      </p>
+    ),
+    h1: ({ children, className: markdownClassName, ...props }) => (
+      <h1 {...props} className={cn('text-base font-semibold whitespace-pre-wrap break-words', markdownClassName)}>
+        {renderNodeWithMentions(children, mentionContext)}
+      </h1>
+    ),
+    h2: ({ children, className: markdownClassName, ...props }) => (
+      <h2 {...props} className={cn('text-base font-semibold whitespace-pre-wrap break-words', markdownClassName)}>
+        {renderNodeWithMentions(children, mentionContext)}
+      </h2>
+    ),
+    h3: ({ children, className: markdownClassName, ...props }) => (
+      <h3 {...props} className={cn('text-sm font-semibold whitespace-pre-wrap break-words', markdownClassName)}>
+        {renderNodeWithMentions(children, mentionContext)}
+      </h3>
+    ),
+    ul: ({ children, className: markdownClassName, ...props }) => (
+      <ul {...props} className={cn('list-disc space-y-1 pl-5', markdownClassName)}>
+        {renderNodeWithMentions(children, mentionContext)}
+      </ul>
+    ),
+    ol: ({ children, className: markdownClassName, ...props }) => (
+      <ol {...props} className={cn('list-decimal space-y-1 pl-5', markdownClassName)}>
+        {renderNodeWithMentions(children, mentionContext)}
+      </ol>
+    ),
+    li: ({ children, className: markdownClassName, ...props }) => (
+      <li {...props} className={cn('whitespace-pre-wrap break-words', markdownClassName)}>
+        {renderNodeWithMentions(children, mentionContext)}
+      </li>
+    ),
+    blockquote: ({ children, className: markdownClassName, ...props }) => (
+      <blockquote {...props} className={cn('border-l-2 border-border pl-4 italic text-muted-foreground', markdownClassName)}>
+        {renderNodeWithMentions(children, mentionContext)}
+      </blockquote>
+    ),
+    a: ({ children, className: markdownClassName, href, ...props }) => {
+      const isExternal = typeof href === 'string' && /^(https?:)?\/\//.test(href);
+
+      return (
+        <a
+          {...props}
+          href={href}
+          target={isExternal ? '_blank' : undefined}
+          rel={isExternal ? 'noopener noreferrer' : undefined}
+          className={cn('underline decoration-border underline-offset-4 hover:text-brand-accent-text', markdownClassName)}
+        >
+          {renderNodeWithMentions(children, mentionContext, false)}
+        </a>
+      );
+    },
+    code: ({ children, className: markdownClassName, ...props }) => (
+      <code {...props} className={cn('rounded bg-muted px-1 py-0.5 font-mono text-[0.9em]', markdownClassName)}>
+        {children}
+      </code>
+    ),
+    pre: ({ children, className: markdownClassName, ...props }) => (
+      <pre {...props} className={cn('overflow-x-auto rounded-md bg-muted p-3 text-[0.9em]', markdownClassName)}>
+        {children}
+      </pre>
+    ),
+    hr: ({ className: markdownClassName, ...props }) => <hr {...props} className={cn('border-border', markdownClassName)} />,
+    table: ({ children, className: markdownClassName, ...props }) => (
+      <div className="overflow-x-auto">
+        <table {...props} className={cn('min-w-full border-collapse text-left text-sm', markdownClassName)}>
+          {renderNodeWithMentions(children, mentionContext)}
+        </table>
+      </div>
+    ),
+    th: ({ children, className: markdownClassName, ...props }) => (
+      <th {...props} className={cn('border-b border-border px-2 py-1 font-semibold', markdownClassName)}>
+        {renderNodeWithMentions(children, mentionContext)}
+      </th>
+    ),
+    td: ({ children, className: markdownClassName, ...props }) => (
+      <td {...props} className={cn('border-b border-border px-2 py-1 align-top whitespace-pre-wrap break-words', markdownClassName)}>
+        {renderNodeWithMentions(children, mentionContext)}
+      </td>
+    ),
+  };
+
   return (
     <div className={cn('min-w-0 space-y-3', className)}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         skipHtml
-        components={{
-          p: ({ children, className: markdownClassName, ...props }) => (
-            <p {...props} className={cn('whitespace-pre-wrap break-words', markdownClassName)}>
-              {renderNodeWithMentions(children, mentionContext)}
-            </p>
-          ),
-          h1: ({ children, className: markdownClassName, ...props }) => (
-            <h1 {...props} className={cn('text-base font-semibold whitespace-pre-wrap break-words', markdownClassName)}>
-              {renderNodeWithMentions(children, mentionContext)}
-            </h1>
-          ),
-          h2: ({ children, className: markdownClassName, ...props }) => (
-            <h2 {...props} className={cn('text-base font-semibold whitespace-pre-wrap break-words', markdownClassName)}>
-              {renderNodeWithMentions(children, mentionContext)}
-            </h2>
-          ),
-          h3: ({ children, className: markdownClassName, ...props }) => (
-            <h3 {...props} className={cn('text-sm font-semibold whitespace-pre-wrap break-words', markdownClassName)}>
-              {renderNodeWithMentions(children, mentionContext)}
-            </h3>
-          ),
-          ul: ({ children, className: markdownClassName, ...props }) => (
-            <ul {...props} className={cn('list-disc space-y-1 pl-5', markdownClassName)}>
-              {renderNodeWithMentions(children, mentionContext)}
-            </ul>
-          ),
-          ol: ({ children, className: markdownClassName, ...props }) => (
-            <ol {...props} className={cn('list-decimal space-y-1 pl-5', markdownClassName)}>
-              {renderNodeWithMentions(children, mentionContext)}
-            </ol>
-          ),
-          li: ({ children, className: markdownClassName, ...props }) => (
-            <li {...props} className={cn('whitespace-pre-wrap break-words', markdownClassName)}>
-              {renderNodeWithMentions(children, mentionContext)}
-            </li>
-          ),
-          blockquote: ({ children, className: markdownClassName, ...props }) => (
-            <blockquote {...props} className={cn('border-l-2 border-border pl-4 italic text-muted-foreground', markdownClassName)}>
-              {renderNodeWithMentions(children, mentionContext)}
-            </blockquote>
-          ),
-          a: ({ children, className: markdownClassName, href, ...props }) => {
-            const isExternal = typeof href === 'string' && /^(https?:)?\/\//.test(href);
-
-            return (
-              <a
-                {...props}
-                href={href}
-                target={isExternal ? '_blank' : undefined}
-                rel={isExternal ? 'noopener noreferrer' : undefined}
-                className={cn('underline decoration-border underline-offset-4 hover:text-brand-accent-text', markdownClassName)}
-              >
-                {renderNodeWithMentions(children, mentionContext, false)}
-              </a>
-            );
-          },
-          code: ({ children, className: markdownClassName, ...props }: any) => (
-            <code {...props} className={cn('rounded bg-muted px-1 py-0.5 font-mono text-[0.9em]', markdownClassName)}>
-              {children}
-            </code>
-          ),
-          pre: ({ children, className: markdownClassName, ...props }) => (
-            <pre {...props} className={cn('overflow-x-auto rounded-md bg-muted p-3 text-[0.9em]', markdownClassName)}>
-              {children}
-            </pre>
-          ),
-          hr: ({ className: markdownClassName, ...props }) => <hr {...props} className={cn('border-border', markdownClassName)} />,
-          table: ({ children, className: markdownClassName, ...props }) => (
-            <div className="overflow-x-auto">
-              <table {...props} className={cn('min-w-full border-collapse text-left text-sm', markdownClassName)}>
-                {renderNodeWithMentions(children, mentionContext)}
-              </table>
-            </div>
-          ),
-          th: ({ children, className: markdownClassName, ...props }) => (
-            <th {...props} className={cn('border-b border-border px-2 py-1 font-semibold', markdownClassName)}>
-              {renderNodeWithMentions(children, mentionContext)}
-            </th>
-          ),
-          td: ({ children, className: markdownClassName, ...props }) => (
-            <td {...props} className={cn('border-b border-border px-2 py-1 align-top whitespace-pre-wrap break-words', markdownClassName)}>
-              {renderNodeWithMentions(children, mentionContext)}
-            </td>
-          ),
-        }}
+        components={components}
       >
         {content}
       </ReactMarkdown>
@@ -308,7 +310,7 @@ export function DeferredMessageContent({
   rootMargin = '600px 0px',
 }: DeferredMessageContentProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const [shouldRenderMarkdown, setShouldRenderMarkdown] = useState(eager);
+  const [shouldRenderMarkdown, setShouldRenderMarkdown] = useState(() => eager || typeof IntersectionObserver === 'undefined');
 
   useEffect(() => {
     if (eager || shouldRenderMarkdown) {
@@ -318,7 +320,6 @@ export function DeferredMessageContent({
     const element = containerRef.current;
 
     if (!element || typeof IntersectionObserver === 'undefined') {
-      setShouldRenderMarkdown(true);
       return;
     }
 

@@ -1,8 +1,9 @@
 'use client'
 
 import { useMediaQuery } from '@/lib/hooks/useMediaQuery'
+import type { ReadonlyURLSearchParams } from 'next/navigation'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 
 // ============================================================================
 // Types
@@ -49,6 +50,28 @@ type UserPanelContextType = {
 
 const UserPanelContext = createContext<UserPanelContextType | null>(null)
 
+function getStackFromSearchParams(searchParams: ReadonlyURLSearchParams): PanelEntry[] {
+  const userParam = searchParams.get('user')
+  const staffParam = searchParams.get('staff')
+
+  if (staffParam && userParam) {
+    return [
+      { userId: staffParam, panelType: 'staff' },
+      { userId: userParam, panelType: 'user' },
+    ]
+  }
+
+  if (staffParam) {
+    return [{ userId: staffParam, panelType: 'staff' }]
+  }
+
+  if (userParam) {
+    return [{ userId: userParam, panelType: 'user' }]
+  }
+
+  return []
+}
+
 // ============================================================================
 // Provider
 // ============================================================================
@@ -60,49 +83,29 @@ export function UserPanelProvider({ children }: { children: React.ReactNode }) {
   const isMobile = useMediaQuery('(max-width: 767px)')
   
   // Stack-based state
-  const [stack, setStack] = useState<PanelEntry[]>([])
-  
-  // Track if we've initialized from URL (for shared links)
-  const hasInitializedRef = useRef(false)
-  // Track previous pathname to detect navigation
-  const prevPathnameRef = useRef(pathname)
+  const [stack, setStack] = useState<PanelEntry[]>(() => getStackFromSearchParams(searchParams))
+  const [stackPath, setStackPath] = useState(pathname)
+  const visibleStack = useMemo(() => {
+    if (isMobile && stackPath !== pathname) {
+      return []
+    }
+
+    return stack
+  }, [isMobile, pathname, stack, stackPath])
   
   // Derived state
-  const isOpen = stack.length > 0
-  const currentPanel = stack.length > 0 ? stack[stack.length - 1] : null
-  const parentPanel = stack.length > 1 ? stack[stack.length - 2] : null
-  const canGoBack = stack.length > 1
+  const isOpen = visibleStack.length > 0
+  const currentPanel = visibleStack.length > 0 ? visibleStack[visibleStack.length - 1] : null
+  const parentPanel = visibleStack.length > 1 ? visibleStack[visibleStack.length - 2] : null
+  const canGoBack = visibleStack.length > 1
   
   const panelState: PanelState = useMemo(() => ({
-    stack,
+    stack: visibleStack,
     isOpen,
-  }), [stack, isOpen])
-  
-  // Initialize from URL on first mount (for shared links)
-  useEffect(() => {
-    if (hasInitializedRef.current) return
-    hasInitializedRef.current = true
-    
-    const userParam = searchParams.get('user')
-    const staffParam = searchParams.get('staff')
-    
-    if (staffParam && userParam) {
-      // Both params = stacked state (staff → user)
-      setStack([
-        { userId: staffParam, panelType: 'staff' },
-        { userId: userParam, panelType: 'user' },
-      ])
-    } else if (staffParam) {
-      setStack([{ userId: staffParam, panelType: 'staff' }])
-    } else if (userParam) {
-      setStack([{ userId: userParam, panelType: 'user' }])
-    }
-  }, [searchParams])
+  }), [visibleStack, isOpen])
   
   // Sync stack TO URL when it changes
   useEffect(() => {
-    if (!hasInitializedRef.current) return
-    
     const params = new URLSearchParams(searchParams.toString())
     
     if (isOpen && currentPanel) {
@@ -131,37 +134,33 @@ export function UserPanelProvider({ children }: { children: React.ReactNode }) {
       const newUrl = newParamString ? `${pathname}?${newParamString}` : pathname
       router.replace(newUrl, { scroll: false })
     }
-  }, [stack, isOpen, currentPanel, parentPanel, pathname, router, searchParams])
-  
-  // On mobile, close panel when navigating to a different page
-  useEffect(() => {
-    if (isMobile && prevPathnameRef.current !== pathname && isOpen) {
-      setStack([])
-    }
-    prevPathnameRef.current = pathname
-  }, [pathname, isMobile, isOpen])
+  }, [currentPanel, isOpen, parentPanel, pathname, router, searchParams])
 
   const openUserPanel = useCallback((userId: string) => {
+    setStackPath(pathname)
     setStack(prev => {
+      const baseStack = isMobile && stackPath !== pathname ? [] : prev
       // Don't push duplicate of what's already on top
-      const top = prev.length > 0 ? prev[prev.length - 1] : null
+      const top = baseStack.length > 0 ? baseStack[baseStack.length - 1] : null
       if (top && top.userId === userId && top.panelType === 'user') {
-        return prev
+        return baseStack
       }
-      return [...prev, { userId, panelType: 'user' as const }]
+      return [...baseStack, { userId, panelType: 'user' as const }]
     })
-  }, [])
+  }, [isMobile, pathname, stackPath])
 
   const openStaffPanel = useCallback((staffId: string) => {
+    setStackPath(pathname)
     setStack(prev => {
+      const baseStack = isMobile && stackPath !== pathname ? [] : prev
       // Don't push duplicate of what's already on top
-      const top = prev.length > 0 ? prev[prev.length - 1] : null
+      const top = baseStack.length > 0 ? baseStack[baseStack.length - 1] : null
       if (top && top.userId === staffId && top.panelType === 'staff') {
-        return prev
+        return baseStack
       }
-      return [...prev, { userId: staffId, panelType: 'staff' as const }]
+      return [...baseStack, { userId: staffId, panelType: 'staff' as const }]
     })
-  }, [])
+  }, [isMobile, pathname, stackPath])
 
   const goBack = useCallback(() => {
     setStack(prev => {

@@ -7,7 +7,7 @@ A Next.js dashboard for searching and analyzing Discord server messages with tic
 - 🔍 **Instant Search** — Fuzzy text search with 150ms debounce
 - 🎫 **Ticket Integration** — View messages by ticket context
 - 👥 **Staff Filtering** — Filter to staff-only messages
-- 🔐 **Discord Auth** — OAuth login with moderator role verification
+- 🔐 **Discord Auth** — OAuth login for any Discord user with moderator-gated admin surfaces
 - ⚡ **Optimized** — Trigram indexes for 10-100x faster queries
 - 🔒 **Type-Safe API** — End-to-end types with ElysiaJS + Eden
 
@@ -38,10 +38,18 @@ DATABASE_URL="postgresql://user:password@host:5432/database"
 DISCORD_CLIENT_ID="your_client_id"
 DISCORD_CLIENT_SECRET="your_client_secret"
 DISCORD_GUILD_ID="your_server_id"
+MOD_ROLE_ID="your_moderator_role_id"
 BETTER_AUTH_SECRET="your_random_secret"
 BETTER_AUTH_URL="http://localhost:3000"
 NEXT_PUBLIC_BETTER_AUTH_URL="http://localhost:3000"
 ```
+
+## Access Model
+
+- Any Discord user may sign in.
+- `MOD_ROLE_ID` gates moderator-only surfaces such as `/tickets`, `/users`, `/messages`, and moderator APIs.
+- Non-mod users may access `/my-tickets` and ticket detail pages only for tickets they own.
+- Ticket detail and transcript fetches are owner-or-mod; ticket queue, users, and messages search remain moderator-only.
 
 ## Tech Stack
 

@@ -65,3 +65,16 @@ export async function getUserRole(userId: string): Promise<{ role: UserRole; dis
     discordId,
   };
 }
+
+/**
+ * Check whether a Discord user owns a given ticket.
+ */
+export async function isTicketOwner(discordId: string, ticketId: number): Promise<boolean> {
+  const result = await db
+    .select({ authorId: schema.tickets.authorId })
+    .from(schema.tickets)
+    .where(eq(schema.tickets.id, ticketId))
+    .limit(1);
+
+  return result[0]?.authorId === BigInt(discordId);
+}

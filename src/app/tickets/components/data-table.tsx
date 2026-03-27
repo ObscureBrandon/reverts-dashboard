@@ -1,5 +1,6 @@
 'use client';
 
+import { UserAvatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -22,7 +23,7 @@ import {
     SortingState,
     useReactTable,
 } from '@tanstack/react-table';
-import { ChevronLeft, ChevronRight, Ticket } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Loader2, Ticket } from 'lucide-react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 
@@ -101,6 +102,7 @@ export function TicketsDataTable<TData extends MobileTicketRow, TValue>({
     }
   };
 
+  // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
     data,
     columns,
@@ -129,6 +131,7 @@ export function TicketsDataTable<TData extends MobileTicketRow, TValue>({
 
   // Only show skeleton on initial load (no data yet)
   const showSkeleton = isLoading && data.length === 0;
+  const isRefetching = isFetching && data.length > 0;
 
   if (showSkeleton) {
     return (
@@ -168,6 +171,12 @@ export function TicketsDataTable<TData extends MobileTicketRow, TValue>({
       {renderToolbar && renderToolbar(table)}
 
       <div className="relative">
+        {isRefetching ? (
+          <div className="absolute right-2 top-2 z-10">
+            <Loader2 className="h-4 w-4 animate-spin text-brand-accent-text" />
+          </div>
+        ) : null}
+
         <div className="rounded-lg border border-border bg-card overflow-hidden relative">
           <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-brand-accent-solid/30 via-brand-accent-solid to-brand-accent-solid/30" />
           {/* Desktop Table View */}
@@ -290,15 +299,12 @@ export function TicketsDataTable<TData extends MobileTicketRow, TValue>({
                           onUserClick?.(e, ticketAuthor.id);
                         }}
                       >
-                        <div className="w-6 h-6 rounded-full bg-muted overflow-hidden">
-                          {ticketAuthor.displayAvatar ? (
-                            <img src={ticketAuthor.displayAvatar} alt="" className="w-full h-full object-cover" />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center text-xs text-muted-foreground">
-                              {(ticketAuthor.displayName || ticketAuthor.name || '?')[0].toUpperCase()}
-                            </div>
-                          )}
-                        </div>
+                        <UserAvatar
+                          src={ticketAuthor.displayAvatar}
+                          name={ticketAuthor.displayName || ticketAuthor.name || 'Unknown User'}
+                          size="sm"
+                          className="h-6 w-6"
+                        />
                         <span className="text-sm text-foreground">
                           {ticketAuthor.displayName || ticketAuthor.name}
                         </span>

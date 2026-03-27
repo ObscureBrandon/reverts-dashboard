@@ -3,6 +3,7 @@
 import { NavigationHeader } from '@/app/components/navigation-header';
 import { PageHeader } from '@/app/components/page-header';
 import { ChannelPopover } from '@/app/components/popovers/ChannelPopover';
+import type { Position } from '@/app/components/popovers/PopoverWrapper';
 import { RolePopover } from '@/app/components/popovers/RolePopover';
 import { UserAvatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -33,14 +34,14 @@ type RoleModalData = {
   type: 'role'; 
   id: string; 
   data: { name: string; color: number }; 
-  position: { x: number; y: number; triggerWidth?: number; triggerHeight?: number } 
+  position: Position 
 };
 
 type ChannelModalData = { 
   type: 'channel'; 
   id: string; 
   data: { name: string }; 
-  position: { x: number; y: number; triggerWidth?: number; triggerHeight?: number } 
+  position: Position 
 };
 
 function formatMessageTimestamp(value: string) {
@@ -59,7 +60,6 @@ function MessagesPageContent() {
   // Global panel context
   const { openUserPanel } = useUserPanel();
   
-  const [searchQuery, setSearchQuery] = useState(params.q);
   const [roleModalData, setRoleModalData] = useState<RoleModalData | null>(null);
   const [channelModalData, setChannelModalData] = useState<ChannelModalData | null>(null);
   const [expandedMessageIds, setExpandedMessageIds] = useState<Set<string>>(() => new Set());
@@ -72,12 +72,7 @@ function MessagesPageContent() {
     { wait: 150 }
   );
 
-  useEffect(() => {
-    setSearchQuery(params.q);
-  }, [params.q]);
-
   const handleSearch = useCallback((query: string) => {
-    setSearchQuery(query);
     debouncedSearch(query);
   }, [debouncedSearch]);
 
@@ -198,7 +193,8 @@ function MessagesPageContent() {
         <RolePopover 
           isOpen={true}
           onClose={() => setRoleModalData(null)}
-          triggerPosition={roleModalData.position}
+          triggerElement={null}
+          triggerRect={roleModalData.position}
           roleData={{
             id: roleModalData.id,
             name: roleModalData.data.name,
@@ -210,7 +206,8 @@ function MessagesPageContent() {
         <ChannelPopover 
           isOpen={true}
           onClose={() => setChannelModalData(null)}
-          triggerPosition={channelModalData.position}
+          triggerElement={null}
+          triggerRect={channelModalData.position}
           channelData={{
             id: channelModalData.id,
             name: channelModalData.data.name,
@@ -225,8 +222,9 @@ function MessagesPageContent() {
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
+                  key={params.q}
                   type="text"
-                  value={searchQuery}
+                  defaultValue={params.q}
                   onChange={(e) => handleSearch(e.target.value)}
                   placeholder="Search by username, Discord ID, or message content..."
                   className="h-10 bg-background pl-9"

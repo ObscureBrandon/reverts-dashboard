@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Check, Copy } from 'lucide-react';
-import { PopoverWrapper } from './PopoverWrapper';
+import { PopoverWrapper, type Position } from './PopoverWrapper';
 
 export type ChannelPopoverData = {
   id: string;
