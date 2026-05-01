@@ -1,7 +1,6 @@
 'use client'
 
 import { Badge } from '@/components/ui/badge'
-import { Drawer, DrawerContent, DrawerTitle } from '@/components/ui/drawer'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { UserAvatar } from '@/components/ui/avatar'
 import { useGlobalSearchOverlay } from '@/lib/contexts/global-search-context'
@@ -25,7 +24,7 @@ import {
   type GlobalSearchOperatorKey,
 } from '@/lib/search/global-search-query'
 import { cn, formatRelativeTime } from '@/lib/utils'
-import { Loader2, MessageSquare, Search, Ticket } from 'lucide-react'
+import { ArrowLeft, Loader2, MessageSquare, Search, Ticket, X } from 'lucide-react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useUserPanel } from '@/lib/contexts/user-panel-context'
@@ -464,7 +463,6 @@ export function GlobalSearchPalette() {
     && canRunQuery
     && debouncedNormalizedQuery === normalizedQuery
     && (Boolean(data) || isLoading || isFetching || isError)
-  const useTallResultsShell = showResultsPanel && hasResults
   const showInlineSpinner = canRunQuery && (isLoading || isFetching)
   const showNoResults = showResultsPanel && !showInlineSpinner && !isError && normalizedQuery.length > 0 && !hasResults
   const showErrorState = showResultsPanel && !showInlineSpinner && isError
@@ -493,24 +491,269 @@ export function GlobalSearchPalette() {
     return null
   }
 
+  // Shared result sections — used by both mobile and desktop shells
+  const resultSections = showResultsPanel ? (
+    <div ref={resultsContainerRef} className={cn(
+      'min-h-0 flex-1 overflow-y-auto px-4 py-4',
+      isMobile && 'pb-[calc(1rem+env(safe-area-inset-bottom,0px))]'
+    )}>
+      {showErrorState ? (
+        <div className="rounded-2xl border border-dashed border-border bg-muted/20 px-5 py-7 text-sm text-muted-foreground">
+          Search unavailable.
+        </div>
+      ) : showNoResults ? (
+        <div className="rounded-2xl border border-dashed border-border bg-muted/20 px-5 py-7 text-sm text-muted-foreground">
+          No results.
+        </div>
+      ) : (
+        <div className="space-y-5">
+          {data?.users.length ? (
+            <SearchResultSection title="Users" count={data.users.length}>
+              {data.users.map((user) => {
+                const resultId = `user-${user.id}`
+                const isSelected = flatResults[boundedSelectedIndex]?.id === resultId
+
+                return (
+                  <button
+                    key={resultId}
+                    data-search-result-id={resultId}
+                    type="button"
+                    onClick={() => handleSelect({ id: resultId, kind: 'user', user })}
+                    className={cn(
+                      'flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-left transition-colors',
+                      isSelected
+                        ? 'border-brand-accent-border bg-brand-accent-soft/50 shadow-[inset_0_0_0_1px_var(--color-brand-accent-border)]'
+                        : 'border-transparent hover:border-border/70 hover:bg-muted/40 active:bg-muted/40'
+                    )}
+                  >
+                    <UserAvatar
+                      src={user.displayAvatar}
+                      name={user.displayName || user.name || 'User'}
+                      size="md"
+                      className="border border-border"
+                    />
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <div className="flex items-center gap-2">
+                        <p className="truncate font-medium text-foreground">{user.displayName || user.name || 'Unknown User'}</p>
+                        <Badge tone="info" kind="meta" emphasis="outline">{getGlobalSearchReasonLabel(user.matchReason)}</Badge>
+                      </div>
+                      <p className="truncate text-sm text-muted-foreground">
+                        {user.name ? `@${user.name}` : user.id}
+                        {user.name ? ` • ${user.id}` : ''}
+                      </p>
+                    </div>
+                  </button>
+                )
+              })}
+            </SearchResultSection>
+          ) : null}
+
+          {data?.tickets.length ? (
+            <SearchResultSection title="Tickets" count={data.tickets.length}>
+              {data.tickets.map((ticket) => {
+                const resultId = `ticket-${ticket.id}`
+                const isSelected = flatResults[boundedSelectedIndex]?.id === resultId
+
+                return (
+                  <button
+                    key={resultId}
+                    data-search-result-id={resultId}
+                    type="button"
+                    onClick={() => handleSelect({ id: resultId, kind: 'ticket', ticket })}
+                    className={cn(
+                      'flex w-full items-start gap-3 rounded-2xl border px-3 py-3 text-left transition-colors',
+                      isSelected
+                        ? 'border-brand-accent-border bg-brand-accent-soft/50 shadow-[inset_0_0_0_1px_var(--color-brand-accent-border)]'
+                        : 'border-transparent hover:border-border/70 hover:bg-muted/40 active:bg-muted/40'
+                    )}
+                  >
+                    <div className="mt-0.5 rounded-xl bg-muted p-2 text-muted-foreground">
+                      <Ticket className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0 flex-1 space-y-1.5">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-medium text-foreground">#{ticket.sequence ?? ticket.id}</p>
+                        {ticket.status ? <Badge tone="neutral" kind="meta" emphasis="outline">{ticket.status}</Badge> : null}
+                        <Badge tone="neutral" kind="meta" emphasis="outline">{getGlobalSearchReasonLabel(ticket.matchReason)}</Badge>
+                        <p className="text-xs text-muted-foreground" title={formatExactDateTime(ticket.createdAt)}>
+                          {formatRelativeTime(ticket.createdAt)}
+                        </p>
+                      </div>
+                      <p className="truncate text-sm text-muted-foreground">
+                        {ticket.panelTitle || 'Ticket'}
+                        {ticket.channelName ? ` • #${ticket.channelName}` : ''}
+                      </p>
+                    </div>
+                  </button>
+                )
+              })}
+            </SearchResultSection>
+          ) : null}
+
+          {data?.messages.length ? (
+            <SearchResultSection title="Messages" count={data.messages.length}>
+              {data.messages.map((message) => {
+                const resultId = `message-${message.id}`
+                const isSelected = flatResults[boundedSelectedIndex]?.id === resultId
+
+                return (
+                  <button
+                    key={resultId}
+                    data-search-result-id={resultId}
+                    type="button"
+                    onClick={() => handleSelect({ id: resultId, kind: 'message', message })}
+                    className={cn(
+                      'flex w-full items-start gap-3 rounded-2xl border px-3 py-3 text-left transition-colors',
+                      isSelected
+                        ? 'border-brand-accent-border bg-brand-accent-soft/50 shadow-[inset_0_0_0_1px_var(--color-brand-accent-border)]'
+                        : 'border-transparent hover:border-border/70 hover:bg-muted/40 active:bg-muted/40'
+                    )}
+                  >
+                    <div className="mt-0.5 rounded-xl bg-muted p-2 text-muted-foreground">
+                      <MessageSquare className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0 flex-1 space-y-1.5">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="truncate font-medium text-foreground">
+                          {message.author?.displayName || message.author?.name || 'Unknown user'}
+                        </p>
+                        <Badge tone="info" kind="meta" emphasis="outline">{getGlobalSearchReasonLabel(message.matchReason)}</Badge>
+                        <p className="text-xs text-muted-foreground" title={formatExactDateTime(message.createdAt)}>
+                          {formatRelativeTime(message.createdAt)}
+                        </p>
+                      </div>
+                      <p className="line-clamp-2 text-sm text-muted-foreground">
+                        {renderHighlightedText(
+                          message.preview,
+                          message.matchReason === 'message_content' ? message.highlightTerm : null
+                        )}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Ticket #{message.ticketSequence ?? message.ticketId}
+                        {message.channelName ? ` • #${message.channelName}` : ''}
+                      </p>
+                    </div>
+                  </button>
+                )
+              })}
+            </SearchResultSection>
+          ) : null}
+        </div>
+      )}
+    </div>
+  ) : null
+
+  // Mobile: full-screen overlay — replaces the bottom drawer
+  if (isMobile) {
+    if (!isOpen) {
+      return null
+    }
+
+    return (
+      <div
+        className="fixed inset-0 z-50 flex flex-col bg-background"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Search"
+      >
+        {/* Header: back button + search input */}
+        <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2 pt-[calc(0.5rem+env(safe-area-inset-top,0px))]">
+          <button
+            type="button"
+            onClick={handleClosePalette}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-muted-foreground active:bg-muted"
+            aria-label="Close search"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+
+          <div
+            className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-xl border border-input bg-muted/30 px-3"
+            onClick={() => { if (!activeChipId) focusTextInput() }}
+          >
+            <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <input
+              ref={textInputRef}
+              value={freeText}
+              onChange={(event) => handleFreeTextChange(event.target.value)}
+              onKeyDown={handleFreeTextKeyDown}
+              placeholder="Search"
+              className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
+            />
+            {showInlineSpinner ? (
+              <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
+            ) : null}
+          </div>
+        </div>
+
+        {/* Operator chips — shown as a wrapping row when present */}
+        {operatorChips.length > 0 ? (
+          <div className="flex shrink-0 flex-wrap gap-1.5 border-b border-border px-4 py-2">
+            {operatorChips.map((chip) => {
+              const isActiveChip = chip.id === activeChipId
+
+              return (
+                <div
+                  key={chip.id}
+                  onClick={() => setActiveChipId(chip.id)}
+                  className={cn(
+                    'inline-flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-1 text-sm transition-colors',
+                    isActiveChip
+                      ? 'border-brand-accent-border bg-brand-accent-soft/70 text-foreground'
+                      : 'border-border bg-muted/40 text-foreground'
+                  )}
+                >
+                  <span className="font-medium text-muted-foreground">{chip.key}:</span>
+                  {isActiveChip ? (
+                    <input
+                      ref={chipInputRef}
+                      value={chip.value}
+                      onChange={(event) => handleChipValueChange(chip.id, event.target.value)}
+                      onKeyDown={(event) => handleChipInputKeyDown(event, chip)}
+                      onClick={(event) => event.stopPropagation()}
+                      className="min-w-0 bg-transparent text-sm text-foreground outline-none"
+                      style={{ width: `${Math.max(1, chip.value.length + 0.75)}ch` }}
+                    />
+                  ) : (
+                    <span className="max-w-[24ch] truncate">{chip.value}</span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={(event) => { event.stopPropagation(); removeChip(chip.id) }}
+                    className="ml-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground"
+                    aria-label={`Remove ${chip.key} filter`}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        ) : null}
+
+        {/* Results or empty prompt */}
+        {resultSections ?? (
+          <div className="flex flex-1 items-start justify-center pt-16">
+            <p className="text-sm text-muted-foreground">Search users, tickets, and messages</p>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // Desktop: sheet palette (unchanged)
   const paletteBody = (
     <div className={cn(
       'flex min-h-0 flex-1 flex-col overflow-hidden',
-      showResultsPanel
-        ? 'bg-background'
-        : isMobile
-          ? 'bg-background'
-          : 'rounded-3xl bg-transparent'
+      showResultsPanel ? 'bg-background' : 'rounded-3xl bg-transparent'
     )}>
-      <div className={cn(showResultsPanel ? '' : isMobile ? '' : 'rounded-3xl')}>
+      <div className={cn(showResultsPanel ? '' : 'rounded-3xl')}>
         <div
           className={cn(
             'flex min-h-11 items-center gap-2 overflow-x-auto bg-background px-3 py-1.5 shadow-xs transition-[color,box-shadow,border-color] focus-within:border-ring',
             showResultsPanel
               ? 'rounded-t-3xl rounded-b-none border-b border-border'
-              : isMobile
-                ? 'rounded-none border-0 shadow-none focus-within:shadow-none'
-                : 'rounded-3xl border border-input focus-within:shadow-[0_0_0_1px_var(--color-ring)]'
+              : 'rounded-3xl border border-input focus-within:shadow-[0_0_0_1px_var(--color-ring)]'
           )}
           onClick={() => {
             if (!activeChipId) {
@@ -578,168 +821,24 @@ export function GlobalSearchPalette() {
 
       {showResultsPanel ? (
         <>
-          <div ref={resultsContainerRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-            {showErrorState ? (
-              <div className="rounded-2xl border border-dashed border-border bg-muted/20 px-5 py-7 text-sm text-muted-foreground">
-                Search unavailable.
-              </div>
-            ) : showNoResults ? (
-              <div className="rounded-2xl border border-dashed border-border bg-muted/20 px-5 py-7 text-sm text-muted-foreground">
-                No results.
-              </div>
-            ) : (
-              <div className="space-y-5">
-                {data?.users.length ? (
-                  <SearchResultSection title="Users" count={data.users.length}>
-                    {data.users.map((user) => {
-                      const resultId = `user-${user.id}`
-                      const isSelected = flatResults[boundedSelectedIndex]?.id === resultId
+          {resultSections}
 
-                      return (
-                        <button
-                          key={resultId}
-                          data-search-result-id={resultId}
-                          type="button"
-                          onClick={() => handleSelect({ id: resultId, kind: 'user', user })}
-                          className={cn(
-                            'flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-left transition-colors',
-                            isSelected
-                              ? 'border-brand-accent-border bg-brand-accent-soft/50 shadow-[inset_0_0_0_1px_var(--color-brand-accent-border)]'
-                              : 'border-transparent hover:border-border/70 hover:bg-muted/40'
-                          )}
-                        >
-                          <UserAvatar
-                            src={user.displayAvatar}
-                            name={user.displayName || user.name || 'User'}
-                            size="md"
-                            className="border border-border"
-                          />
-                          <div className="min-w-0 flex-1 space-y-1">
-                            <div className="flex items-center gap-2">
-                              <p className="truncate font-medium text-foreground">{user.displayName || user.name || 'Unknown User'}</p>
-                              <Badge tone="info" kind="meta" emphasis="outline">{getGlobalSearchReasonLabel(user.matchReason)}</Badge>
-                            </div>
-                            <p className="truncate text-sm text-muted-foreground">
-                              {user.name ? `@${user.name}` : user.id}
-                              {user.name ? ` • ${user.id}` : ''}
-                            </p>
-                          </div>
-                        </button>
-                      )
-                    })}
-                  </SearchResultSection>
-                ) : null}
-
-                {data?.tickets.length ? (
-                  <SearchResultSection title="Tickets" count={data.tickets.length}>
-                    {data.tickets.map((ticket) => {
-                      const resultId = `ticket-${ticket.id}`
-                      const isSelected = flatResults[boundedSelectedIndex]?.id === resultId
-
-                      return (
-                        <button
-                          key={resultId}
-                          data-search-result-id={resultId}
-                          type="button"
-                          onClick={() => handleSelect({ id: resultId, kind: 'ticket', ticket })}
-                          className={cn(
-                            'flex w-full items-start gap-3 rounded-2xl border px-3 py-3 text-left transition-colors',
-                            isSelected
-                              ? 'border-brand-accent-border bg-brand-accent-soft/50 shadow-[inset_0_0_0_1px_var(--color-brand-accent-border)]'
-                              : 'border-transparent hover:border-border/70 hover:bg-muted/40'
-                          )}
-                        >
-                          <div className="mt-0.5 rounded-xl bg-muted p-2 text-muted-foreground">
-                            <Ticket className="h-4 w-4" />
-                          </div>
-                          <div className="min-w-0 flex-1 space-y-1.5">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <p className="font-medium text-foreground">#{ticket.sequence ?? ticket.id}</p>
-                              {ticket.status ? <Badge tone="neutral" kind="meta" emphasis="outline">{ticket.status}</Badge> : null}
-                              <Badge tone="neutral" kind="meta" emphasis="outline">{getGlobalSearchReasonLabel(ticket.matchReason)}</Badge>
-                              <p className="text-xs text-muted-foreground" title={formatExactDateTime(ticket.createdAt)}>
-                                {formatRelativeTime(ticket.createdAt)}
-                              </p>
-                            </div>
-                            <p className="truncate text-sm text-muted-foreground">
-                              {ticket.panelTitle || 'Ticket'}
-                              {ticket.channelName ? ` • #${ticket.channelName}` : ''}
-                            </p>
-                          </div>
-                        </button>
-                      )
-                    })}
-                  </SearchResultSection>
-                ) : null}
-
-                {data?.messages.length ? (
-                  <SearchResultSection title="Messages" count={data.messages.length}>
-                    {data.messages.map((message) => {
-                      const resultId = `message-${message.id}`
-                      const isSelected = flatResults[boundedSelectedIndex]?.id === resultId
-
-                      return (
-                        <button
-                          key={resultId}
-                          data-search-result-id={resultId}
-                          type="button"
-                          onClick={() => handleSelect({ id: resultId, kind: 'message', message })}
-                          className={cn(
-                            'flex w-full items-start gap-3 rounded-2xl border px-3 py-3 text-left transition-colors',
-                            isSelected
-                              ? 'border-brand-accent-border bg-brand-accent-soft/50 shadow-[inset_0_0_0_1px_var(--color-brand-accent-border)]'
-                              : 'border-transparent hover:border-border/70 hover:bg-muted/40'
-                          )}
-                        >
-                          <div className="mt-0.5 rounded-xl bg-muted p-2 text-muted-foreground">
-                            <MessageSquare className="h-4 w-4" />
-                          </div>
-                          <div className="min-w-0 flex-1 space-y-1.5">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <p className="truncate font-medium text-foreground">
-                                {message.author?.displayName || message.author?.name || 'Unknown user'}
-                              </p>
-                              <Badge tone="info" kind="meta" emphasis="outline">{getGlobalSearchReasonLabel(message.matchReason)}</Badge>
-                              <p className="text-xs text-muted-foreground" title={formatExactDateTime(message.createdAt)}>
-                                {formatRelativeTime(message.createdAt)}
-                              </p>
-                            </div>
-                            <p className="line-clamp-2 text-sm text-muted-foreground">
-                              {renderHighlightedText(
-                                message.preview,
-                                message.matchReason === 'message_content' ? message.highlightTerm : null
-                              )}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              Ticket #{message.ticketSequence ?? message.ticketId}
-                              {message.channelName ? ` • #${message.channelName}` : ''}
-                            </p>
-                          </div>
-                        </button>
-                      )
-                    })}
-                  </SearchResultSection>
-                ) : null}
-              </div>
-            )}
-          </div>
-
-          {!isMobile && hasResults ? (
+          {hasResults ? (
             <div className="border-t border-border/60 px-4 py-2 text-[11px] text-muted-foreground/80">
-            <div className="flex items-center justify-between gap-3">
-              <span className="flex items-center gap-1.5">
-                <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px]">↑</kbd>
-                <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px]">↓</kbd>
-                <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px]">Alt J</kbd>
-                <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px]">Alt K</kbd>
-                Navigate
-              </span>
-              <span className="flex items-center gap-1.5">
-                <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px]">Enter</kbd>
-                Open
-              </span>
-              {data?.meta ? <span>{data.meta.tookMs} ms</span> : <span />}
-            </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="flex items-center gap-1.5">
+                  <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px]">↑</kbd>
+                  <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px]">↓</kbd>
+                  <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px]">Alt J</kbd>
+                  <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px]">Alt K</kbd>
+                  Navigate
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px]">Enter</kbd>
+                  Open
+                </span>
+                {data?.meta ? <span>{data.meta.tookMs} ms</span> : <span />}
+              </div>
             </div>
           ) : null}
         </>
@@ -747,30 +846,13 @@ export function GlobalSearchPalette() {
     </div>
   )
 
-  if (isMobile) {
-    return (
-      <Drawer modal={false} open={isOpen} onOpenChange={(open) => { if (!open) handleClosePalette() }}>
-        <DrawerContent disableAnimation showHandle={false} overlayClassName="data-[state=open]:animate-none data-[state=closed]:animate-none data-[state=open]:duration-0 data-[state=closed]:duration-0 transition-none"
-          className={cn(
-          'rounded-t-3xl p-0 data-[state=open]:animate-none data-[state=closed]:animate-none data-[state=open]:duration-0 data-[state=closed]:duration-0 transition-none',
-            useTallResultsShell
-              ? 'h-[78vh] overflow-hidden border-t-2 border-border bg-background'
-              : 'h-auto max-h-[40vh] overflow-hidden border-t-2 border-border bg-background shadow-none'
-        )}>
-          <DrawerTitle className="sr-only">Global Search</DrawerTitle>
-          {paletteBody}
-        </DrawerContent>
-      </Drawer>
-    )
-  }
-
   return (
     <Sheet modal={false} open={isOpen} onOpenChange={(open) => { if (!open) handleClosePalette() }}>
       <SheetContent side="top" showCloseButton={false} disableAnimation
         overlayClassName="data-[state=open]:animate-none data-[state=closed]:animate-none data-[state=open]:duration-0 data-[state=closed]:duration-0 transition-none"
         className={cn(
         'mx-auto mt-20 w-[min(920px,calc(100vw-2rem))] rounded-3xl p-0 data-[state=open]:animate-none data-[state=closed]:animate-none data-[state=open]:duration-0 data-[state=closed]:duration-0 transition-none',
-        useTallResultsShell
+        showResultsPanel && hasResults
           ? 'h-[min(75vh,680px)] overflow-hidden border border-border bg-background'
           : 'h-auto border-0 bg-transparent shadow-none'
       )}>

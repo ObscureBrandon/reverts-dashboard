@@ -48,6 +48,11 @@ export function GlobalSearchProvider({ children }: { children: ReactNode }) {
       return
     }
 
+    // Mobile uses a full-screen overlay — body locking conflicts with software keyboard and viewport resize
+    if (window.matchMedia('(max-width: 767px)').matches) {
+      return
+    }
+
     const scrollY = window.scrollY
     const { body } = document
     const previousStyles = {
