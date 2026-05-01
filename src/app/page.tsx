@@ -360,10 +360,11 @@ function RevertRow({ revert, onClick, showCheckIn }: { revert: DashboardRevert; 
             {showCheckIn && formState === 'closed' && (
               <button
                 onClick={e => { e.stopPropagation(); setFormState('open'); }}
-                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded-md hover:bg-muted border border-transparent hover:border-border bg-transparent whitespace-nowrap"
+                aria-label="Log check-in"
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded-md hover:bg-muted border border-transparent hover:border-border bg-transparent"
               >
                 <ClipboardCheck className="h-3 w-3" />
-                Log check-in
+                <span className="hidden sm:inline">Log check-in</span>
               </button>
             )}
             {formState === 'success' && (
@@ -376,19 +377,21 @@ function RevertRow({ revert, onClick, showCheckIn }: { revert: DashboardRevert; 
               <Link
                 href={openCheckInTicketHref}
                 onClick={e => e.stopPropagation()}
-                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded-md hover:bg-muted border border-transparent hover:border-border bg-transparent whitespace-nowrap"
+                aria-label="Jump to ticket"
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded-md hover:bg-muted border border-transparent hover:border-border bg-transparent"
               >
                 <ExternalLink className="h-3 w-3" />
-                Jump to ticket
+                <span className="hidden sm:inline">Jump to ticket</span>
               </Link>
             )}
             {showCheckIn && ticketState.status === 'idle' && !openCheckInTicketHref && (
               <button
                 onClick={handleStartTicket}
-                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded-md hover:bg-muted border border-transparent hover:border-border bg-transparent whitespace-nowrap"
+                aria-label="Create ticket"
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded-md hover:bg-muted border border-transparent hover:border-border bg-transparent"
               >
                 <Ticket className="h-3 w-3" />
-                Create ticket
+                <span className="hidden sm:inline">Create ticket</span>
               </button>
             )}
             {ticketState.status === 'pending' && (
@@ -602,7 +605,7 @@ function InlineCheckInForm({
           ))}
         </div>
       </div>
-      <div className="flex-1 min-w-[160px] flex flex-col gap-1">
+      <div className="flex-1 min-w-0 sm:min-w-40 flex flex-col gap-1">
         <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
           Summary <span className="normal-case font-normal">(optional)</span>
         </label>
@@ -1017,14 +1020,15 @@ function ClaimableRevertRow({ revert, onClick }: { revert: DashboardClaimableRev
         <button
           onClick={handleClaim}
           disabled={claimAssignment.isPending}
-          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded-md hover:bg-muted border border-transparent hover:border-border bg-transparent whitespace-nowrap disabled:opacity-50"
+          aria-label="Assign to me"
+          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded-md hover:bg-muted border border-transparent hover:border-border bg-transparent disabled:opacity-50"
         >
           {claimAssignment.isPending ? (
             <Loader2 className="h-3 w-3 animate-spin" />
           ) : (
             <UserPlus className="h-3 w-3" />
           )}
-          Assign to me
+          <span className="hidden sm:inline">Assign to me</span>
         </button>
       </div>
     </div>
@@ -1300,7 +1304,7 @@ export default function Home() {
               }
             >
               <Tabs value={activeScope} onValueChange={(v) => setActiveScope(v as 'assigned' | 'needs-assignment' | 'shahada')} className="gap-0">
-                <div className="flex items-center justify-between border-b border-border bg-muted/20 pl-4 pr-2 pt-3">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-2 border-b border-border bg-muted/20 pl-4 pr-2 pt-3 pb-2">
                   <TabsList variant="line">
                     <TabsTrigger value="assigned" className="group-data-[variant=line]/tabs-list:data-[state=active]:after:bg-brand-accent-solid">
                       Assigned to me
@@ -1313,7 +1317,7 @@ export default function Home() {
                     </TabsTrigger>
                   </TabsList>
                   {!isLoading && activeScope === 'assigned' && assignedReverts.length > 0 && (
-                    <div className="flex items-center gap-1">
+                    <div className="ml-auto flex items-center gap-1">
                       <RevertListControls
                         sortBy={sortBy}
                         onSortChange={setSortBy}
@@ -1325,7 +1329,7 @@ export default function Home() {
                     </div>
                   )}
                   {!isLoading && activeScope === 'shahada' && shahadaWithMe.length > 0 && (
-                    <div className="flex items-center gap-1">
+                    <div className="ml-auto flex items-center gap-1">
                       <ShahadaListControls
                         sortBy={shahadaSortBy}
                         onSortChange={setShahadaSortBy}
