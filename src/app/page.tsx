@@ -10,6 +10,8 @@ import {
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
@@ -28,8 +30,8 @@ import {
 import { useUserRole } from '@/lib/hooks/queries/useUserRole';
 import {
   AlertTriangle,
-  ArrowUpDown,
   Calendar,
+  ChevronDown,
   CheckCircle2,
   CircleHelp,
   ClipboardCheck,
@@ -58,7 +60,7 @@ import {
   getTicketStatusDescriptor,
   getUserAttributeStatusDescriptor,
 } from '@/lib/status-system';
-import { getErrorMessage } from '@/lib/utils';
+import { cn, getErrorMessage } from '@/lib/utils';
 
 const EMPTY_REVERTS: DashboardRevert[] = [];
 const EMPTY_SHAHADA_REVERTS: DashboardShahadaRevert[] = [];
@@ -639,8 +641,6 @@ function RevertListControls({
   selectedTagIds,
   onToggleTag,
   onClearTags,
-  visibleCount,
-  totalCount,
 }: {
   sortBy: RevertSort;
   onSortChange: (sortBy: RevertSort) => void;
@@ -648,58 +648,76 @@ function RevertListControls({
   selectedTagIds: number[];
   onToggleTag: (tagId: number) => void;
   onClearTags: () => void;
-  visibleCount: number;
-  totalCount: number;
 }) {
   const isFiltered = selectedTagIds.length > 0;
+  const sortLabels: Record<RevertSort, string> = {
+    alphabetical: 'A–Z',
+    'needs-check-in': 'Needs check-in',
+    'recently-assigned': 'Recently assigned',
+  };
 
   return (
-    <div className="space-y-2.5 border-b border-border bg-muted/20 px-4 py-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="inline-flex items-center rounded-md border border-border bg-background p-1">
-          <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground px-2 pr-1">
-            <ArrowUpDown className="h-3.5 w-3.5" />
-            Sort
-          </span>
-          <Button
-            variant={sortBy === 'alphabetical' ? 'secondary' : 'ghost'}
-            size="sm"
-            onClick={() => onSortChange('alphabetical')}
-            className="h-7 text-xs"
-          >
-            A-Z
-          </Button>
-          <Button
-            variant={sortBy === 'needs-check-in' ? 'secondary' : 'ghost'}
-            size="sm"
-            onClick={() => onSortChange('needs-check-in')}
-            className="h-7 text-xs"
-          >
-            Needs check-in
-          </Button>
-          <Button
-            variant={sortBy === 'recently-assigned' ? 'secondary' : 'ghost'}
-            size="sm"
-            onClick={() => onSortChange('recently-assigned')}
-            className="h-7 text-xs"
-          >
-            Recently assigned
-          </Button>
-        </div>
-
+    <>
+      <div className="inline-flex h-7 items-center rounded-md border border-border bg-muted/60 text-xs font-medium text-foreground transition-colors hover:bg-muted">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="h-8">
-              <ListFilter className="h-3.5 w-3.5" />
-              Tags
-              {selectedTagIds.length > 0 && (
-                <Badge tone="neutral" kind="meta" emphasis="outline" className="ml-1 min-w-4 px-1 text-[10px] leading-none">
-                  {selectedTagIds.length}
-                </Badge>
-              )}
-            </Button>
+            <button type="button" className="flex h-full items-center outline-none">
+              <span className="pl-2.5 text-muted-foreground">Sort</span>
+              <span className="mx-1.5 h-3.5 w-px bg-border" />
+              <span className="truncate text-brand-accent-text">{sortLabels[sortBy]}</span>
+              <ChevronDown className="mx-1.5 h-3 w-3 shrink-0 opacity-50" />
+            </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-56">
+          <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuRadioGroup value={sortBy} onValueChange={(v) => onSortChange(v as RevertSort)}>
+              <DropdownMenuRadioItem value="alphabetical" className="data-[state=checked]:[&_svg]:text-brand-accent-solid">A–Z</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="needs-check-in" className="data-[state=checked]:[&_svg]:text-brand-accent-solid">Needs check-in</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="recently-assigned" className="data-[state=checked]:[&_svg]:text-brand-accent-solid">Recently assigned</DropdownMenuRadioItem>
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
+      <div className="h-3.5 w-px bg-border/70" />
+
+      <div
+        className={cn(
+          'inline-flex h-7 items-center rounded-md border text-xs font-medium transition-colors',
+          isFiltered
+            ? 'border-border bg-muted/60 text-foreground hover:bg-muted'
+            : 'border-border bg-transparent text-muted-foreground hover:border-foreground/30 hover:text-foreground'
+        )}
+      >
+        {isFiltered && (
+          <button
+            type="button"
+            onClick={onClearTags}
+            className="flex h-full items-center pl-2 pr-1 text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        )}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button type="button" className="flex h-full items-center outline-none">
+              {isFiltered ? (
+                <>
+                  <span className="pl-1 text-muted-foreground">Tags</span>
+                  <span className="mx-1.5 h-3.5 w-px bg-border" />
+                  <span className="text-brand-accent-text">
+                    {selectedTagIds.length === 1 ? '1 tag' : `${selectedTagIds.length} tags`}
+                  </span>
+                  <ChevronDown className="mx-1.5 h-3 w-3 shrink-0 opacity-50" />
+                </>
+              ) : (
+                <span className="flex items-center gap-1.5 px-2.5">
+                  <ListFilter className="h-3 w-3 opacity-50" />
+                  Tags
+                </span>
+              )}
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
             <DropdownMenuLabel>Filter by tags</DropdownMenuLabel>
             <DropdownMenuSeparator />
             {availableTags.length === 0 ? (
@@ -723,19 +741,8 @@ function RevertListControls({
             )}
           </DropdownMenuContent>
         </DropdownMenu>
-
-        {isFiltered && (
-          <Button variant="ghost" size="sm" onClick={onClearTags} className="h-8 text-xs text-muted-foreground">
-            <X className="h-3.5 w-3.5" />
-            Clear filters
-          </Button>
-        )}
       </div>
-
-      <p className="text-xs text-muted-foreground">
-        Showing {visibleCount} of {totalCount} assigned reverts
-      </p>
-    </div>
+    </>
   );
 }
 
@@ -746,8 +753,6 @@ function ShahadaListControls({
   selectedTagIds,
   onToggleTag,
   onClearTags,
-  visibleCount,
-  totalCount,
 }: {
   sortBy: ShahadaSort;
   onSortChange: (sortBy: ShahadaSort) => void;
@@ -755,58 +760,76 @@ function ShahadaListControls({
   selectedTagIds: number[];
   onToggleTag: (tagId: number) => void;
   onClearTags: () => void;
-  visibleCount: number;
-  totalCount: number;
 }) {
   const isFiltered = selectedTagIds.length > 0;
+  const sortLabels: Record<ShahadaSort, string> = {
+    alphabetical: 'A–Z',
+    'recent-shahada': 'Recent shahada',
+    'oldest-shahada': 'Oldest shahada',
+  };
 
   return (
-    <div className="space-y-2.5 border-b border-border bg-muted/20 px-4 py-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="inline-flex items-center rounded-md border border-border bg-background p-1">
-          <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground px-2 pr-1">
-            <ArrowUpDown className="h-3.5 w-3.5" />
-            Sort
-          </span>
-          <Button
-            variant={sortBy === 'alphabetical' ? 'secondary' : 'ghost'}
-            size="sm"
-            onClick={() => onSortChange('alphabetical')}
-            className="h-7 text-xs"
-          >
-            A-Z
-          </Button>
-          <Button
-            variant={sortBy === 'recent-shahada' ? 'secondary' : 'ghost'}
-            size="sm"
-            onClick={() => onSortChange('recent-shahada')}
-            className="h-7 text-xs"
-          >
-            Recent shahada
-          </Button>
-          <Button
-            variant={sortBy === 'oldest-shahada' ? 'secondary' : 'ghost'}
-            size="sm"
-            onClick={() => onSortChange('oldest-shahada')}
-            className="h-7 text-xs"
-          >
-            Oldest shahada
-          </Button>
-        </div>
-
+    <>
+      <div className="inline-flex h-7 items-center rounded-md border border-border bg-muted/60 text-xs font-medium text-foreground transition-colors hover:bg-muted">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="h-8">
-              <ListFilter className="h-3.5 w-3.5" />
-              Tags
-              {selectedTagIds.length > 0 && (
-                <Badge tone="neutral" kind="meta" emphasis="outline" className="ml-1 min-w-4 px-1 text-[10px] leading-none">
-                  {selectedTagIds.length}
-                </Badge>
-              )}
-            </Button>
+            <button type="button" className="flex h-full items-center outline-none">
+              <span className="pl-2.5 text-muted-foreground">Sort</span>
+              <span className="mx-1.5 h-3.5 w-px bg-border" />
+              <span className="truncate text-brand-accent-text">{sortLabels[sortBy]}</span>
+              <ChevronDown className="mx-1.5 h-3 w-3 shrink-0 opacity-50" />
+            </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-56">
+          <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuRadioGroup value={sortBy} onValueChange={(v) => onSortChange(v as ShahadaSort)}>
+              <DropdownMenuRadioItem value="alphabetical" className="data-[state=checked]:[&_svg]:text-brand-accent-solid">A–Z</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="recent-shahada" className="data-[state=checked]:[&_svg]:text-brand-accent-solid">Recent shahada</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="oldest-shahada" className="data-[state=checked]:[&_svg]:text-brand-accent-solid">Oldest shahada</DropdownMenuRadioItem>
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
+      <div className="h-3.5 w-px bg-border/70" />
+
+      <div
+        className={cn(
+          'inline-flex h-7 items-center rounded-md border text-xs font-medium transition-colors',
+          isFiltered
+            ? 'border-border bg-muted/60 text-foreground hover:bg-muted'
+            : 'border-border bg-transparent text-muted-foreground hover:border-foreground/30 hover:text-foreground'
+        )}
+      >
+        {isFiltered && (
+          <button
+            type="button"
+            onClick={onClearTags}
+            className="flex h-full items-center pl-2 pr-1 text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        )}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button type="button" className="flex h-full items-center outline-none">
+              {isFiltered ? (
+                <>
+                  <span className="pl-1 text-muted-foreground">Tags</span>
+                  <span className="mx-1.5 h-3.5 w-px bg-border" />
+                  <span className="text-brand-accent-text">
+                    {selectedTagIds.length === 1 ? '1 tag' : `${selectedTagIds.length} tags`}
+                  </span>
+                  <ChevronDown className="mx-1.5 h-3 w-3 shrink-0 opacity-50" />
+                </>
+              ) : (
+                <span className="flex items-center gap-1.5 px-2.5">
+                  <ListFilter className="h-3 w-3 opacity-50" />
+                  Tags
+                </span>
+              )}
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
             <DropdownMenuLabel>Filter by tags</DropdownMenuLabel>
             <DropdownMenuSeparator />
             {availableTags.length === 0 ? (
@@ -830,19 +853,8 @@ function ShahadaListControls({
             )}
           </DropdownMenuContent>
         </DropdownMenu>
-
-        {isFiltered && (
-          <Button variant="ghost" size="sm" onClick={onClearTags} className="h-8 text-xs text-muted-foreground">
-            <X className="h-3.5 w-3.5" />
-            Clear filters
-          </Button>
-        )}
       </div>
-
-      <p className="text-xs text-muted-foreground">
-        Showing {visibleCount} of {totalCount} reverts who took the shahada with you
-      </p>
-    </div>
+    </>
   );
 }
 
@@ -1288,7 +1300,7 @@ export default function Home() {
               }
             >
               <Tabs value={activeScope} onValueChange={(v) => setActiveScope(v as 'assigned' | 'needs-assignment' | 'shahada')} className="gap-0">
-                <div className="border-b border-border bg-muted/20 px-4 pt-3">
+                <div className="flex items-center justify-between border-b border-border bg-muted/20 pl-4 pr-2 pt-3">
                   <TabsList variant="line">
                     <TabsTrigger value="assigned" className="group-data-[variant=line]/tabs-list:data-[state=active]:after:bg-brand-accent-solid">
                       Assigned to me
@@ -1300,6 +1312,30 @@ export default function Home() {
                       Shahada with me
                     </TabsTrigger>
                   </TabsList>
+                  {!isLoading && activeScope === 'assigned' && assignedReverts.length > 0 && (
+                    <div className="flex items-center gap-1">
+                      <RevertListControls
+                        sortBy={sortBy}
+                        onSortChange={setSortBy}
+                        availableTags={availableTags}
+                        selectedTagIds={selectedTagIds}
+                        onToggleTag={toggleTagFilter}
+                        onClearTags={() => setSelectedTagIds([])}
+                      />
+                    </div>
+                  )}
+                  {!isLoading && activeScope === 'shahada' && shahadaWithMe.length > 0 && (
+                    <div className="flex items-center gap-1">
+                      <ShahadaListControls
+                        sortBy={shahadaSortBy}
+                        onSortChange={setShahadaSortBy}
+                        availableTags={availableShahadaTags}
+                        selectedTagIds={selectedShahadaTagIds}
+                        onToggleTag={toggleShahadaTagFilter}
+                        onClearTags={() => setSelectedShahadaTagIds([])}
+                      />
+                    </div>
+                  )}
                 </div>
 
                 <TabsContent value="assigned" className="mt-0">
@@ -1308,40 +1344,16 @@ export default function Home() {
                   ) : assignedReverts.length === 0 ? (
                     <EmptyState message="You have no assigned reverts yet." />
                   ) : filteredAndSortedReverts.length === 0 ? (
-                    <>
-                      <RevertListControls
-                        sortBy={sortBy}
-                        onSortChange={setSortBy}
-                        availableTags={availableTags}
-                        selectedTagIds={selectedTagIds}
-                        onToggleTag={toggleTagFilter}
-                        onClearTags={() => setSelectedTagIds([])}
-                        visibleCount={0}
-                        totalCount={assignedReverts.length}
-                      />
-                      <EmptyState message="No reverts match your selected tags." />
-                    </>
+                    <EmptyState message="No reverts match your selected tags." />
                   ) : (
-                    <>
-                      <RevertListControls
-                        sortBy={sortBy}
-                        onSortChange={setSortBy}
-                        availableTags={availableTags}
-                        selectedTagIds={selectedTagIds}
-                        onToggleTag={toggleTagFilter}
-                        onClearTags={() => setSelectedTagIds([])}
-                        visibleCount={filteredAndSortedReverts.length}
-                        totalCount={assignedReverts.length}
+                    filteredAndSortedReverts.map(r => (
+                      <RevertRow
+                        key={r.id}
+                        revert={r}
+                        onClick={() => openUserPanel(r.id)}
+                        showCheckIn={isOverdueCheckIn(r.lastCheckIn)}
                       />
-                      {filteredAndSortedReverts.map(r => (
-                        <RevertRow
-                          key={r.id}
-                          revert={r}
-                          onClick={() => openUserPanel(r.id)}
-                          showCheckIn={isOverdueCheckIn(r.lastCheckIn)}
-                        />
-                      ))}
-                    </>
+                    ))
                   )}
                 </TabsContent>
 
@@ -1376,35 +1388,11 @@ export default function Home() {
                   ) : shahadaWithMe.length === 0 ? (
                     <EmptyState message="No reverts have taken shahada with you yet." />
                   ) : filteredAndSortedShahadas.length === 0 ? (
-                    <>
-                      <ShahadaListControls
-                        sortBy={shahadaSortBy}
-                        onSortChange={setShahadaSortBy}
-                        availableTags={availableShahadaTags}
-                        selectedTagIds={selectedShahadaTagIds}
-                        onToggleTag={toggleShahadaTagFilter}
-                        onClearTags={() => setSelectedShahadaTagIds([])}
-                        visibleCount={0}
-                        totalCount={shahadaWithMe.length}
-                      />
-                      <EmptyState message="No shahada reverts match your selected tags." />
-                    </>
+                    <EmptyState message="No shahada reverts match your selected tags." />
                   ) : (
-                    <>
-                      <ShahadaListControls
-                        sortBy={shahadaSortBy}
-                        onSortChange={setShahadaSortBy}
-                        availableTags={availableShahadaTags}
-                        selectedTagIds={selectedShahadaTagIds}
-                        onToggleTag={toggleShahadaTagFilter}
-                        onClearTags={() => setSelectedShahadaTagIds([])}
-                        visibleCount={filteredAndSortedShahadas.length}
-                        totalCount={shahadaWithMe.length}
-                      />
-                      {filteredAndSortedShahadas.map(r => (
-                        <ShahadaRow key={r.id} revert={r} onClick={() => openUserPanel(r.id)} />
-                      ))}
-                    </>
+                    filteredAndSortedShahadas.map(r => (
+                      <ShahadaRow key={r.id} revert={r} onClick={() => openUserPanel(r.id)} />
+                    ))
                   )}
                 </TabsContent>
               </Tabs>
