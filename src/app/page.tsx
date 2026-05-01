@@ -1274,7 +1274,7 @@ export default function Home() {
         <div className="grid lg:grid-cols-5 gap-4">
 
           {/* Left column — My Assigned Reverts */}
-          <div className="lg:col-span-3">
+          <div className="lg:col-span-3 min-w-0">
 
             <SectionCard
               title="My Reverts"
@@ -1304,20 +1304,23 @@ export default function Home() {
               }
             >
               <Tabs value={activeScope} onValueChange={(v) => setActiveScope(v as 'assigned' | 'needs-assignment' | 'shahada')} className="gap-0">
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-2 border-b border-border bg-muted/20 pl-4 pr-2 pt-3 pb-2">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-2 border-b border-border bg-muted/20 pl-4 pr-2 pt-3 pb-2 overflow-x-auto">
                   <TabsList variant="line">
                     <TabsTrigger value="assigned" className="group-data-[variant=line]/tabs-list:data-[state=active]:after:bg-brand-accent-solid">
-                      Assigned to me
+                      <span className="sm:hidden">Assigned</span>
+                      <span className="hidden sm:inline">Assigned to me</span>
                     </TabsTrigger>
                     <TabsTrigger value="needs-assignment" className="group-data-[variant=line]/tabs-list:data-[state=active]:after:bg-brand-accent-solid">
-                      Needs assignment
+                      <span className="sm:hidden">Unassigned</span>
+                      <span className="hidden sm:inline">Needs assignment</span>
                     </TabsTrigger>
                     <TabsTrigger value="shahada" className="group-data-[variant=line]/tabs-list:data-[state=active]:after:bg-brand-accent-solid">
-                      Shahada with me
+                      <span className="sm:hidden">Shahada</span>
+                      <span className="hidden sm:inline">Shahada with me</span>
                     </TabsTrigger>
                   </TabsList>
                   {!isLoading && activeScope === 'assigned' && assignedReverts.length > 0 && (
-                    <div className="ml-auto flex items-center gap-1">
+                    <div className="sm:ml-auto flex items-center gap-1">
                       <RevertListControls
                         sortBy={sortBy}
                         onSortChange={setSortBy}
@@ -1329,7 +1332,7 @@ export default function Home() {
                     </div>
                   )}
                   {!isLoading && activeScope === 'shahada' && shahadaWithMe.length > 0 && (
-                    <div className="ml-auto flex items-center gap-1">
+                    <div className="sm:ml-auto flex items-center gap-1">
                       <ShahadaListControls
                         sortBy={shahadaSortBy}
                         onSortChange={setShahadaSortBy}
@@ -1405,7 +1408,7 @@ export default function Home() {
           </div>
 
           {/* Right column — Recent Tickets + Stale Tickets */}
-          <div className="lg:col-span-2 flex flex-col gap-4">
+          <div className="lg:col-span-2 flex flex-col gap-4 min-w-0">
 
             <SectionCard
               title="My Recent Tickets"
