@@ -2,6 +2,7 @@
   "name": "reverts-dashboard",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "bun@1.1.44",
   "scripts": {
     "db:migrate": "drizzle-kit migrate",
     "dev": "bun --bun next dev",
