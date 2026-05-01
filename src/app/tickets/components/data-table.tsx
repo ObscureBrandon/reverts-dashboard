@@ -44,6 +44,12 @@ type MobileTicketRow = {
     displayAvatar: string | null;
   } | null;
   searchMatchedByParticipant?: boolean;
+  // Queue metadata — optional, present when returned from list API
+  queueState?: string | null;
+  isStale?: boolean;
+  lastOwnerMessageAt?: string | null;
+  lastStaffReplyAt?: string | null;
+  lastMessageAt?: string | null;
 };
 
 interface TicketsDataTableProps<TData, TValue> {
@@ -279,6 +285,12 @@ export function TicketsDataTable<TData extends MobileTicketRow, TValue>({
                         >
                           {getTicketStatusDescriptor(ticket.status).label}
                         </Badge>
+                        {ticket.queueState === 'stale' && (
+                          <Badge tone="danger" kind="status" emphasis="soft">Stale</Badge>
+                        )}
+                        {ticket.queueState === 'waiting_staff' && (
+                          <Badge tone="warning" kind="status" emphasis="soft">Waiting</Badge>
+                        )}
                       </div>
                       <span className="text-sm text-muted-foreground">
                         {ticket.messageCount} msgs

@@ -5,15 +5,19 @@ import {
     DropdownMenu,
     DropdownMenuCheckboxItem,
     DropdownMenuContent,
+    DropdownMenuLabel,
+    DropdownMenuRadioGroup,
+    DropdownMenuRadioItem,
+    DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-import { Loader2, Search, Settings2, X } from 'lucide-react';
+import { ChevronDown, Loader2, Plus, Search, Settings2, X } from 'lucide-react';
 import { useLayoutEffect, useRef, useState } from 'react';
 
 export type ViewPreset = 'all' | 'staff';
-export type QuickFilter = 'needs-support' | 'has-shahada' | 'has-support' | 'assigned-to-me';
+export type QuickFilter = 'needs-support' | 'needs-assignment' | 'overdue-check-in' | 'assigned-to-me';
 
 export type FilterState = {
   query: string;
@@ -21,6 +25,12 @@ export type FilterState = {
   relationToIslam: string;
   roleId: string;
   inGuild: string;
+  tagId: string;
+  assignedStaffId: string;
+  overdueCheckIn: string;
+  needsAssignment: string;
+  verified: string;
+  voiceVerified: string;
 };
 
 type ColumnOption = {
@@ -40,6 +50,8 @@ interface DataTableToolbarProps {
   columnOptions: ColumnOption[];
   onColumnVisibilityToggle: (columnId: string, visible: boolean) => void;
   isFetching?: boolean;
+  staffOptions?: Array<{ id: string; name: string }>;
+  tagOptions?: Array<{ id: number; name: string; emoji: string | null }>;
 }
 
 const viewPresets: { id: ViewPreset; label: string }[] = [
@@ -48,23 +60,128 @@ const viewPresets: { id: ViewPreset; label: string }[] = [
 ];
 
 const quickFilters: { id: QuickFilter; label: string; activeClassName: string }[] = [
-  { id: 'needs-support', label: 'Needs Support', activeClassName: 'border-status-danger-border bg-status-danger-soft text-status-danger-text' },
-  { id: 'has-shahada', label: 'Has Shahada', activeClassName: 'border-status-success-border bg-status-success-soft text-status-success-text' },
-  { id: 'has-support', label: 'Has Support', activeClassName: 'border-status-info-border bg-status-info-soft text-status-info-text' },
+  { id: 'needs-support', label: 'Open Support', activeClassName: 'border-status-danger-border bg-status-danger-soft text-status-danger-text' },
+  { id: 'needs-assignment', label: 'Needs Assignment', activeClassName: 'border-status-danger-border bg-status-danger-soft text-status-danger-text' },
+  { id: 'overdue-check-in', label: 'Overdue Check-in', activeClassName: 'border-status-warning-border bg-status-warning-soft text-status-warning-text' },
   { id: 'assigned-to-me', label: 'Assigned to Me', activeClassName: 'border-brand-accent-border bg-brand-accent-soft text-brand-accent-text' },
 ];
+
+// ============================================================================
+// Filter sheet helpers
+// ============================================================================
+
+const assignmentStatusOptions: Array<{ value: string; label: string }> = [
+  { value: 'OPEN', label: 'Open' },
+  { value: 'ON_HOLD', label: 'On Hold' },
+  { value: 'CLOSED', label: 'Closed' },
+];
+
+const relationOptions: Array<{ value: string; label: string }> = [
+  { value: 'Revert Muslim', label: 'Revert' },
+  { value: 'Born Muslim', label: 'Born Muslim' },
+  { value: 'Interested in Islam', label: 'Interested in Islam' },
+];
+
+const booleanOptions: Array<{ value: string; label: string }> = [
+  { value: 'true', label: 'Yes' },
+  { value: 'false', label: 'No' },
+];
+
+// ============================================================================
+// Inline filter dropdown
+// ============================================================================
+
+const RADIO_ITEM_CLASS = 'data-[state=checked]:[&_svg]:text-brand-accent-solid';
+
+function FilterDropdown({
+  label,
+  value,
+  options,
+  onValueChange,
+}: {
+  label: string;
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  onValueChange: (value: string) => void;
+}) {
+  const isActive = value !== 'all';
+  const activeLabel = isActive ? (options.find(o => o.value === value)?.label ?? value) : null;
+
+  return (
+    <div
+      className={cn(
+        'inline-flex h-7 items-center rounded-md border text-xs font-medium transition-colors',
+        isActive
+          ? 'border-border bg-muted/60 text-foreground hover:bg-muted'
+          : 'border-dashed border-border bg-transparent text-muted-foreground hover:border-foreground/30 hover:text-foreground'
+      )}
+    >
+      {/* Clear button — entirely outside the DropdownMenuTrigger */}
+      {isActive && (
+        <button
+          type="button"
+          onClick={() => onValueChange('all')}
+          className="flex h-full items-center pl-2 pr-1 text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <X className="h-3 w-3" />
+        </button>
+      )}
+
+      {/* Dropdown trigger — clicking opens picker */}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button type="button" className="flex h-full items-center outline-none">
+            {isActive ? (
+              <>
+                <span className="pl-1 text-muted-foreground">{label}</span>
+                <span className="mx-1.5 h-3.5 w-px bg-border" />
+                <span className="max-w-[120px] truncate text-brand-accent-text">{activeLabel}</span>
+                <ChevronDown className="mx-1.5 h-3 w-3 shrink-0 opacity-50" />
+              </>
+            ) : (
+              <span className="flex items-center gap-1.5 px-2.5">
+                <Plus className="h-3 w-3 opacity-50" />
+                {label}
+              </span>
+            )}
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="min-w-40">
+          <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">{label}</DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuRadioGroup value={value} onValueChange={onValueChange}>
+            <DropdownMenuRadioItem value="all" className={RADIO_ITEM_CLASS}>Any</DropdownMenuRadioItem>
+            {options.map((opt) => (
+              <DropdownMenuRadioItem key={opt.value} value={opt.value} className={RADIO_ITEM_CLASS}>
+                {opt.label}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+}
+
+// ============================================================================
+// Column labels
+// ============================================================================
 
 const columnLabels: Record<string, string> = {
   user: 'User',
   relationToIslam: 'Relation to Islam',
   status: 'Status',
-  currentAssignmentStatus: 'Assignment',
+  currentAssignmentStatus: 'Support State',
   attention: 'Attention',
   topRoles: 'Roles',
   createdAt: 'Joined',
   superviseeCount: 'Supporting',
   supervisees: 'Supervisees',
 };
+
+// ============================================================================
+// Main toolbar
+// ============================================================================
 
 export function DataTableToolbar({
   filters,
@@ -77,8 +194,9 @@ export function DataTableToolbar({
   columnOptions,
   onColumnVisibilityToggle,
   isFetching,
+  staffOptions = [],
+  tagOptions = [],
 }: DataTableToolbarProps) {
-  // Track which filter was last clicked to show spinner only on that button
   const [pendingFilter, setPendingFilter] = useState<QuickFilter | null>(null);
 
   // Refs for measuring tab positions for sliding underline
@@ -86,12 +204,11 @@ export function DataTableToolbar({
   const tabLabelRefs = useRef<(HTMLSpanElement | null)[]>([]);
   const [underlineStyle, setUnderlineStyle] = useState({ left: 0, width: 0 });
 
-  // Update underline position when active view changes
   useLayoutEffect(() => {
     const activeIndex = viewPresets.findIndex(p => p.id === activeView);
     const activeLabel = tabLabelRefs.current[activeIndex];
     const container = tabsContainerRef.current;
-    
+
     if (activeLabel && container) {
       const containerRect = container.getBoundingClientRect();
       const labelRect = activeLabel.getBoundingClientRect();
@@ -107,11 +224,21 @@ export function DataTableToolbar({
     onQuickFilterToggle(filter);
   };
 
-  const hasActiveFilters = 
+  const update = (key: keyof FilterState, value: string) => {
+    onFiltersChange({ ...filters, [key]: value });
+  };
+
+  const hasActiveFilters =
     filters.assignmentStatus !== 'all' ||
     filters.relationToIslam !== 'all' ||
     filters.roleId !== 'all' ||
     filters.inGuild !== 'all' ||
+    filters.tagId !== 'all' ||
+    filters.assignedStaffId !== 'all' ||
+    filters.overdueCheckIn !== 'all' ||
+    filters.needsAssignment !== 'all' ||
+    filters.verified !== 'all' ||
+    filters.voiceVerified !== 'all' ||
     activeQuickFilters.size > 0;
 
   const clearAllFilters = () => {
@@ -121,15 +248,26 @@ export function DataTableToolbar({
       relationToIslam: 'all',
       roleId: 'all',
       inGuild: 'all',
+      tagId: 'all',
+      assignedStaffId: 'all',
+      overdueCheckIn: 'all',
+      needsAssignment: 'all',
+      verified: 'all',
+      voiceVerified: 'all',
     });
-    // Clear quick filters by toggling them off
     activeQuickFilters.forEach(filter => onQuickFilterToggle(filter));
   };
 
+  const staffOptionsForDropdown = staffOptions.map(s => ({ value: s.id, label: s.name }));
+  const tagOptionsForDropdown = tagOptions.map(t => ({
+    value: String(t.id),
+    label: t.emoji ? `${t.emoji} ${t.name}` : t.name,
+  }));
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {/* View Preset Tabs */}
-      <div ref={tabsContainerRef} className="flex items-center gap-6 relative">
+      <div ref={tabsContainerRef} className="relative flex items-center gap-6">
         {viewPresets.map((preset, index) => (
           <button
             key={preset.id}
@@ -146,31 +284,28 @@ export function DataTableToolbar({
           </button>
         ))}
         <span className="absolute bottom-0 left-0 right-0 h-px bg-border" />
-        {/* Sliding underline */}
-        <span 
+        <span
           className="absolute bottom-0 z-10 h-0.5 rounded-full bg-brand-accent-solid transition-all duration-300 ease-out"
-          style={{
-            left: underlineStyle.left,
-            width: underlineStyle.width,
-          }}
+          style={{ left: underlineStyle.left, width: underlineStyle.width }}
         />
       </div>
-      {/* Search, Quick Filters and Column Toggle Row */}
-      <div className="flex items-center gap-4 flex-wrap">
+
+      {/* Search + Quick Filters + Actions Row */}
+      <div className="flex flex-wrap items-center gap-3">
         {/* Search */}
-        <div className="relative flex-1 min-w-[200px] max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <div className="relative min-w-[200px] max-w-sm flex-1">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="Search by name..."
             value={filters.query}
             onChange={(e) => onSearch(e.target.value)}
-            className="pl-9 bg-background h-9"
+            className="h-9 bg-background pl-9"
           />
         </div>
 
-        {/* Quick Filter Chips - only show for non-staff views */}
+        {/* Quick Filter Chips */}
         {activeView !== 'staff' && (
-          <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-2 sm:flex-wrap">
+          <div className="flex flex-wrap items-center gap-2">
             {quickFilters.map((filter) => {
               const isActive = activeQuickFilters.has(filter.id);
               const isPending = pendingFilter === filter.id && isFetching;
@@ -189,7 +324,7 @@ export function DataTableToolbar({
                     isPending ? (
                       <Loader2 className="h-3 w-3 animate-spin" />
                     ) : (
-                      <span className="w-1.5 h-1.5 rounded-full bg-current" />
+                      <span className="h-1.5 w-1.5 rounded-full bg-current" />
                     )
                   )}
                   {filter.label}
@@ -199,8 +334,8 @@ export function DataTableToolbar({
           </div>
         )}
 
-        <div className="flex items-center gap-2 sm:ml-auto">
-          {/* Column visibility toggle */}
+        {/* Right side: Columns + Clear all */}
+        <div className="ml-auto flex items-center gap-2">
           <DropdownMenu modal={false}>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm" className="h-9 gap-1.5">
@@ -221,20 +356,67 @@ export function DataTableToolbar({
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {/* Clear All */}
           {hasActiveFilters && (
             <Button
               variant="ghost"
               size="sm"
               onClick={clearAllFilters}
-              className="text-muted-foreground hover:text-foreground h-9"
+              className="h-9 text-muted-foreground hover:text-foreground"
             >
-              <X className="h-3.5 w-3.5 mr-1" />
+              <X className="mr-1 h-3.5 w-3.5" />
               Clear all
             </Button>
           )}
         </div>
       </div>
+
+      {/* Inline Filter Bar — always visible for users view */}
+      {activeView !== 'staff' && (
+        <div className="flex flex-wrap items-center gap-2">
+          <FilterDropdown
+            label="Relation"
+            value={filters.relationToIslam}
+            options={relationOptions}
+            onValueChange={(v) => update('relationToIslam', v)}
+          />
+          <FilterDropdown
+            label="Support State"
+            value={filters.assignmentStatus}
+            options={assignmentStatusOptions}
+            onValueChange={(v) => update('assignmentStatus', v)}
+          />
+          <FilterDropdown
+            label="Assigned Staff"
+            value={filters.assignedStaffId}
+            options={staffOptionsForDropdown}
+            onValueChange={(v) => update('assignedStaffId', v)}
+          />
+          <FilterDropdown
+            label="Tag"
+            value={filters.tagId}
+            options={tagOptionsForDropdown}
+            onValueChange={(v) => update('tagId', v)}
+          />
+          <FilterDropdown
+            label="In Guild"
+            value={filters.inGuild}
+            options={booleanOptions}
+            onValueChange={(v) => update('inGuild', v)}
+          />
+          <FilterDropdown
+            label="Verified"
+            value={filters.verified}
+            options={booleanOptions}
+            onValueChange={(v) => update('verified', v)}
+          />
+          <FilterDropdown
+            label="Voice Verified"
+            value={filters.voiceVerified}
+            options={booleanOptions}
+            onValueChange={(v) => update('voiceVerified', v)}
+          />
+        </div>
+      )}
     </div>
   );
 }

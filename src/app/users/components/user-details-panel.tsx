@@ -2,21 +2,38 @@
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAddCheckIn } from '@/lib/hooks/mutations/useAddCheckIn';
+import { useClaimAssignment, useTransferAssignment, useUnassignUser, useUpdateSupportState } from '@/lib/hooks/mutations/useAssignmentMutations';
+import { useStartCheckInTicket } from '@/lib/hooks/mutations/useStartCheckInTicket';
 import { useAssignTag, useCreateTag, useRemoveTag } from '@/lib/hooks/mutations/useTagMutations';
 import { useCheckIns } from '@/lib/hooks/queries/useCheckIns';
+import { useAddSupervisorNote } from '@/lib/hooks/mutations/useSupervisorNoteMutations';
 import { useRevertTags } from '@/lib/hooks/queries/useRevertTags';
 import { type UserDetails } from '@/lib/hooks/queries/useUserDetails';
 import { useUserTags } from '@/lib/hooks/queries/useUserTags';
+import { useUserRole } from '@/lib/hooks/queries/useUserRole';
 import {
+  REVERT_TAG_CATEGORY_VALUES,
+  SUPPORT_STATE_REASON_LABELS,
+  SUPPORT_STATE_REASONS_BY_STATE,
+  SUPPORT_STATE_VALUES,
+  type RevertTagCategoryValue,
+  type SupportStateReasonValue,
+  type SupportStateValue,
+} from '@/lib/revert-support';
+import {
+  formatStatusLabel,
   getAssignmentStatusDescriptor,
   getTicketStatusDescriptor,
   getUserAttributeStatusDescriptor,
 } from '@/lib/status-system';
-import { cn, formatRelativeTime, roleColorToHex } from '@/lib/utils';
+import { isRevertLikeRelation } from '@/lib/revert-status';
+import { cn, formatRelativeTime, getErrorMessage, roleColorToHex } from '@/lib/utils';
 import {
     AlertTriangle,
+    ArrowLeftRight,
     Ban,
     Calendar,
     Check,
@@ -24,8 +41,10 @@ import {
     ChevronRight,
     Clock,
     Copy,
+    ExternalLink,
     Globe,
     Heart,
+    Loader2,
     Mars,
     MessageSquare,
     Mic,
@@ -41,6 +60,7 @@ import {
     Timer,
     User,
     UserMinus,
+    UserPlus,
     UserX,
     Users,
     Venus,
@@ -48,6 +68,7 @@ import {
     X,
 } from 'lucide-react';
 import { useCallback, useState } from 'react';
+  import { toast } from 'sonner';
 import { getCheckInAgeDays, isOverdueCheckIn } from './workspace-signals';
 
 // ============================================================================
@@ -70,6 +91,18 @@ function getInitials(name: string | null | undefined): string {
     .join('')
     .toUpperCase()
     .slice(0, 2);
+}
+
+function openDiscordLink(discordUrl: string) {
+  window.location.assign(discordUrl.replace(/^https:\/\//, 'discord://'));
+}
+
+function getTicketInlineLabel(outcome: string): string {
+  return outcome === 'created' ? 'Ticket opened' : 'Already open';
+}
+
+function getTicketToastTitle(outcome: string): string {
+  return outcome === 'created' ? 'Check-in ticket created' : 'Open check-in ticket found';
 }
 
 // ============================================================================
@@ -97,7 +130,7 @@ function CollapsibleSection({
     <div className="border-b border-border last:border-b-0">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/50 transition-colors min-h-[44px]"
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/50 transition-colors min-h-11"
       >
         <div className="flex items-center gap-2 text-sm font-medium text-foreground">
           <span className="text-muted-foreground">{icon}</span>
@@ -207,7 +240,7 @@ function UserDetailsSkeleton({ isMobile = false }: { isMobile?: boolean }) {
           <div>
             {['Profile', 'Roles', 'Revert Journey', 'Supervisor Notes', 'Moderation', 'Tickets'].map((section, i) => (
               <div key={i} className="border-b border-border last:border-b-0">
-                <div className="flex min-h-[44px] w-full items-center justify-between px-4 py-3">
+                <div className="flex min-h-11 w-full items-center justify-between px-4 py-3">
                   <div className="flex items-center gap-2">
                     <Skeleton className="h-4 w-4" />
                     <Skeleton className="h-4 w-20" />
@@ -249,7 +282,7 @@ function UserDetailsSkeleton({ isMobile = false }: { isMobile?: boolean }) {
       <div className="flex-1 overflow-y-auto overscroll-contain">
         {['Profile', 'Roles', 'Revert Journey', 'Supervisor Notes', 'Moderation', 'Tickets'].map((section, i) => (
           <div key={i} className="border-b border-border last:border-b-0">
-            <div className="w-full flex items-center justify-between px-4 py-3 min-h-[44px]">
+            <div className="w-full flex items-center justify-between px-4 py-3 min-h-11">
               <div className="flex items-center gap-2">
                 <Skeleton className="h-4 w-4" />
                 <Skeleton className="h-4 w-20" />
@@ -271,6 +304,269 @@ function UserDetailsSkeleton({ isMobile = false }: { isMobile?: boolean }) {
 }
 
 // ============================================================================
+// Supervision Actions Row
+// ============================================================================
+
+const ASSIGNMENT_STATUSES = SUPPORT_STATE_VALUES;
+type AssignmentStatusChoice = SupportStateValue;
+
+const REASONS_BY_STATE: Record<AssignmentStatusChoice, { value: SupportStateReasonValue; label: string }[]> = {
+  OPEN: SUPPORT_STATE_REASONS_BY_STATE.OPEN.map((value) => ({ value, label: SUPPORT_STATE_REASON_LABELS[value] })),
+  ON_HOLD: SUPPORT_STATE_REASONS_BY_STATE.ON_HOLD.map((value) => ({ value, label: SUPPORT_STATE_REASON_LABELS[value] })),
+  CLOSED: SUPPORT_STATE_REASONS_BY_STATE.CLOSED.map((value) => ({ value, label: SUPPORT_STATE_REASON_LABELS[value] })),
+};
+
+function compareTagPresentation(
+  left: { kind: 'system' | 'custom'; name: string },
+  right: { kind: 'system' | 'custom'; name: string }
+) {
+  if (left.kind !== right.kind) {
+    return left.kind === 'system' ? -1 : 1;
+  }
+
+  return left.name.localeCompare(right.name);
+}
+
+function SupervisionActionsRow({
+  userId,
+  isRevertLike,
+  activeSupervisors,
+}: {
+  userId: string;
+  isRevertLike: boolean;
+  activeSupervisors: UserDetails['supervisors'];
+}) {
+  const { discordId } = useUserRole();
+  const claimAssignment = useClaimAssignment();
+  const transferAssignment = useTransferAssignment();
+  const unassignUser = useUnassignUser();
+  const updateSupportState = useUpdateSupportState();
+
+  const [showUnassignForm, setShowUnassignForm] = useState(false);
+  const [unassignStatus, setUnassignStatus] = useState<AssignmentStatusChoice>('CLOSED');
+  const [unassignReason, setUnassignReason] = useState<string | undefined>(undefined);
+  const [unassignNote, setUnassignNote] = useState('');
+
+  const [showStateForm, setShowStateForm] = useState(false);
+  const [stateFormStatus, setStateFormStatus] = useState<AssignmentStatusChoice>('OPEN');
+  const [stateFormReason, setStateFormReason] = useState<string | undefined>(undefined);
+
+  if (!isRevertLike) return null;
+
+  const activeSup = activeSupervisors.find(s => s.active) ?? null;
+  const isAssigned = !!activeSup;
+  const isAssignedToMe = activeSup?.supervisor?.id === discordId;
+  const isPending = claimAssignment.isPending || transferAssignment.isPending || unassignUser.isPending || updateSupportState.isPending;
+
+  function handleClaim() {
+    claimAssignment.mutate(userId, {
+      onSuccess: () => toast.success('Assignment claimed', { duration: 4000 }),
+      onError: (e) => toast.error('Failed to claim assignment', { description: getErrorMessage(e, 'Unknown error') }),
+    });
+  }
+
+  function handleTakeOver() {
+    if (!discordId) return;
+    transferAssignment.mutate({ userId, supervisorId: discordId }, {
+      onSuccess: () => toast.success('Assignment transferred to you', { duration: 4000 }),
+      onError: (e) => toast.error('Failed to transfer assignment', { description: getErrorMessage(e, 'Unknown error') }),
+    });
+  }
+
+  function handleUpdateState() {
+    updateSupportState.mutate(
+      { userId, nextState: stateFormStatus, reason: stateFormReason },
+      {
+        onSuccess: () => {
+          toast.success('Support state updated', { duration: 4000 });
+          setShowStateForm(false);
+          setStateFormReason(undefined);
+        },
+        onError: (e) => toast.error('Failed to update state', { description: getErrorMessage(e, 'Unknown error') }),
+      },
+    );
+  }
+
+  function handleUnassign() {
+    unassignUser.mutate(
+      { userId, nextState: unassignStatus, reason: unassignReason, note: unassignNote.trim() || undefined },
+      {
+        onSuccess: () => {
+          toast.success('User unassigned', { duration: 4000 });
+          setShowUnassignForm(false);
+          setUnassignNote('');
+          setUnassignReason(undefined);
+        },
+        onError: (e) => toast.error('Failed to unassign', { description: getErrorMessage(e, 'Unknown error') }),
+      },
+    );
+  }
+
+  return (
+    <div className="border-b border-border bg-muted/20 px-4 py-3 space-y-2">
+      <div className="flex flex-wrap gap-2">
+        {!isAssigned && (
+          <Button size="sm" variant="outline" onClick={handleClaim} disabled={isPending}>
+            {claimAssignment.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserPlus className="h-3.5 w-3.5" />}
+            Assign to me
+          </Button>
+        )}
+        {isAssigned && isAssignedToMe && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setShowUnassignForm(v => !v)}
+            disabled={isPending}
+          >
+            <UserMinus className="h-3.5 w-3.5" />
+            Unassign
+          </Button>
+        )}
+        {isAssigned && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setShowStateForm(v => !v)}
+            disabled={isPending}
+          >
+            Change state
+          </Button>
+        )}
+        {isAssigned && !isAssignedToMe && (
+          <Button size="sm" variant="outline" onClick={handleTakeOver} disabled={isPending}>
+            {transferAssignment.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowLeftRight className="h-3.5 w-3.5" />}
+            Take over
+          </Button>
+        )}
+      </div>
+
+      {showUnassignForm && (
+        <div className="rounded-lg border border-border bg-background p-3 space-y-3">
+          <p className="text-xs font-medium text-muted-foreground">Select next support state</p>
+          <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+            {ASSIGNMENT_STATUSES.map(s => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => { setUnassignStatus(s); setUnassignReason(undefined); }}
+                className={cn(
+                  'text-xs px-2 py-1.5 rounded border transition-colors',
+                  unassignStatus === s
+                    ? 'border-primary/50 bg-primary/10 text-primary font-medium'
+                    : 'border-border bg-muted text-muted-foreground hover:bg-muted/70',
+                )}
+              >
+                {getAssignmentStatusDescriptor(s).label}
+              </button>
+            ))}
+          </div>
+          {REASONS_BY_STATE[unassignStatus].length > 0 && (
+            <div className="space-y-1.5">
+              <p className="text-xs text-muted-foreground">Reason (optional)</p>
+              <div className="flex flex-wrap gap-1.5">
+                {REASONS_BY_STATE[unassignStatus].map(r => (
+                  <button
+                    key={r.value}
+                    type="button"
+                    onClick={() => setUnassignReason(unassignReason === r.value ? undefined : r.value)}
+                    className={cn(
+                      'text-xs px-2 py-1 rounded border transition-colors',
+                      unassignReason === r.value
+                        ? 'border-primary/50 bg-primary/10 text-primary font-medium'
+                        : 'border-border bg-muted text-muted-foreground hover:bg-muted/70',
+                    )}
+                  >
+                    {r.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          <textarea
+            placeholder="Optional note…"
+            value={unassignNote}
+            onChange={e => setUnassignNote(e.target.value)}
+            rows={2}
+            className="w-full text-sm bg-muted rounded px-2.5 py-2 outline-none placeholder:text-muted-foreground resize-none"
+          />
+          <div className="flex gap-2">
+            <Button size="sm" onClick={handleUnassign} disabled={unassignUser.isPending}>
+              {unassignUser.isPending ? 'Unassigning…' : 'Confirm unassign'}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => { setShowUnassignForm(false); setUnassignNote(''); setUnassignReason(undefined); }}
+              disabled={unassignUser.isPending}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {showStateForm && (
+        <div className="rounded-lg border border-border bg-background p-3 space-y-3">
+          <p className="text-xs font-medium text-muted-foreground">Update support state</p>
+          <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+            {ASSIGNMENT_STATUSES.map(s => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => { setStateFormStatus(s); setStateFormReason(undefined); }}
+                className={cn(
+                  'text-xs px-2 py-1.5 rounded border transition-colors',
+                  stateFormStatus === s
+                    ? 'border-primary/50 bg-primary/10 text-primary font-medium'
+                    : 'border-border bg-muted text-muted-foreground hover:bg-muted/70',
+                )}
+              >
+                {getAssignmentStatusDescriptor(s).label}
+              </button>
+            ))}
+          </div>
+          {REASONS_BY_STATE[stateFormStatus].length > 0 && (
+            <div className="space-y-1.5">
+              <p className="text-xs text-muted-foreground">Reason (optional)</p>
+              <div className="flex flex-wrap gap-1.5">
+                {REASONS_BY_STATE[stateFormStatus].map(r => (
+                  <button
+                    key={r.value}
+                    type="button"
+                    onClick={() => setStateFormReason(stateFormReason === r.value ? undefined : r.value)}
+                    className={cn(
+                      'text-xs px-2 py-1 rounded border transition-colors',
+                      stateFormReason === r.value
+                        ? 'border-primary/50 bg-primary/10 text-primary font-medium'
+                        : 'border-border bg-muted text-muted-foreground hover:bg-muted/70',
+                    )}
+                  >
+                    {r.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          <div className="flex gap-2">
+            <Button size="sm" onClick={handleUpdateState} disabled={updateSupportState.isPending}>
+              {updateSupportState.isPending ? 'Saving…' : 'Save'}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => { setShowStateForm(false); setStateFormReason(undefined); }}
+              disabled={updateSupportState.isPending}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
 // User Header Component
 // ============================================================================
 
@@ -288,8 +584,7 @@ function UserHeader({ user }: UserHeaderProps) {
   }, [user.id]);
 
   const displayName = user.displayName || user.name || 'Unknown';
-  const relationIsRevert = user.relationToIslam?.toLowerCase().includes('revert') ||
-    user.relationToIslam?.toLowerCase().includes('convert');
+  const relationIsRevert = isRevertLikeRelation(user.relationToIslam);
 
   return (
     <div className="p-4 border-b border-border sticky top-0 bg-background z-10">
@@ -507,7 +802,6 @@ function RevertJourneySection({
   assignmentHistory: UserDetails['assignmentHistory'];
   supervisors: UserDetails['supervisors'];
 }) {
-  const currentAssignment = assignmentHistory.find((a) => a.active);
   const activeSupervisors = supervisors.filter((s) => s.active);
   const hasShahada = shahadas.length > 0;
 
@@ -539,29 +833,6 @@ function RevertJourneySection({
         </div>
       )}
 
-      {/* Current Assignment Status */}
-      {currentAssignment && (
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">Current Status</span>
-            <AssignmentStatusBadge status={currentAssignment.status} />
-          </div>
-          {currentAssignment.priority > 0 && (
-            <div className="flex items-center gap-1.5 text-sm text-amber-600 dark:text-amber-400">
-              <Star className="h-3.5 w-3.5" />
-              Priority: {currentAssignment.priority}
-            </div>
-          )}
-          {currentAssignment.notes && (
-            <p className="text-sm text-muted-foreground bg-muted/50 rounded-md p-2">
-              {currentAssignment.notes}
-            </p>
-          )}
-        </div>
-      )}
-
-      {/* Note: Supervision Needs replaced by the Tags section below */}
-
       {/* Active Supervisors */}
       {activeSupervisors.length > 0 && (
         <div className="space-y-2">
@@ -580,8 +851,51 @@ function RevertJourneySection({
         </div>
       )}
 
+      {/* Assignment History */}
+      {assignmentHistory.length > 0 && (
+        <div className="space-y-2">
+          <span className="text-sm font-medium">Assignment History</span>
+          <div className="space-y-2">
+            {assignmentHistory.map((entry) => (
+              <div key={entry.id} className="rounded-md border border-border/50 p-2.5 space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <AssignmentStatusBadge status={entry.status} />
+                    {entry.reason && (
+                      <span className="text-xs text-muted-foreground">{formatStatusLabel(entry.reason)}</span>
+                    )}
+                    {entry.active && (
+                      <span className="text-xs text-muted-foreground">Current</span>
+                    )}
+                  </div>
+                  <span className="text-xs text-muted-foreground shrink-0">{formatRelativeTime(entry.createdAt)}</span>
+                </div>
+                {entry.priority > 0 && (
+                  <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                    <Star className="h-3 w-3" />
+                    Priority: {entry.priority}
+                  </div>
+                )}
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <MiniAvatar
+                    src={entry.addedBy?.avatar}
+                    name={entry.addedBy?.displayName || entry.addedBy?.name}
+                  />
+                  <span>{entry.addedBy?.displayName || entry.addedBy?.name || 'Unknown'}</span>
+                </div>
+                {entry.notes && (
+                  <p className="text-xs text-muted-foreground border-l-2 border-border pl-2">
+                    {entry.notes}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Empty state */}
-      {!hasShahada && !currentAssignment && activeSupervisors.length === 0 && (
+      {!hasShahada && assignmentHistory.length === 0 && activeSupervisors.length === 0 && (
         <p className="text-sm text-muted-foreground">No revert journey information</p>
       )}
     </div>
@@ -625,7 +939,7 @@ function TagsSection({ userId }: { userId: string }) {
   const [newName, setNewName] = useState('');
   const [newColor, setNewColor] = useState(TAG_COLORS[0]);
   const [newEmoji, setNewEmoji] = useState('');
-  const [newCategory, setNewCategory] = useState('');
+  const [newCategory, setNewCategory] = useState<RevertTagCategoryValue | ''>('');
   const [newNote, setNewNote] = useState('');
 
   // Remove state
@@ -633,12 +947,14 @@ function TagsSection({ userId }: { userId: string }) {
   const [removeId, setRemoveId] = useState<number | null>(null);
   const [removalNote, setRemovalNote] = useState('');
 
-  const activeTags = tagsData?.activeTags || [];
+  const activeTags = [...(tagsData?.activeTags || [])].sort(compareTagPresentation);
   const history = tagsData?.history || [];
   const resolvedHistory = history.filter(h => h.removedAt);
 
   const activeTagIds = new Set(activeTags.map(t => t.tagId));
-  const availableTags = (allTagsData || []).filter(t => !activeTagIds.has(t.id));
+  const availableTags = (allTagsData || [])
+    .filter(t => !activeTagIds.has(t.id))
+    .sort(compareTagPresentation);
   const filteredTags = availableTags.filter(t =>
     t.name.toLowerCase().includes(pickerSearch.toLowerCase()) ||
     (t.category || '').toLowerCase().includes(pickerSearch.toLowerCase())
@@ -650,10 +966,7 @@ function TagsSection({ userId }: { userId: string }) {
     return acc;
   }, {} as Record<string, typeof filteredTags>);
 
-  // Derive existing categories for suggestions
-  const existingCategories = Array.from(
-    new Set((allTagsData || []).map(t => t.category).filter(Boolean) as string[])
-  ).sort();
+  const availableCategories = REVERT_TAG_CATEGORY_VALUES;
 
   const showCreateOption = pickerSearch.trim().length > 0 && !creating;
 
@@ -723,6 +1036,7 @@ function TagsSection({ userId }: { userId: string }) {
           <span
             key={tag.assignmentId}
             className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full text-xs font-medium"
+            title={tag.kind === 'system' ? 'System tag' : 'Custom tag'}
             style={{
               backgroundColor: `${tag.color}22`,
               color: tag.color,
@@ -766,7 +1080,7 @@ function TagsSection({ userId }: { userId: string }) {
               <>
                 <span className="text-muted-foreground" title="Color">
                   <span
-                    className="inline-block h-3 w-3 rounded-full flex-shrink-0"
+                    className="inline-block h-3 w-3 rounded-full shrink-0"
                     style={{ backgroundColor: newColor }}
                   />
                 </span>
@@ -808,7 +1122,7 @@ function TagsSection({ userId }: { userId: string }) {
                     <button
                       key={c}
                       onClick={() => setNewColor(c)}
-                      className="h-6 w-6 rounded-full transition-transform hover:scale-110 flex-shrink-0"
+                      className="h-6 w-6 rounded-full transition-transform hover:scale-110 shrink-0"
                       style={{
                         backgroundColor: c,
                         outline: newColor === c ? `2px solid ${c}` : 'none',
@@ -818,7 +1132,7 @@ function TagsSection({ userId }: { userId: string }) {
                     />
                   ))}
                   {/* Custom hex */}
-                  <label className="h-6 w-6 rounded-full border-2 border-dashed border-border flex items-center justify-center cursor-pointer text-muted-foreground hover:border-foreground transition-colors flex-shrink-0" title="Custom color">
+                  <label className="h-6 w-6 rounded-full border-2 border-dashed border-border flex items-center justify-center cursor-pointer text-muted-foreground hover:border-foreground transition-colors shrink-0" title="Custom color">
                     <Plus className="h-3 w-3" />
                     <input
                       type="color"
@@ -847,32 +1161,24 @@ function TagsSection({ userId }: { userId: string }) {
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Category</label>
-                  <input
-                    value={newCategory}
-                    onChange={e => setNewCategory(e.target.value)}
-                    placeholder="e.g. Learning"
-                    className="w-full text-sm bg-muted rounded px-2 py-1.5 outline-none placeholder:text-muted-foreground"
-                  />
+                  <div className="flex flex-wrap gap-1 rounded bg-muted p-1">
+                    {availableCategories.map(category => (
+                      <button
+                        key={category}
+                        onClick={() => setNewCategory(newCategory === category ? '' : category)}
+                        className={cn(
+                          'text-[11px] px-2 py-1 rounded-full border transition-colors',
+                          newCategory === category
+                            ? 'border-primary/50 bg-primary/10 text-primary'
+                            : 'border-transparent text-muted-foreground hover:bg-background'
+                        )}
+                      >
+                        {formatStatusLabel(category)}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
-              {existingCategories.length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                  {existingCategories.map(cat => (
-                    <button
-                      key={cat}
-                      onClick={() => setNewCategory(cat)}
-                      className={cn(
-                        'text-[11px] px-2 py-0.5 rounded-full border transition-colors',
-                        newCategory === cat
-                          ? 'border-primary/50 bg-primary/10 text-primary'
-                          : 'border-border bg-muted text-muted-foreground hover:bg-muted/70'
-                      )}
-                    >
-                      {cat}
-                    </button>
-                  ))}
-                </div>
-              )}
 
               {/* Assign note */}
               <div>
@@ -921,7 +1227,7 @@ function TagsSection({ userId }: { userId: string }) {
               {Object.entries(grouped).map(([cat, tags]) => (
                 <div key={cat}>
                   <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-muted/50">
-                    {cat}
+                    {formatStatusLabel(cat)}
                   </div>
                   {tags.map(tag => (
                     <button
@@ -932,10 +1238,15 @@ function TagsSection({ userId }: { userId: string }) {
                         selectedTagId === tag.id && 'bg-muted'
                       )}
                     >
-                      <span className="h-3 w-3 rounded-full flex-shrink-0" style={{ backgroundColor: tag.color }} />
+                      <span className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: tag.color }} />
                       {tag.emoji && <span>{tag.emoji}</span>}
                       <span className="flex-1 text-left">{tag.name}</span>
-                      {tag.category && <span className="text-[10px] text-muted-foreground">{tag.category}</span>}
+                      {tag.kind === 'system' && (
+                        <Badge tone="info" kind="meta" emphasis="outline" className="h-5 px-1.5 text-[10px]">
+                          System
+                        </Badge>
+                      )}
+                      {tag.category && <span className="text-[10px] text-muted-foreground">{formatStatusLabel(tag.category)}</span>}
                       {selectedTagId === tag.id && <Check className="h-3.5 w-3.5 text-primary" />}
                     </button>
                   ))}
@@ -968,7 +1279,7 @@ function TagsSection({ userId }: { userId: string }) {
                 <button
                   onClick={() => handleAssign(selectedTagId)}
                   disabled={assignTag.isPending}
-                  className="flex-1 text-xs py-1.5 bg-emerald-600 text-white rounded hover:bg-emerald-700 transition-colors disabled:opacity-50"
+                  className="flex-1 text-xs py-1.5 rounded font-medium bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50"
                 >
                   {assignTag.isPending ? 'Assigning…' : 'Assign Tag'}
                 </button>
@@ -978,21 +1289,12 @@ function TagsSection({ userId }: { userId: string }) {
               </div>
             </div>
           )}
-
-          {/* Empty / cancel footer */}
-          {!creating && selectedTagId === null && (
-            <div className="px-3 py-2 border-t border-border flex justify-end">
-              <button onClick={closePicker} className="text-xs text-muted-foreground hover:text-foreground transition-colors">
-                Close
-              </button>
-            </div>
-          )}
         </div>
       )}
 
       {/* Remove confirmation */}
       {removeId !== null && (
-        <div className="border border-border rounded-lg p-3 bg-muted/40 space-y-2">
+        <div className="border border-border rounded-lg bg-muted/30 p-3 space-y-3">
           <p className="text-sm font-medium text-foreground">Remove this tag?</p>
           <input
             placeholder="Optional reason…"
@@ -1062,13 +1364,22 @@ function TagsSection({ userId }: { userId: string }) {
 // Check-ins Section
 // ============================================================================
 
-function CheckInsSection({ userId }: { userId: string }) {
+type TicketActionState =
+  | { status: 'idle' }
+  | { status: 'pending' }
+  | { status: 'success'; discordUrl: string; outcome: string }
+  | { status: 'error'; message: string };
+
+function CheckInsSection({ userId, displayName, openCheckInTicketId }: { userId: string; displayName: string; openCheckInTicketId: number | null }) {
   const { data: checkIns, isLoading } = useCheckIns(userId);
   const addCheckIn = useAddCheckIn();
+  const startTicket = useStartCheckInTicket();
 
   const [showForm, setShowForm] = useState(false);
   const [method, setMethod] = useState('Ticket');
   const [summary, setSummary] = useState('');
+  const [ticketState, setTicketState] = useState<TicketActionState>({ status: 'idle' });
+  const openCheckInTicketHref = openCheckInTicketId ? `/tickets/${openCheckInTicketId}` : null;
 
   function handleSubmit() {
     addCheckIn.mutate(
@@ -1083,6 +1394,52 @@ function CheckInsSection({ userId }: { userId: string }) {
     );
   }
 
+  async function createTicket(toastId?: string | number) {
+    setTicketState({ status: 'pending' });
+
+    const activeToastId = toast.loading('Creating check-in ticket…', {
+      id: toastId,
+      description: displayName,
+    });
+
+    try {
+      const data = await startTicket.mutateAsync({ userId });
+
+      setTicketState({ status: 'success', discordUrl: data.discordUrl, outcome: data.outcome });
+      toast.success(getTicketToastTitle(data.outcome), {
+        id: activeToastId,
+        description: displayName,
+        action: {
+          label: <span className="flex items-center gap-1.5"><ExternalLink className="size-3" />Open in Discord</span>,
+          onClick: () => {
+            openDiscordLink(data.discordUrl);
+            toast.dismiss(activeToastId);
+          },
+        },
+      });
+      window.setTimeout(() => setTicketState({ status: 'idle' }), 6000);
+    } catch (error) {
+      const message = getErrorMessage(error, 'Failed to create check-in ticket');
+
+      setTicketState({ status: 'error', message });
+      toast.error('Failed to create ticket', {
+        id: activeToastId,
+        description: message,
+        action: {
+          label: 'Retry',
+          onClick: () => {
+            void createTicket(activeToastId);
+          },
+        },
+      });
+      window.setTimeout(() => setTicketState({ status: 'idle' }), 4000);
+    }
+  }
+
+  function handleStartTicket() {
+    void createTicket();
+  }
+
   if (isLoading) {
     return <div className="space-y-2">{[1,2].map(i => <Skeleton key={i} className="h-12 w-full rounded" />)}</div>;
   }
@@ -1091,16 +1448,53 @@ function CheckInsSection({ userId }: { userId: string }) {
 
   return (
     <div className="space-y-3">
-      {/* Log button */}
-      {!showForm && (
-        <button
-          onClick={() => setShowForm(true)}
-          className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors font-medium"
-        >
-          <Plus className="h-3.5 w-3.5" />
-          Log Check-in
-        </button>
-      )}
+      {/* Action buttons */}
+      <div className="flex flex-wrap items-center gap-2">
+        {!showForm && (
+          <button
+            onClick={() => setShowForm(true)}
+            className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors font-medium"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Log Check-in
+          </button>
+        )}
+        {ticketState.status === 'idle' && openCheckInTicketHref && (
+          <a
+            href={openCheckInTicketHref}
+            className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md bg-muted border border-border text-foreground hover:bg-muted/80 transition-colors font-medium"
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+            Jump to ticket
+          </a>
+        )}
+        {ticketState.status === 'idle' && !openCheckInTicketHref && (
+          <button
+            onClick={handleStartTicket}
+            className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md bg-muted border border-border text-foreground hover:bg-muted/80 transition-colors font-medium"
+          >
+            <Ticket className="h-3.5 w-3.5" />
+            Create ticket
+          </button>
+        )}
+        {ticketState.status === 'pending' && (
+          <span className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            Creating…
+          </span>
+        )}
+        {ticketState.status === 'success' && (
+          <span className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md font-medium text-brand-accent-text">
+            <Check className="h-3.5 w-3.5" />
+            {getTicketInlineLabel(ticketState.outcome)}
+          </span>
+        )}
+        {ticketState.status === 'error' && (
+          <span className="text-xs font-medium text-destructive">
+            Failed to create ticket
+          </span>
+        )}
+      </div>
 
       {/* Inline form */}
       {showForm && (
@@ -1173,7 +1567,7 @@ function CheckInsSection({ userId }: { userId: string }) {
                 </div>
               )}
               {ci.summary && (
-                <p className="text-xs text-muted-foreground mt-0.5 break-words overflow-hidden">{ci.summary}</p>
+                <p className="text-xs text-muted-foreground mt-0.5 wrap-break-word overflow-hidden">{ci.summary}</p>
               )}
             </div>
           ))}
@@ -1187,22 +1581,54 @@ function CheckInsSection({ userId }: { userId: string }) {
 // Supervisor Notes Section
 // ============================================================================
 
-function SupervisorNotesSection({ entries }: { entries: UserDetails['supervisorEntries'] }) {
+function SupervisorNotesSection({ entries, userId }: { entries: UserDetails['supervisorNotes']; userId: string }) {
   const [showAll, setShowAll] = useState(false);
-  
-  if (entries.length === 0) {
-    return <p className="text-sm text-muted-foreground">No supervisor notes</p>;
+  const [noteText, setNoteText] = useState('');
+  const addNote = useAddSupervisorNote();
+
+  function handleAddNote() {
+    if (!noteText.trim()) return;
+    addNote.mutate(
+      { userId, note: noteText.trim() },
+      {
+        onSuccess: () => setNoteText(''),
+        onError: (e) => toast.error('Failed to add note', { description: getErrorMessage(e, 'Unknown error') }),
+      }
+    );
   }
 
   const displayedEntries = showAll ? entries : entries.slice(0, 3);
 
   return (
     <div className="space-y-3">
+      {/* Note composer */}
+      <div className="space-y-2">
+        <textarea
+          placeholder="Add a note…"
+          value={noteText}
+          onChange={e => setNoteText(e.target.value)}
+          rows={2}
+          className="w-full text-sm bg-muted rounded px-2.5 py-2 outline-none placeholder:text-muted-foreground resize-none"
+        />
+        <Button
+          size="sm"
+          onClick={handleAddNote}
+          disabled={!noteText.trim() || addNote.isPending}
+        >
+          {addNote.isPending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+          {addNote.isPending ? 'Adding…' : 'Add note'}
+        </Button>
+      </div>
+
+      {entries.length === 0 && (
+        <p className="text-sm text-muted-foreground">No supervisor notes yet</p>
+      )}
+
       {displayedEntries.map((entry) => (
         <div key={entry.id} className="text-sm border-l-2 border-muted pl-3 py-1">
           <div className="flex items-center gap-2 text-muted-foreground">
             <MiniAvatar
-              src={null}
+              src={entry.supervisor?.avatar ?? null}
               name={entry.supervisor?.displayName || entry.supervisor?.name}
             />
             <span className="font-medium text-foreground">
@@ -1414,13 +1840,14 @@ function TimelineFooter({ user }: { user: UserDetails['user'] }) {
   );
 }
 
-function OperationalSummary({ data, compact = false }: { data: UserDetails; compact?: boolean }) {
+function OperationalSummary({ data }: { data: UserDetails }) {
   const { data: checkIns } = useCheckIns(data.user.id);
 
-  const activeNeeds = data.supervisionNeeds.filter((item) => !item.resolvedAt);
+  const currentSupportState = data.assignmentHistory.find((item) => item.active)?.status ?? null;
   const activeInfractions = data.infractions.filter((item) => item.status === 'ACTIVE');
   const activeSupervisors = data.supervisors.filter((item) => item.active);
   const latestCheckIn = checkIns?.[0]?.checkedInAt ?? null;
+  const isRevertLike = isRevertLikeRelation(data.user.relationToIslam);
   const overdueCheckIn = isOverdueCheckIn(latestCheckIn);
   const openTickets = data.ticketStats.open;
 
@@ -1430,14 +1857,18 @@ function OperationalSummary({ data, compact = false }: { data: UserDetails; comp
   if (activeInfractions.length > 0) {
     nextActionTitle = 'Start with active moderation risk';
     nextActionDescription = 'Review the active infractions first so you can act on the highest-risk issues before anything else.';
-  } else if (overdueCheckIn) {
-    nextActionTitle = latestCheckIn ? 'Follow up on overdue contact' : 'Log the first check-in';
-    nextActionDescription = latestCheckIn
-      ? `The last check-in was ${getCheckInAgeDays(latestCheckIn)} days ago, so confirm the next follow-up before you review older context.`
-      : 'There is no recorded check-in yet, so confirm first contact before you spend time on older context.';
-  } else if (activeNeeds.length > 0) {
-    nextActionTitle = 'Review active support needs';
-    nextActionDescription = 'Check the active support needs now so you stay aligned with the current workflow instead of older history.';
+  } else if (latestCheckIn && overdueCheckIn) {
+    nextActionTitle = 'Follow up on overdue contact';
+    nextActionDescription = `The last check-in was ${getCheckInAgeDays(latestCheckIn)} days ago, so confirm the next follow-up before you review older context.`;
+  } else if (!latestCheckIn && isRevertLike) {
+    nextActionTitle = 'Log the first check-in';
+    nextActionDescription = 'There is no recorded check-in yet, so confirm first contact before you spend time on older context.';
+  } else if (!latestCheckIn) {
+    nextActionTitle = 'Review current support context';
+    nextActionDescription = 'Start with tickets, support state, or moderation context before deciding whether outreach is needed.';
+  } else if (currentSupportState === 'OPEN') {
+    nextActionTitle = 'Review the open support state';
+    nextActionDescription = 'Check the current support context now so you stay aligned with the active workflow instead of older history.';
   } else if (!data.user.inGuild) {
     nextActionTitle = 'Confirm the off-server state';
     nextActionDescription = 'Verify whether follow-up is still possible before you spend time on lower-priority profile details.';
@@ -1446,61 +1877,57 @@ function OperationalSummary({ data, compact = false }: { data: UserDetails; comp
     nextActionDescription = 'Open tickets may already contain the latest conversation or the next action you need.';
   }
 
-  return (
-    <div className={cn('border-b border-border bg-muted/20', compact ? 'px-3 py-3' : 'px-4 py-4')}>
-      <div className={cn('space-y-3', compact && 'space-y-2.5')}>
-        <div className={cn('space-y-2 rounded-xl border border-primary/15 bg-primary/5 shadow-xs', compact ? 'px-3 py-2.5' : 'px-4 py-3')}>
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-primary">
-            <ChevronRight className="h-3.5 w-3.5" />
-            Next action
-          </div>
-          <div className="space-y-1">
-            <p className="text-sm font-medium text-foreground">{nextActionTitle}</p>
-            <p className="text-sm text-muted-foreground">{nextActionDescription}</p>
-          </div>
-        </div>
+  const contactLabel = latestCheckIn
+    ? formatRelativeTime(latestCheckIn)
+    : isRevertLike
+    ? 'No check-ins'
+    : 'No contact';
 
-        <div className={cn('grid gap-2 sm:grid-cols-2', compact && 'grid-cols-2 gap-1.5')}>
-          <div className={cn('rounded-lg border border-border bg-background', compact ? 'px-2.5 py-2' : 'px-3 py-2')}>
-            <div className="flex items-center gap-2 text-xs uppercase tracking-[0.14em] text-muted-foreground">
-              <Clock className="h-3.5 w-3.5" />
-              Contact
-            </div>
-            <p className="mt-1 text-sm font-medium text-foreground">
-              {latestCheckIn ? formatRelativeTime(latestCheckIn) : 'No check-ins yet'}
-            </p>
-          </div>
-          <div className={cn('rounded-lg border border-border bg-background', compact ? 'px-2.5 py-2' : 'px-3 py-2')}>
-            <div className="flex items-center gap-2 text-xs uppercase tracking-[0.14em] text-muted-foreground">
-              <Users className="h-3.5 w-3.5" />
-              Support context
-            </div>
-            <p className="mt-1 text-sm font-medium text-foreground">
-              {activeSupervisors.length > 0
-                ? `${activeSupervisors.length} active supervisor${activeSupervisors.length === 1 ? '' : 's'}`
-                : 'No active supervisor'}
-            </p>
-          </div>
-          <div className={cn('rounded-lg border border-border bg-background', compact ? 'px-2.5 py-2' : 'px-3 py-2')}>
-            <div className="flex items-center gap-2 text-xs uppercase tracking-[0.14em] text-muted-foreground">
-              <Ticket className="h-3.5 w-3.5" />
-              Ticket context
-            </div>
-            <p className="mt-1 text-sm font-medium text-foreground">
-              {openTickets} open ticket{openTickets === 1 ? '' : 's'}
-            </p>
-          </div>
-          <div className={cn('rounded-lg border border-border bg-background', compact ? 'px-2.5 py-2' : 'px-3 py-2')}>
-            <div className="flex items-center gap-2 text-xs uppercase tracking-[0.14em] text-muted-foreground">
-              <ShieldAlert className="h-3.5 w-3.5" />
-              Active moderation
-            </div>
-            <p className="mt-1 text-sm font-medium text-foreground">
-              {activeInfractions.length > 0
-                ? `${activeInfractions.length} active infraction${activeInfractions.length === 1 ? '' : 's'}`
-                : 'No active infractions'}
-            </p>
-          </div>
+  const supervisorLabel =
+    activeSupervisors.length > 0
+      ? `${activeSupervisors.length} supervisor${activeSupervisors.length === 1 ? '' : 's'}`
+      : 'No supervisor';
+
+  const ticketLabel = `${openTickets} open ticket${openTickets === 1 ? '' : 's'}`;
+
+  const moderationLabel =
+    activeInfractions.length > 0
+      ? `${activeInfractions.length} infraction${activeInfractions.length === 1 ? '' : 's'}`
+      : 'No infractions';
+
+  return (
+    <div className="border-b border-border bg-muted/20 px-3 py-2 space-y-1.5">
+      {/* Next action — single-line chip; description available on hover */}
+      <div
+        className="flex items-center gap-1.5 rounded-lg border border-primary/15 bg-primary/5 px-2.5 py-1.5"
+        title={nextActionDescription}
+      >
+        <ChevronRight className="h-3 w-3 text-primary shrink-0" />
+        <p className="text-xs font-medium text-foreground truncate">{nextActionTitle}</p>
+      </div>
+
+      {/* Stat chips — 2×2 grid */}
+      <div className="grid grid-cols-2 gap-1.5">
+        <div className="flex items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1.5">
+          <Clock className="h-3 w-3 text-muted-foreground shrink-0" />
+          <p className="text-xs font-medium text-foreground truncate">{contactLabel}</p>
+        </div>
+        <div className="flex items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1.5">
+          <Users className="h-3 w-3 text-muted-foreground shrink-0" />
+          <p className="text-xs font-medium text-foreground truncate">{supervisorLabel}</p>
+        </div>
+        <div className="flex items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1.5">
+          <Ticket className="h-3 w-3 text-muted-foreground shrink-0" />
+          <p className="text-xs font-medium text-foreground truncate">{ticketLabel}</p>
+        </div>
+        <div
+          className={cn(
+            'flex items-center gap-1.5 rounded-md border bg-background px-2 py-1.5',
+            activeInfractions.length > 0 ? 'border-destructive/30 bg-destructive/5' : 'border-border',
+          )}
+        >
+          <ShieldAlert className={cn('h-3 w-3 shrink-0', activeInfractions.length > 0 ? 'text-destructive' : 'text-muted-foreground')} />
+          <p className={cn('text-xs font-medium truncate', activeInfractions.length > 0 ? 'text-destructive' : 'text-foreground')}>{moderationLabel}</p>
         </div>
       </div>
     </div>
@@ -1539,7 +1966,11 @@ function UserPanelSections({ data, isMobile }: { data: UserDetails; isMobile: bo
         icon={<Clock className="h-4 w-4" />}
         defaultOpen={!isMobile}
       >
-        <CheckInsSection userId={data.user.id} />
+        <CheckInsSection
+          userId={data.user.id}
+          displayName={data.user.displayName || data.user.name || 'Unknown User'}
+          openCheckInTicketId={data.openCheckInTicketId}
+        />
       </CollapsibleSection>
 
       <CollapsibleSection
@@ -1566,15 +1997,15 @@ function UserPanelSections({ data, isMobile }: { data: UserDetails; isMobile: bo
         title="Supervisor Notes"
         icon={<MessageSquare className="h-4 w-4" />}
         badge={
-          data.supervisorEntries.length > 0 && (
+          data.supervisorNotes.length > 0 && (
             <span className="text-xs text-muted-foreground ml-1">
-              ({data.supervisorEntries.length})
+              ({data.supervisorNotes.length})
             </span>
           )
         }
         defaultOpen={false}
       >
-        <SupervisorNotesSection entries={data.supervisorEntries} />
+        <SupervisorNotesSection entries={data.supervisorNotes} userId={data.user.id} />
       </CollapsibleSection>
 
       <CollapsibleSection
@@ -1645,7 +2076,12 @@ export function UserPanelContent({
             <div className="flex min-h-0 flex-1 flex-col">
               <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
                 <UserHeader user={data.user} />
-                <OperationalSummary data={data} compact />
+                <SupervisionActionsRow
+                  userId={data.user.id}
+                  isRevertLike={isRevertLikeRelation(data.user.relationToIslam)}
+                  activeSupervisors={data.supervisors}
+                />
+                <OperationalSummary data={data} />
                 <UserPanelSections data={data} isMobile={isMobile} />
                 <TimelineFooter user={data.user} />
               </div>
@@ -1653,9 +2089,13 @@ export function UserPanelContent({
           ) : (
             <>
               <UserHeader user={data.user} />
-              <OperationalSummary data={data} />
-
+              <SupervisionActionsRow
+                userId={data.user.id}
+                isRevertLike={isRevertLikeRelation(data.user.relationToIslam)}
+                activeSupervisors={data.supervisors}
+              />
               <div className="flex-1 overflow-y-auto overscroll-contain">
+                <OperationalSummary data={data} />
                 <UserPanelSections data={data} isMobile={isMobile} />
               </div>
 

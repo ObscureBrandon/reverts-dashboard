@@ -14,11 +14,13 @@ import { LayoutGrid, Search, X } from 'lucide-react';
 import { useLayoutEffect, useRef, useState } from 'react';
 
 export type TicketStatus = 'all' | 'OPEN' | 'CLOSED' | 'DELETED';
+export type TicketQueueChip = 'stale' | 'waiting_staff' | 'waiting_user' | 'my_activity';
 
 export type TicketFilterState = {
   query: string;
   status: TicketStatus;
   panelIds: number[];
+  queue: TicketQueueChip | null;
 };
 
 type Panel = {
@@ -44,6 +46,13 @@ const queuePresets: { id: TicketStatus; label: string }[] = [
   { id: 'OPEN', label: 'Open Queue' },
   { id: 'CLOSED', label: 'Closed' },
   { id: 'DELETED', label: 'Deleted' },
+];
+
+const queueChips: { id: TicketQueueChip; label: string; activeClassName: string }[] = [
+  { id: 'stale', label: 'Stale', activeClassName: 'border-status-danger-border bg-status-danger-soft text-status-danger-text' },
+  { id: 'waiting_staff', label: 'Waiting on Staff', activeClassName: 'border-status-warning-border bg-status-warning-soft text-status-warning-text' },
+  { id: 'waiting_user', label: 'Waiting on User', activeClassName: 'border-status-info-border bg-status-info-soft text-status-info-text' },
+  { id: 'my_activity', label: 'My Activity', activeClassName: 'border-brand-accent-border bg-brand-accent-soft text-brand-accent-text' },
 ];
 
 export function TicketsToolbar({
@@ -79,6 +88,13 @@ export function TicketsToolbar({
     onFiltersChange({
       ...filters,
       status,
+    });
+  };
+
+  const handleQueueChipToggle = (chip: TicketQueueChip) => {
+    onFiltersChange({
+      ...filters,
+      queue: filters.queue === chip ? null : chip,
     });
   };
 
@@ -129,6 +145,28 @@ export function TicketsToolbar({
             width: underlineStyle.width,
           }}
         />
+      </div>
+
+      {/* Queue state chips — additive layer on top of lifecycle filter */}
+      <div className="flex flex-wrap items-center gap-2">
+        {queueChips.map((chip) => {
+          const isActive = filters.queue === chip.id;
+          return (
+            <button
+              key={chip.id}
+              onClick={() => handleQueueChipToggle(chip.id)}
+              className={cn(
+                'inline-flex items-center justify-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors',
+                isActive
+                  ? chip.activeClassName
+                  : 'border-border bg-background text-muted-foreground hover:border-foreground/20 hover:text-foreground'
+              )}
+            >
+              {isActive && <span className="h-1.5 w-1.5 rounded-full bg-current" />}
+              {chip.label}
+            </button>
+          );
+        })}
       </div>
 
       <div className="flex flex-wrap items-center gap-3">

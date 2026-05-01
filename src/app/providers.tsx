@@ -2,6 +2,7 @@
 
 import { GlobalSearchPalette } from '@/app/components/global-search-palette';
 import { GlobalUserPanel } from '@/app/components/global-user-panel';
+import { Toaster } from '@/components/ui/sonner';
 import { GlobalSearchProvider } from '@/lib/contexts/global-search-context';
 import { UserPanelProvider, useUserPanel } from '@/lib/contexts/user-panel-context';
 import { cn } from '@/lib/utils';
@@ -71,6 +72,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
               </PageContentWrapper>
               <GlobalUserPanel />
               <GlobalSearchPalette />
+              <Toaster closeButton />
             </UserPanelProvider>
           </GlobalSearchProvider>
         </NuqsAdapter>

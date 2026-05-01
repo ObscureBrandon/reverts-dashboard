@@ -37,23 +37,24 @@ export type UserSupervisor = {
 export type AssignmentHistoryItem = {
   id: number
   status: string
+  reason: string | null
   priority: number
   notes: string | null
   active: boolean
   createdAt: string
   resolvedAt: string | null
-  addedBy: { id: string; name: string | null } | null
-  resolvedBy: { id: string; name: string | null } | null
-}
-
-export type SupervisionNeed = {
-  id: number
-  needType: string
-  severity: number
-  notes: string | null
-  createdAt: string
-  resolvedAt: string | null
-  addedBy: { id: string; name: string | null } | null
+  addedBy: {
+    id: string
+    name: string | null
+    displayName: string | null
+    avatar: string | null
+  } | null
+  resolvedBy: {
+    id: string
+    name: string | null
+    displayName: string | null
+    avatar: string | null
+  } | null
 }
 
 export type UserInfraction = {
@@ -69,7 +70,7 @@ export type UserInfraction = {
   pardonedBy: { id: string; at: string | null; reason: string | null } | null
 }
 
-export type SupervisorEntry = {
+export type SupervisorNote = {
   id: number
   note: string | null
   createdAt: string
@@ -77,6 +78,7 @@ export type SupervisorEntry = {
     id: string
     name: string | null
     displayName: string | null
+    avatar: string | null
   } | null
 }
 
@@ -117,10 +119,10 @@ export type UserDetails = {
   shahadas: UserShahada[]
   supervisors: UserSupervisor[]
   assignmentHistory: AssignmentHistoryItem[]
-  supervisionNeeds: SupervisionNeed[]
   infractions: UserInfraction[]
-  supervisorEntries: SupervisorEntry[]
+  supervisorNotes: SupervisorNote[]
   ticketStats: TicketStats
+  openCheckInTicketId: number | null
   recentTickets: RecentTicket[]
 }
 

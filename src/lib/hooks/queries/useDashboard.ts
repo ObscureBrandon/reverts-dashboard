@@ -12,6 +12,7 @@ export type DashboardRevert = {
   assignedAt: string
   assignmentStatus: string | null
   lastCheckIn: string | null
+  openCheckInTicketId: number | null
   activeTags: Array<{ id: number; name: string; color: string; emoji: string | null }>
 }
 
@@ -26,6 +27,10 @@ export type DashboardTicket = {
     avatar: string | null
   }
   lastStaffMessageAt: string | null
+  /** Present only on stale ticket rows — set when the ticket owner has messaged and staff hasn't replied */
+  lastOwnerMessageAt?: string | null
+  /** Present only on stale ticket rows — most recent message from any participant, used as 'last activity' fallback */
+  lastMessageAt?: string | null
 }
 
 export type DashboardShahadaRevert = {
@@ -45,6 +50,17 @@ export type DashboardShahadaRevert = {
   isAssignedToYou: boolean
 }
 
+export type DashboardClaimableRevert = {
+  id: string
+  name: string | null
+  displayName: string | null
+  displayAvatar: string | null
+  inGuild: boolean
+  assignmentStatus: string | null
+  lastCheckIn: string | null
+  activeTags: Array<{ id: number; name: string; color: string; emoji: string | null }>
+}
+
 export type DashboardData = {
   stats: {
     totalReverts: number
@@ -53,7 +69,10 @@ export type DashboardData = {
     openTickets: number
     shahadaCount: number
   }
+  staleTicketCount: number
+  staleTickets: DashboardTicket[]
   assignedReverts: DashboardRevert[]
+  claimableReverts: DashboardClaimableRevert[]
   recentTickets: DashboardTicket[]
   shahadaWithMe: DashboardShahadaRevert[]
 }

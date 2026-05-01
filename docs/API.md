@@ -205,7 +205,7 @@ List/search users with pagination.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `q` | string | Search query |
-| `assignmentStatus` | string | Filter by assignment status |
+| `assignmentStatus` | string | Filter by support state (`OPEN`, `ON_HOLD`, or `CLOSED`) |
 | `relationToIslam` | string | Filter by relation |
 | `inGuild` | boolean | Filter by guild membership |
 | `roleId` | string | Filter by role ID |
@@ -239,6 +239,26 @@ const { data } = await api.users({ id: '123456789' }).get()
 // Full profile
 const { data } = await api.users({ id: '123456789' }).get({
   query: { full: 'true' }
+})
+```
+
+Full profiles return support-state history with optional `reason`, plus `supervisorNotes` instead of legacy supervisor-entry naming.
+
+#### `POST /api/users/:id/supervisor-notes`
+
+Create a supervisor note for a user.
+
+**Request Body:**
+
+```typescript
+{ note: string }
+```
+
+**Eden Usage:**
+
+```typescript
+const { data, error } = await api.users({ id: '123456789' })['supervisor-notes'].post({
+  note: 'Follow up after Friday check-in.'
 })
 ```
 

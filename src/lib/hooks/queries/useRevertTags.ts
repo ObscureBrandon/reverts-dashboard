@@ -6,6 +6,8 @@ import { useQuery } from '@tanstack/react-query'
 export type RevertTag = {
   id: number
   name: string
+  slug: string
+  kind: 'system' | 'custom'
   description: string | null
   color: string
   emoji: string | null

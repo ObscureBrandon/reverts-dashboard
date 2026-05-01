@@ -3,6 +3,10 @@
 import { api } from '@/lib/eden'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 
+export type TicketQueue = 'stale' | 'waiting_staff' | 'waiting_user'
+export type TicketWaitingOn = 'staff' | 'user' | 'none'
+export type TicketQueueState = TicketQueue | 'recent'
+
 export type Ticket = {
   id: number
   sequence: number | null
@@ -25,6 +29,12 @@ export type Ticket = {
   } | null
   messageCount: number
   searchMatchedByParticipant?: boolean
+  lastMessageAt?: string | null
+  lastStaffReplyAt?: string | null
+  lastOwnerMessageAt?: string | null
+  waitingOn?: TicketWaitingOn
+  isStale?: boolean
+  queueState?: TicketQueueState
   summary?: string | null
   summaryGeneratedAt?: string | null
   summaryModel?: string | null
@@ -60,11 +70,13 @@ export type MentionLookup = {
 export type TicketsParams = {
   page?: number
   limit?: number
-  sortBy?: 'newest' | 'oldest' | 'messages' | 'fewestMessages' | 'sequence' | 'createdAt' | 'messageCount'
+  sortBy?: 'newest' | 'oldest' | 'messages' | 'fewestMessages' | 'sequence' | 'createdAt' | 'messageCount' | 'oldestActivity'
   sortOrder?: 'asc' | 'desc'
   status?: string
   author?: string
   panels?: number[]
+  queue?: TicketQueue
+  ownedByMe?: boolean
   search?: string
 }
 
@@ -92,12 +104,12 @@ export type TicketMessagesResponse = {
  * Fetch a list of tickets with pagination and filters
  */
 export function useTickets(params: TicketsParams = {}, options?: { enabled?: boolean }) {
-  const { page = 1, limit = 50, sortBy = 'createdAt', sortOrder = 'desc', status, author, panels, search } = params
+  const { page = 1, limit = 50, sortBy = 'createdAt', sortOrder = 'desc', status, author, panels, queue, ownedByMe, search } = params
   const normalizedPanels = panels ? [...panels].sort((left, right) => left - right) : undefined
   const panelKey = normalizedPanels?.join(',')
 
   return useQuery({
-    queryKey: ['tickets', { page, limit, sortBy, sortOrder, status, author, panels: panelKey, search }],
+    queryKey: ['tickets', { page, limit, sortBy, sortOrder, status, author, panels: panelKey, queue, ownedByMe, search }],
     queryFn: async (): Promise<TicketsResponse> => {
       const query: Record<string, string> = {
         page: page.toString(),
@@ -116,6 +128,14 @@ export function useTickets(params: TicketsParams = {}, options?: { enabled?: boo
 
       if (normalizedPanels && normalizedPanels.length > 0) {
         query.panel = normalizedPanels.join(',')
+      }
+
+      if (queue) {
+        query.queue = queue
+      }
+
+      if (typeof ownedByMe === 'boolean') {
+        query.ownedByMe = String(ownedByMe)
       }
 
       if (search) {
@@ -189,13 +209,13 @@ export function useTicketMessages(ticketId: string | number, options?: { enabled
  */
 export function usePrefetchTickets(params: TicketsParams = {}) {
   const queryClient = useQueryClient()
-  const { limit = 50, sortBy = 'createdAt', sortOrder = 'desc', status, author, panels, search } = params
+  const { limit = 50, sortBy = 'createdAt', sortOrder = 'desc', status, author, panels, queue, ownedByMe, search } = params
   const normalizedPanels = panels ? [...panels].sort((left, right) => left - right) : undefined
   const panelKey = normalizedPanels?.join(',')
 
   const prefetchPage = (targetPage: number) => {
     queryClient.prefetchQuery({
-      queryKey: ['tickets', { page: targetPage, limit, sortBy, sortOrder, status, author, panels: panelKey, search }],
+      queryKey: ['tickets', { page: targetPage, limit, sortBy, sortOrder, status, author, panels: panelKey, queue, ownedByMe, search }],
       queryFn: async (): Promise<TicketsResponse> => {
         const query: Record<string, string> = {
           page: targetPage.toString(),
@@ -214,6 +234,14 @@ export function usePrefetchTickets(params: TicketsParams = {}) {
 
         if (normalizedPanels && normalizedPanels.length > 0) {
           query.panel = normalizedPanels.join(',')
+        }
+
+        if (queue) {
+          query.queue = queue
+        }
+
+        if (typeof ownedByMe === 'boolean') {
+          query.ownedByMe = String(ownedByMe)
         }
 
         if (search) {

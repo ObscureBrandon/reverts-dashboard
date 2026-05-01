@@ -36,23 +36,12 @@ import {
 export const ticketStatusEnum = pgEnum("TicketStatus", ['OPEN', 'CLOSED', 'DELETED']);
 
 export const assignmentStatusEnum = pgEnum("AssignmentStatusEnum", [
-  'NEEDS_SUPPORT', 
-  'INACTIVE', 
-  'SELF_SUFFICIENT', 
-  'PAUSED', 
-  'NOT_READY'
+  'OPEN',
+  'ON_HOLD',
+  'CLOSED'
 ]);
 
-export const supervisionNeedEnum = pgEnum("SupervisionNeedEnum", [
-  'PRAYER_HELP',
-  'QURAN_LEARNING',
-  'FAMILY_ISSUES',
-  'NEW_CONVERT_QUESTIONS',
-  'ARABIC_LEARNING',
-  'ISLAMIC_HISTORY',
-  'COMMUNITY_INTEGRATION',
-  'SPIRITUAL_GUIDANCE'
-]);
+export const revertTagKindEnum = pgEnum("revert_tag_kind", ['system', 'custom']);
 
 export const infractionTypeEnum = pgEnum("InfractionType", [
   'NOTE', 
@@ -291,7 +280,7 @@ export const revertUserInfo = pgTable("RevertUserInfo", {
 });
 
 export const userSupervisors = pgTable("UserSupervisor", {
-  id: integer("id").primaryKey(),
+  id: serial("id").primaryKey(),
   userId: bigint("user_id", { mode: "bigint" }).notNull(),
   supervisorId: bigint("supervisor_id", { mode: "bigint" }).notNull(),
   active: boolean().default(true).notNull(),
@@ -302,7 +291,7 @@ export const userSupervisors = pgTable("UserSupervisor", {
 }));
 
 export const userSupervisorEntries = pgTable("UserSupervisorEntries", {
-  id: integer("id").primaryKey(),
+  id: serial("id").primaryKey(),
   userId: bigint("user_id", { mode: "bigint" }).notNull(),
   supervisorId: bigint("supervisor_id", { mode: "bigint" }).notNull(),
   note: text(),
@@ -347,11 +336,12 @@ export const reachoutLogs = pgTable("ReachoutLog", {
 }));
 
 export const assignmentStatuses = pgTable("AssignmentStatus", {
-  id: integer("id").primaryKey(),
+  id: serial("id").primaryKey(),
   userId: bigint("user_id", { mode: "bigint" }).notNull(),
   reachoutLogId: integer("reachout_log_id"),
   addedById: bigint("added_by_id", { mode: "bigint" }).notNull(),
   status: assignmentStatusEnum("status").notNull(),
+  reason: text("reason"),
   priority: integer().default(0).notNull(),
   notes: text(),
   active: boolean().default(true).notNull(),
@@ -361,20 +351,6 @@ export const assignmentStatuses = pgTable("AssignmentStatus", {
 }, (table) => ({
   userIdIdx: index("assignment_status_user_id_idx").on(table.userId),
   statusIdx: index("assignment_status_status_idx").on(table.status),
-}));
-
-export const supervisionNeeds = pgTable("SupervisionNeed", {
-  id: integer("id").primaryKey(),
-  userId: bigint("user_id", { mode: "bigint" }).notNull(),
-  needType: supervisionNeedEnum("need_type").notNull(),
-  severity: integer().default(1).notNull(),
-  addedBy: bigint("added_by", { mode: "bigint" }),
-  notes: text(),
-  resolvedAt: timestamp("resolved_at"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-}, (table) => ({
-  userIdIdx: index("supervision_need_user_id_idx").on(table.userId),
-  needTypeIdx: index("supervision_need_need_type_idx").on(table.needType),
 }));
 
 export const supportNotifications = pgTable("SupportNotification", {
@@ -449,6 +425,8 @@ export const jailRoles = pgTable("JailRoles", {
 export const revertTags = pgTable("revert_tag", {
   id: serial("id").primaryKey(),
   name: varchar("name", { length: 64 }).notNull(),
+  slug: varchar("slug", { length: 80 }).notNull().unique(),
+  kind: revertTagKindEnum("kind").default('custom').notNull(),
   description: text("description"),
   color: varchar("color", { length: 7 }).notNull().default('#6366f1'),
   emoji: varchar("emoji", { length: 8 }),
@@ -752,7 +730,6 @@ export const usersRelations = relations(users, ({ many }) => ({
   assignmentStatuses: many(assignmentStatuses, { relationName: "revertAssignment" }),
   assignmentStatusesGiven: many(assignmentStatuses, { relationName: "supervisorAssignment" }),
   assignmentStatusesResolved: many(assignmentStatuses, { relationName: "resolvingSupervisor" }),
-  supervisionNeeds: many(supervisionNeeds),
   reachoutLogs: many(reachoutLogs),
   supportNotificationsReceived: many(supportNotifications, { relationName: "revertSupportNotifications" }),
   supportAssignmentsFulfilled: many(supportNotifications, { relationName: "staffSupportAssignments" }),
@@ -896,13 +873,6 @@ export const assignmentStatusesRelations = relations(assignmentStatuses, ({ one,
     references: [reachoutLogs.id],
   }),
   supportNotifications: many(supportNotifications),
-}));
-
-export const supervisionNeedsRelations = relations(supervisionNeeds, ({ one }) => ({
-  user: one(users, {
-    fields: [supervisionNeeds.userId],
-    references: [users.discordId],
-  }),
 }));
 
 export const supportNotificationsRelations = relations(supportNotifications, ({ one }) => ({

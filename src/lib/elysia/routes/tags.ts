@@ -1,6 +1,19 @@
 import { archiveRevertTag, createRevertTag, getAllRevertTags, getRevertTags, updateRevertTag } from '@/lib/db/queries'
 import { authMacro } from '@/lib/elysia/auth'
+import { REVERT_TAG_CATEGORY_VALUES } from '@/lib/revert-support'
 import { Elysia } from 'elysia'
+
+const MAX_TAG_NAME_LENGTH = 64
+const MAX_TAG_CATEGORY_LENGTH = 64
+
+function normalizeOptionalText(value?: string) {
+  const trimmed = value?.trim()
+  return trimmed ? trimmed : undefined
+}
+
+function isValidTagCategory(category: string) {
+  return REVERT_TAG_CATEGORY_VALUES.includes(category as (typeof REVERT_TAG_CATEGORY_VALUES)[number])
+}
 
 export const tagsRoutes = new Elysia({ prefix: '/tags' })
   .use(authMacro)
@@ -45,22 +58,47 @@ export const tagsRoutes = new Elysia({ prefix: '/tags' })
         category?: string
       }
 
-      if (!name || !color) {
+      const normalizedName = name?.trim()
+      const normalizedDescription = normalizeOptionalText(description)
+      const normalizedEmoji = normalizeOptionalText(emoji)
+      const normalizedCategory = normalizeOptionalText(category)
+
+      if (!normalizedName || !color) {
         set.status = 400
         return { error: 'Name and color are required' }
       }
 
+      if (normalizedName.length > MAX_TAG_NAME_LENGTH) {
+        set.status = 400
+        return { error: `Name must be ${MAX_TAG_NAME_LENGTH} characters or fewer` }
+      }
+
+      if (normalizedCategory && normalizedCategory.length > MAX_TAG_CATEGORY_LENGTH) {
+        set.status = 400
+        return { error: `Category must be ${MAX_TAG_CATEGORY_LENGTH} characters or fewer` }
+      }
+
+      if (normalizedCategory && !isValidTagCategory(normalizedCategory)) {
+        set.status = 400
+        return { error: `Category must be one of: ${REVERT_TAG_CATEGORY_VALUES.join(', ')}` }
+      }
+
       const tag = await createRevertTag({
-        name,
-        description,
+        name: normalizedName,
+        description: normalizedDescription,
         color,
-        emoji,
-        category,
+        emoji: normalizedEmoji,
+        category: normalizedCategory,
         createdById: BigInt(discordId),
       })
 
       return { tag: { ...tag, createdById: tag.createdById.toString() } }
     } catch (error) {
+      if (error instanceof Error && (error.message.includes('duplicate key') || error.message.includes('already exists'))) {
+        set.status = 409
+        return { error: 'A tag with that name already exists' }
+      }
+
       console.error('Error creating tag:', error)
       throw new Error('Failed to create tag')
     }
@@ -83,7 +121,33 @@ export const tagsRoutes = new Elysia({ prefix: '/tags' })
         category?: string
       }
 
-      const tag = await updateRevertTag(tagId, { name, description, color, emoji, category })
+      const normalizedName = normalizeOptionalText(name)
+      const normalizedDescription = normalizeOptionalText(description)
+      const normalizedEmoji = normalizeOptionalText(emoji)
+      const normalizedCategory = normalizeOptionalText(category)
+
+      if (normalizedName && normalizedName.length > MAX_TAG_NAME_LENGTH) {
+        set.status = 400
+        return { error: `Name must be ${MAX_TAG_NAME_LENGTH} characters or fewer` }
+      }
+
+      if (normalizedCategory && normalizedCategory.length > MAX_TAG_CATEGORY_LENGTH) {
+        set.status = 400
+        return { error: `Category must be ${MAX_TAG_CATEGORY_LENGTH} characters or fewer` }
+      }
+
+      if (normalizedCategory && !isValidTagCategory(normalizedCategory)) {
+        set.status = 400
+        return { error: `Category must be one of: ${REVERT_TAG_CATEGORY_VALUES.join(', ')}` }
+      }
+
+      const tag = await updateRevertTag(tagId, {
+        name: normalizedName,
+        description: normalizedDescription,
+        color,
+        emoji: normalizedEmoji,
+        category: normalizedCategory,
+      })
 
       if (!tag) {
         set.status = 404
@@ -92,6 +156,11 @@ export const tagsRoutes = new Elysia({ prefix: '/tags' })
 
       return { tag: { ...tag, createdById: tag.createdById.toString() } }
     } catch (error) {
+      if (error instanceof Error && error.message.includes('System tag')) {
+        set.status = 409
+        return { error: error.message }
+      }
+
       console.error('Error updating tag:', error)
       throw new Error('Failed to update tag')
     }
@@ -115,6 +184,11 @@ export const tagsRoutes = new Elysia({ prefix: '/tags' })
 
       return { success: true }
     } catch (error) {
+      if (error instanceof Error && error.message.includes('System tag')) {
+        set.status = 409
+        return { error: error.message }
+      }
+
       console.error('Error archiving tag:', error)
       throw new Error('Failed to archive tag')
     }

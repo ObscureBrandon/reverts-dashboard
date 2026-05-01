@@ -16,13 +16,16 @@ export type UserListItem = {
   age: string | null
   region: string | null
   currentAssignmentStatus: string | null
+  currentAssignmentReason: string | null
   activeSupervisorCount: number
   supervisorName: string | null
   supervisorDisplayName: string | null
   supervisorAvatar: string | null
-  activeSupportNeedsCount: number
   activeInfractionCount: number
   lastCheckInAt: string | null
+  activeTags: Array<{ id: number; name: string; color: string; emoji: string | null }>
+  needsAssignment: boolean
+  isOverdueCheckIn: boolean
   openTicketCount: number
   topRoles: Array<{ id: string; name: string; color: number }>
   createdAt: string
@@ -36,6 +39,10 @@ export type UsersTableParams = {
   verified?: boolean
   voiceVerified?: boolean
   roleId?: string
+  tagId?: string
+  assignedStaffId?: string
+  needsAssignment?: boolean
+  overdueCheckIn?: boolean
   assignedToMe?: boolean
   hasShahada?: boolean
   hasSupport?: boolean
@@ -65,6 +72,10 @@ async function fetchUsers(params: UsersTableParams): Promise<UsersResponse> {
   if (params.verified !== undefined) query.verified = String(params.verified)
   if (params.voiceVerified !== undefined) query.voiceVerified = String(params.voiceVerified)
   if (params.roleId) query.roleId = params.roleId
+  if (params.tagId) query.tagId = params.tagId
+  if (params.assignedStaffId) query.assignedStaffId = params.assignedStaffId
+  if (params.needsAssignment !== undefined) query.needsAssignment = String(params.needsAssignment)
+  if (params.overdueCheckIn !== undefined) query.overdueCheckIn = String(params.overdueCheckIn)
   if (params.assignedToMe) query.assignedToMe = 'true'
   if (params.hasShahada) query.hasShahada = 'true'
   if (params.hasSupport) query.hasSupport = 'true'

@@ -9,11 +9,9 @@ export type CanonicalStatusKind = "status" | "attribute" | "meta"
 export type CanonicalStatusEmphasis = "soft" | "solid" | "outline"
 
 export type AssignmentStatusValue =
-  | "NEEDS_SUPPORT"
-  | "INACTIVE"
-  | "SELF_SUFFICIENT"
-  | "PAUSED"
-  | "NOT_READY"
+  | "OPEN"
+  | "ON_HOLD"
+  | "CLOSED"
 
 export type TicketStatusValue = "OPEN" | "CLOSED" | "DELETED"
 
@@ -37,40 +35,26 @@ export const canonicalStatusCategoryDescriptions: Record<CanonicalStatusCategory
 }
 
 const assignmentStatusDescriptors: Record<AssignmentStatusValue, CanonicalStatusDescriptor> = {
-  NEEDS_SUPPORT: {
+  OPEN: {
     category: "operational-status",
-    tone: "danger",
+    tone: "warning",
     kind: "status",
     emphasis: "soft",
-    label: "Needs Support",
+    label: "Open",
   },
-  INACTIVE: {
+  ON_HOLD: {
     category: "operational-status",
     tone: "neutral",
     kind: "status",
     emphasis: "soft",
-    label: "Inactive",
+    label: "On Hold",
   },
-  SELF_SUFFICIENT: {
+  CLOSED: {
     category: "operational-status",
     tone: "success",
     kind: "status",
     emphasis: "soft",
-    label: "Self-Sufficient",
-  },
-  PAUSED: {
-    category: "operational-status",
-    tone: "warning",
-    kind: "status",
-    emphasis: "soft",
-    label: "Paused",
-  },
-  NOT_READY: {
-    category: "operational-status",
-    tone: "warning",
-    kind: "status",
-    emphasis: "soft",
-    label: "Not Ready",
+    label: "Closed",
   },
 }
 

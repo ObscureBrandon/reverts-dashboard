@@ -34,18 +34,58 @@ export function formatRelativeTime(dateStr: string): string {
   return `${Math.floor(diffDays / 365)}y ago`
 }
 
-export function getErrorMessage(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message) {
-    return error.message
+function extractErrorText(value: unknown): string | null {
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    // Reject unhelpful serialized-object strings like "[object Object]"
+    if (trimmed.length > 0 && !/^\[object \w+\]$/.test(trimmed)) {
+      return trimmed
+    }
+    return null
   }
 
-  if (error && typeof error === 'object' && 'error' in error) {
-    const message = (error as { error?: unknown }).error
+  if (
+    typeof value === 'number'
+    || typeof value === 'boolean'
+    || typeof value === 'bigint'
+  ) {
+    return String(value)
+  }
 
-    if (typeof message === 'string' && message.length > 0) {
-      return message
+  if (Array.isArray(value)) {
+    const messages = value
+      .map(extractErrorText)
+      .filter((message): message is string => Boolean(message))
+
+    return messages.length > 0 ? messages.join(', ') : null
+  }
+
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  // 'value' is included to handle Eden Treaty error shape: { value: { error: '...' } }
+  for (const key of ['message', 'error', 'detail', 'title', 'value']) {
+    if (key in value) {
+      const nested = extractErrorText((value as Record<string, unknown>)[key])
+
+      if (nested) {
+        return nested
+      }
     }
   }
 
-  return fallback
+  return null
+}
+
+export function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message) {
+    const normalizedMessage = extractErrorText(error.message)
+
+    if (normalizedMessage) {
+      return normalizedMessage
+    }
+  }
+
+  return extractErrorText(error) ?? fallback
 }

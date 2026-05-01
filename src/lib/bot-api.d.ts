@@ -21,10 +21,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/check-ins/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start Check In */
+        post: operations["start_check_in_check_ins_start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** HTTPValidationError */
+        HTTPValidationError: {
+            /** Detail */
+            detail?: components["schemas"]["ValidationError"][];
+        };
         /** HealthResponse */
         HealthResponse: {
             /** Status */
@@ -33,6 +55,47 @@ export interface components {
             guild_available: boolean;
             /** Latency Ms */
             latency_ms: number;
+        };
+        /** StartCheckInRequest */
+        StartCheckInRequest: {
+            /** Revert User Id */
+            revert_user_id: string;
+            /** Started By Id */
+            started_by_id: string;
+        };
+        /** StartCheckInResponse */
+        StartCheckInResponse: {
+            /** Outcome */
+            outcome: string;
+            /** Ticket Id */
+            ticket_id: number;
+            /** Channel Id */
+            channel_id: string;
+            /** Channel Name */
+            channel_name: string;
+            /** Guild Id */
+            guild_id: string;
+            /** Ticket View Message Id */
+            ticket_view_message_id: string | null;
+            /** Discord Url */
+            discord_url: string;
+            /** Panel Id */
+            panel_id: number;
+            /** Panel Title */
+            panel_title: string;
+        };
+        /** ValidationError */
+        ValidationError: {
+            /** Location */
+            loc: (string | number)[];
+            /** Message */
+            msg: string;
+            /** Error Type */
+            type: string;
+            /** Input */
+            input?: unknown;
+            /** Context */
+            ctx?: Record<string, never>;
         };
     };
     responses: never;
@@ -59,6 +122,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HealthResponse"];
+                };
+            };
+        };
+    };
+    start_check_in_check_ins_start_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartCheckInRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StartCheckInResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

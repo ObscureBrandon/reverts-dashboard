@@ -1,11 +1,19 @@
 import { generateTicketSummary } from '@/lib/ai/gemini'
 import { db } from '@/lib/db'
-import { getTicketById, getTicketCount, getTickets } from '@/lib/db/queries'
+import { getTicketById, getTicketCount, getTickets, TicketQueue } from '@/lib/db/queries'
 import { tickets } from '@/lib/db/schema'
 import { authMacro } from '@/lib/elysia/auth'
 import { getUserRole } from '@/lib/user-role'
 import { eq } from 'drizzle-orm'
 import { Elysia } from 'elysia'
+
+function toIsoString(value: Date | string | null | undefined) {
+  if (!value) {
+    return null
+  }
+
+  return value instanceof Date ? value.toISOString() : value
+}
 
 export const ticketsRoutes = new Elysia({ prefix: '/tickets' })
   .use(authMacro)
@@ -51,8 +59,8 @@ export const ticketsRoutes = new Elysia({ prefix: '/tickets' })
             id: ticket.ticket.id,
             sequence: ticket.ticket.sequence,
             status: ticket.ticket.status,
-            createdAt: ticket.ticket.createdAt?.toISOString(),
-            closedAt: ticket.ticket.closedAt?.toISOString(),
+            createdAt: toIsoString(ticket.ticket.createdAt),
+            closedAt: toIsoString(ticket.ticket.closedAt),
             author: ticket.author ? {
               id: ticket.author.discordId.toString(),
               name: ticket.author.name || ticket.author.displayName || 'Unknown User',
@@ -69,7 +77,7 @@ export const ticketsRoutes = new Elysia({ prefix: '/tickets' })
             } : null,
             messageCount: ticket.messageCount || 0,
             summary: ticket.ticket.summary,
-            summaryGeneratedAt: ticket.ticket.summaryGeneratedAt?.toISOString(),
+            summaryGeneratedAt: toIsoString(ticket.ticket.summaryGeneratedAt),
             summaryModel: ticket.ticket.summaryModel,
             summaryTokensUsed: ticket.ticket.summaryTokensUsed,
           }
@@ -89,6 +97,8 @@ export const ticketsRoutes = new Elysia({ prefix: '/tickets' })
     const status = query.status as 'OPEN' | 'CLOSED' | 'DELETED' | undefined
     const authorIdParam = query.author
     const panelParam = query.panel
+    const queue = query.queue as TicketQueue | undefined
+    const ownedByMe = query.ownedByMe === 'true'
     const search = query.search || undefined
     const sortBy = query.sortBy as
       | 'newest'
@@ -108,6 +118,7 @@ export const ticketsRoutes = new Elysia({ prefix: '/tickets' })
 
       // Parse authorId and panelIds if provided
       const authorId = authorIdParam ? BigInt(authorIdParam) : undefined
+      const ownedByUserId = ownedByMe ? BigInt(userRole.discordId) : undefined
       const panelIds = panelParam
         ? panelParam
             .split(',')
@@ -119,6 +130,8 @@ export const ticketsRoutes = new Elysia({ prefix: '/tickets' })
         status: status || undefined,
         authorId,
         panelIds,
+        queue,
+        ownedByUserId,
         search,
         sortBy: sortBy || 'createdAt',
         sortOrder,
@@ -130,6 +143,8 @@ export const ticketsRoutes = new Elysia({ prefix: '/tickets' })
         status: status || undefined,
         authorId,
         panelIds,
+        queue,
+        ownedByUserId,
         search,
       })
 
@@ -140,8 +155,8 @@ export const ticketsRoutes = new Elysia({ prefix: '/tickets' })
           id: r.ticket.id,
           sequence: r.ticket.sequence,
           status: r.ticket.status,
-          createdAt: r.ticket.createdAt?.toISOString(),
-          closedAt: r.ticket.closedAt?.toISOString(),
+          createdAt: toIsoString(r.ticket.createdAt),
+          closedAt: toIsoString(r.ticket.closedAt),
           author: r.author ? {
             id: r.author.discordId.toString(),
             name: r.author.name || r.author.displayName || 'Unknown User',
@@ -157,6 +172,12 @@ export const ticketsRoutes = new Elysia({ prefix: '/tickets' })
             title: r.panel.title,
           } : null,
           messageCount: r.messageCount || 0,
+          lastMessageAt: toIsoString(r.lastMessageAt),
+          lastStaffReplyAt: toIsoString(r.lastStaffReplyAt),
+          lastOwnerMessageAt: toIsoString(r.lastOwnerMessageAt),
+          waitingOn: r.waitingOn,
+          isStale: Boolean(r.isStale),
+          queueState: r.queueState,
           searchMatchedByParticipant: Boolean(r.searchMatchedByParticipant),
         })),
         pagination: {

@@ -51,7 +51,7 @@ All table state is synced to the URL via [nuqs](https://nuqs.47ng.com/), enablin
 | `page` | integer | `1` | Current page number |
 | `q` | string | `""` | Search query |
 | `view` | `all` \| `staff` | `all` | View preset |
-| `status` | string | `all` | Assignment status filter |
+| `status` | string | `all` | Support state filter |
 | `relation` | string | `all` | Relation to Islam filter |
 | `role` | string | `all` | Role ID filter |
 | `guild` | string | `all` | In guild filter |
@@ -100,7 +100,7 @@ When switching to Staff Overview, the table uses different columns and data sour
 
 | Filter ID | Label | Effect |
 |-----------|-------|--------|
-| `needs-support` | Needs Support | `assignmentStatus = 'NEEDS_SUPPORT'` |
+| `needs-support` | Open Support | `assignmentStatus = 'OPEN'` |
 | `has-shahada` | Has Shahada | Users with at least one recorded shahada |
 | `has-support` | Has Support | Users with active supervisors |
 | `assigned-to-me` | Assigned to Me | Users assigned to current staff member |
@@ -190,8 +190,8 @@ The panel displays comprehensive user information in collapsible sections:
 | **Header** | `user.*` | Always visible, sticky |
 | **Profile** | `user.gender`, `age`, `region`, etc. | Open (desktop) |
 | **Roles** | `roles[]` | Open (desktop) |
-| **Revert Journey** | `shahadas[]`, `assignmentHistory[]`, `supervisionNeeds[]`, `supervisors[]` | Always open |
-| **Supervisor Notes** | `supervisorEntries[]` | Open (desktop) |
+| **Revert Journey** | `shahadas[]`, `assignmentHistory[]`, `supervisors[]` | Always open |
+| **Supervisor Notes** | `supervisorNotes[]` | Open (desktop) |
 | **Moderation** | `infractions[]` | **Collapsed** by default |
 | **Tickets** | `ticketStats` | Open (desktop) |
 

@@ -7,6 +7,8 @@ export type ActiveTag = {
   assignmentId: number
   tagId: number
   name: string
+  slug: string
+  kind: 'system' | 'custom'
   color: string
   emoji: string | null
   category: string | null
@@ -19,6 +21,8 @@ export type TagHistoryItem = {
   id: number
   tagId: number
   tagName: string
+  tagSlug: string
+  tagKind: 'system' | 'custom'
   tagColor: string
   tagEmoji: string | null
   assignedAt: string

@@ -1,6 +1,7 @@
 'use client'
 
 import { api } from '@/lib/eden'
+import type { RevertTagCategoryValue } from '@/lib/revert-support'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { getErrorMessage } from '@/lib/utils'
 
@@ -16,7 +17,7 @@ export function useCreateTag() {
       description?: string
       color: string
       emoji?: string
-      category?: string
+      category?: RevertTagCategoryValue
     }) => {
       const { data: result, error } = await api.tags.post(data)
 
@@ -45,7 +46,7 @@ export function useUpdateTag() {
       description?: string
       color?: string
       emoji?: string
-      category?: string
+      category?: RevertTagCategoryValue
     }) => {
       const { data: result, error } = await api.tags({ id: String(tagId) }).patch(data)
 
@@ -109,6 +110,7 @@ export function useAssignTag() {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['user', 'tags', variables.userId] })
       queryClient.invalidateQueries({ queryKey: ['user', 'details', variables.userId] })
+      queryClient.invalidateQueries({ queryKey: ['users', 'table'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
     },
   })
@@ -139,6 +141,7 @@ export function useRemoveTag() {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['user', 'tags', variables.userId] })
       queryClient.invalidateQueries({ queryKey: ['user', 'details', variables.userId] })
+      queryClient.invalidateQueries({ queryKey: ['users', 'table'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
     },
   })

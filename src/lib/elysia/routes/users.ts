@@ -1,7 +1,14 @@
 import { db } from '@/lib/db'
 import {
+  AssignmentMutationError,
+  type AssignmentStatusValue,
+  type SupportStateReasonValue,
+  SUPPORT_STATE_REASONS_BY_STATE,
     addCheckIn,
+  assignUserToSupervisor,
+  claimUserAssignment,
     assignTagToUser,
+    createUserSupervisorEntry,
     getStaffCount,
     getStaffDetails,
     getTickets,
@@ -11,16 +18,19 @@ import {
     getUserInfractions,
     getUserRoles,
     getUserShahadas,
-    getUserSupervisionNeeds,
     getUserSupervisorEntries,
     getUserSupervisors,
     getUserTagAssignments,
     getUserTicketStats,
     removeTagFromUser,
     searchStaffWithSupervisees,
-    searchUsers
+    searchUsers,
+    transferUserAssignment,
+    unassignUser,
+    updateUserSupportState,
 } from '@/lib/db/queries'
 import { authAccount, users } from '@/lib/db/schema'
+import { CHECK_IN_PANEL_ID } from '@/lib/ticket-panels'
 import { authMacro } from '@/lib/elysia/auth'
 import { eq } from 'drizzle-orm'
 import { Elysia } from 'elysia'
@@ -37,6 +47,63 @@ function serializeDateValue(value: Date | string | null | undefined) {
   return value
 }
 
+function serializeAssignmentMutationResult(result: Awaited<ReturnType<typeof claimUserAssignment>>) {
+  return {
+    success: true,
+    assignmentStatus: result.assignmentStatus,
+    assignmentReason: result.assignmentReason,
+    primarySupervisor: result.primarySupervisor
+      ? {
+          id: result.primarySupervisor.id,
+          active: result.primarySupervisor.active,
+          createdAt: result.primarySupervisor.createdAt.toISOString(),
+          supervisor: {
+            id: result.primarySupervisor.supervisorId.toString(),
+            name: result.primarySupervisor.supervisorName,
+            displayName: result.primarySupervisor.supervisorDisplayName,
+            avatar: result.primarySupervisor.supervisorAvatar,
+          },
+        }
+      : null,
+  }
+}
+
+function getAssignmentRouteError(error: unknown, set: { status?: number | string }) {
+  if (error instanceof AssignmentMutationError) {
+    set.status = error.status
+    return {
+      error: error.message,
+      code: error.code,
+    }
+  }
+
+  return null
+}
+
+const MAX_SUPERVISOR_NOTE_LENGTH = 4000
+
+function parseSupportStateReason(nextState: AssignmentStatusValue, reason?: string) {
+  const trimmedReason = reason?.trim()
+
+  if (!trimmedReason) {
+    return null
+  }
+
+  const allowedReasons = SUPPORT_STATE_REASONS_BY_STATE[nextState]
+
+  if (!allowedReasons.includes(trimmedReason as SupportStateReasonValue)) {
+    return null
+  }
+
+  return trimmedReason as SupportStateReasonValue
+}
+
+const validAssignmentStatuses: AssignmentStatusValue[] = [
+  'OPEN',
+  'ON_HOLD',
+  'CLOSED',
+]
+
 export const usersRoutes = new Elysia({ prefix: '/users' })
   // GET /users - List/search users with pagination
   .use(authMacro)
@@ -45,12 +112,16 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
       // Parse query parameters
       const q = query.q || undefined
       const assignmentStatus = query.assignmentStatus as
-        'NEEDS_SUPPORT' | 'INACTIVE' | 'SELF_SUFFICIENT' | 'PAUSED' | 'NOT_READY' | undefined
+        'OPEN' | 'ON_HOLD' | 'CLOSED' | undefined
       const relationToIslam = query.relationToIslam || undefined
       const inGuildParam = query.inGuild
       const verifiedParam = query.verified
       const voiceVerifiedParam = query.voiceVerified
       const roleIdParam = query.roleId
+      const tagIdParam = query.tagId
+      const assignedStaffIdParam = query.assignedStaffId
+      const needsAssignmentParam = query.needsAssignment
+      const overdueCheckInParam = query.overdueCheckIn
       const assignedToMeParam = query.assignedToMe
       const hasShahadaParam = query.hasShahada
       const hasSupportParam = query.hasSupport
@@ -65,11 +136,15 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
       const verified = verifiedParam === 'true' ? true : verifiedParam === 'false' ? false : undefined
       const voiceVerified = voiceVerifiedParam === 'true' ? true : voiceVerifiedParam === 'false' ? false : undefined
       const roleId = roleIdParam ? BigInt(roleIdParam) : undefined
+      const tagId = tagIdParam ? parseInt(tagIdParam, 10) : undefined
+      const needsAssignment = needsAssignmentParam === 'true' ? true : needsAssignmentParam === 'false' ? false : undefined
+      const overdueCheckIn = overdueCheckInParam === 'true' ? true : overdueCheckInParam === 'false' ? false : undefined
       const hasShahada = hasShahadaParam === 'true' ? true : undefined
       const hasSupport = hasSupportParam === 'true' ? true : undefined
+      const assignedStaffId = assignedStaffIdParam ? BigInt(assignedStaffIdParam) : undefined
 
       // Get the current user's Discord ID if assignedToMe filter is active
-      let supervisorId: bigint | undefined
+      let supervisorId = assignedStaffId
       if (assignedToMeParam === 'true' && user?.id) {
         const account = await db
           .select({ accountId: authAccount.accountId })
@@ -90,7 +165,10 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
         verified,
         voiceVerified,
         roleId,
-        supervisorId,
+        assignedStaffId: supervisorId,
+        tagId: Number.isNaN(tagId) ? undefined : tagId,
+        needsAssignment,
+        overdueCheckIn,
         hasShahada,
         hasSupport,
         sortBy,
@@ -121,13 +199,16 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
           age: result.user.age,
           region: result.user.region,
           currentAssignmentStatus: result.currentAssignmentStatus,
+          currentAssignmentReason: result.currentAssignmentReason,
           activeSupervisorCount: result.activeSupervisorCount,
           supervisorName: result.supervisorName,
           supervisorDisplayName: result.supervisorDisplayName,
           supervisorAvatar: result.supervisorAvatar,
-          activeSupportNeedsCount: result.activeSupportNeedsCount,
           activeInfractionCount: result.activeInfractionCount,
           lastCheckInAt: serializeDateValue(result.lastCheckInAt),
+          activeTags: result.activeTags,
+          needsAssignment: result.needsAssignment,
+          isOverdueCheckIn: result.isOverdueCheckIn,
           openTicketCount: result.openTicketCount,
           topRoles: result.topRoles,
           createdAt: result.user.createdAt.toISOString(),
@@ -243,16 +324,14 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
           shahadas,
           supervisors,
           assignmentHistory,
-          supervisionNeeds,
           infractions,
-          supervisorEntries,
+          supervisorNotes,
           ticketStats,
           recentTicketsResult,
         ] = await Promise.all([
           getUserShahadas(userId),
           getUserSupervisors(userId),
           getUserAssignmentHistory(userId),
-          getUserSupervisionNeeds(userId),
           getUserInfractions(userId),
           getUserSupervisorEntries(userId),
           getUserTicketStats(userId),
@@ -265,6 +344,9 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
         // Check if user is staff by matching role names
         const isStaff = userRolesResult.some(r => 
           /staff|mod|moderator|admin|helper/i.test(r.role.name)
+        )
+        const openCheckInTicket = recentTicketsResult.find(
+          ticket => ticket.ticket.status === 'OPEN' && ticket.ticket.panelId === CHECK_IN_PANEL_ID,
         )
 
         return {
@@ -316,6 +398,7 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
           assignmentHistory: assignmentHistory.map(a => ({
             id: a.id,
             status: a.status,
+            reason: a.reason,
             priority: a.priority,
             notes: a.notes,
             active: a.active,
@@ -324,22 +407,14 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
             addedBy: a.addedById ? {
               id: a.addedById.toString(),
               name: a.addedByName,
+              displayName: a.addedByDisplayName,
+              avatar: a.addedByAvatar,
             } : null,
             resolvedBy: a.resolvedById ? {
               id: a.resolvedById.toString(),
               name: a.resolvedByName,
-            } : null,
-          })),
-          supervisionNeeds: supervisionNeeds.map(n => ({
-            id: n.id,
-            needType: n.needType,
-            severity: n.severity,
-            notes: n.notes,
-            createdAt: n.createdAt.toISOString(),
-            resolvedAt: n.resolvedAt?.toISOString() || null,
-            addedBy: n.addedById ? {
-              id: n.addedById.toString(),
-              name: n.addedByName,
+              displayName: a.resolvedByDisplayName,
+              avatar: a.resolvedByAvatar,
             } : null,
           })),
           infractions: infractions.map(i => ({
@@ -361,7 +436,7 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
               reason: i.pardonReason,
             } : null,
           })),
-          supervisorEntries: supervisorEntries.map(e => ({
+          supervisorNotes: supervisorNotes.map(e => ({
             id: e.id,
             note: e.note,
             createdAt: e.createdAt.toISOString(),
@@ -369,6 +444,7 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
               id: e.supervisorId.toString(),
               name: e.supervisorName,
               displayName: e.supervisorDisplayName,
+              avatar: e.supervisorAvatar,
             } : null,
           })),
           ticketStats: {
@@ -376,6 +452,7 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
             closed: ticketStats.closed,
             deleted: ticketStats.deleted,
           },
+          openCheckInTicketId: openCheckInTicket?.ticket.id ?? null,
           recentTickets: recentTicketsResult.map(t => ({
             id: t.ticket.id,
             sequence: t.ticket.sequence,
@@ -501,6 +578,199 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
     }
   }, { modAuth: true })
 
+  .post('/:id/supervisor-notes', async ({ params, body, discordId, set }) => {
+    try {
+      const userId = BigInt(params.id)
+      const rawNote = typeof (body as { note?: unknown })?.note === 'string'
+        ? (body as { note?: string }).note
+        : undefined
+      const note = rawNote?.trim()
+
+      if (!note) {
+        set.status = 400
+        return { error: 'A non-empty note is required' }
+      }
+
+      if (note.length > MAX_SUPERVISOR_NOTE_LENGTH) {
+        set.status = 400
+        return { error: `Note must be ${MAX_SUPERVISOR_NOTE_LENGTH} characters or fewer` }
+      }
+
+      const createdNote = await createUserSupervisorEntry({
+        userId,
+        supervisorId: BigInt(discordId),
+        note,
+      })
+
+      return {
+        supervisorNote: {
+          id: createdNote.id,
+          note: createdNote.note,
+          createdAt: createdNote.createdAt.toISOString(),
+          supervisorId: createdNote.supervisorId.toString(),
+          userId: createdNote.userId.toString(),
+        },
+      }
+    } catch (error) {
+      console.error('Error creating supervisor note:', error)
+      throw new Error('Failed to create supervisor note')
+    }
+  }, { modAuth: true })
+
+  .post('/:id/assignment/claim', async ({ params, discordId, set }) => {
+    try {
+      const userId = BigInt(params.id)
+      const result = await claimUserAssignment(userId, BigInt(discordId))
+
+      return serializeAssignmentMutationResult(result)
+    } catch (error) {
+      const routeError = getAssignmentRouteError(error, set)
+
+      if (routeError) {
+        return routeError
+      }
+
+      console.error('Error claiming user assignment:', error)
+      throw new Error('Failed to claim assignment')
+    }
+  }, { modAuth: true })
+
+  .post('/:id/assignment/assign', async ({ params, body, discordId, set }) => {
+    try {
+      const userId = BigInt(params.id)
+      const { supervisorId, note } = body as { supervisorId?: string; note?: string }
+
+      if (!supervisorId || !/^\d+$/.test(supervisorId)) {
+        set.status = 400
+        return { error: 'A valid supervisorId is required' }
+      }
+
+      const result = await assignUserToSupervisor(
+        userId,
+        BigInt(supervisorId),
+        BigInt(discordId),
+        note,
+      )
+
+      return serializeAssignmentMutationResult(result)
+    } catch (error) {
+      const routeError = getAssignmentRouteError(error, set)
+
+      if (routeError) {
+        return routeError
+      }
+
+      console.error('Error assigning user supervisor:', error)
+      throw new Error('Failed to assign supervisor')
+    }
+  }, { modAuth: true })
+
+  .post('/:id/assignment/transfer', async ({ params, body, discordId, set }) => {
+    try {
+      const userId = BigInt(params.id)
+      const { supervisorId, note } = body as { supervisorId?: string; note?: string }
+
+      if (!supervisorId || !/^\d+$/.test(supervisorId)) {
+        set.status = 400
+        return { error: 'A valid supervisorId is required' }
+      }
+
+      const result = await transferUserAssignment(
+        userId,
+        BigInt(supervisorId),
+        BigInt(discordId),
+        note,
+      )
+
+      return serializeAssignmentMutationResult(result)
+    } catch (error) {
+      const routeError = getAssignmentRouteError(error, set)
+
+      if (routeError) {
+        return routeError
+      }
+
+      console.error('Error transferring user assignment:', error)
+      throw new Error('Failed to transfer assignment')
+    }
+  }, { modAuth: true })
+
+  .post('/:id/assignment/unassign', async ({ params, body, discordId, set }) => {
+    try {
+      const userId = BigInt(params.id)
+      const { nextState, reason, note } = body as {
+        nextState?: AssignmentStatusValue
+        reason?: string
+        note?: string
+      }
+
+      if (!nextState || !validAssignmentStatuses.includes(nextState)) {
+        set.status = 400
+        return { error: 'A valid nextState is required' }
+      }
+
+      const normalizedReason = parseSupportStateReason(nextState, reason)
+
+      if (reason?.trim() && !normalizedReason) {
+        set.status = 400
+        return { error: 'A valid reason is required for the selected nextState' }
+      }
+
+      const result = await unassignUser(
+        userId,
+        BigInt(discordId),
+        nextState,
+        normalizedReason ?? undefined,
+        note,
+      )
+
+      return serializeAssignmentMutationResult(result)
+    } catch (error) {
+      const routeError = getAssignmentRouteError(error, set)
+
+      if (routeError) {
+        return routeError
+      }
+
+      console.error('Error unassigning user supervisor:', error)
+      throw new Error('Failed to unassign supervisor')
+    }
+  }, { modAuth: true })
+
+  .post('/:id/assignment/status', async ({ params, body, discordId, set }) => {
+    try {
+      const userId = BigInt(params.id)
+      const { nextState, reason } = body as {
+        nextState?: AssignmentStatusValue
+        reason?: string
+      }
+
+      if (!nextState || !validAssignmentStatuses.includes(nextState)) {
+        set.status = 400
+        return { error: 'A valid nextState is required' }
+      }
+
+      const normalizedReason = parseSupportStateReason(nextState, reason)
+
+      if (reason?.trim() && !normalizedReason) {
+        set.status = 400
+        return { error: 'A valid reason is required for the selected nextState' }
+      }
+
+      await updateUserSupportState(
+        userId,
+        BigInt(discordId),
+        nextState,
+        normalizedReason ?? undefined,
+      )
+
+      return { success: true }
+    } catch (error) {
+      console.error('Error updating support state:', error)
+      throw new Error('Failed to update support state')
+    }
+  }, { modAuth: true })
+
   // GET /users/:id/tags - Get user's active tags + full history
   .get('/:id/tags', async ({ params }) => {
     try {
@@ -513,6 +783,8 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
           assignmentId: a.id,
           tagId: a.tagId,
           name: a.tagName,
+          slug: a.tagSlug,
+          kind: a.tagKind,
           color: a.tagColor,
           emoji: a.tagEmoji,
           category: a.tagCategory,
@@ -525,6 +797,8 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
         id: a.id,
         tagId: a.tagId,
         tagName: a.tagName,
+        tagSlug: a.tagSlug,
+        tagKind: a.tagKind,
         tagColor: a.tagColor,
         tagEmoji: a.tagEmoji,
         assignedAt: a.assignedAt.toISOString(),

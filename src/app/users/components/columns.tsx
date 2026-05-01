@@ -1,5 +1,6 @@
 'use client';
 
+import React from 'react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -14,10 +15,87 @@ import {
   getAssignmentStatusDescriptor,
   getUserAttributeStatusDescriptor,
 } from '@/lib/status-system';
-import { formatRelativeTime, roleColorToHex } from '@/lib/utils';
-import { AlertTriangle, ArrowUpDown, ChevronRight, Clock3, LifeBuoy, Ticket, UserX } from 'lucide-react';
+import { formatRelativeTime, getErrorMessage, roleColorToHex } from '@/lib/utils';
+import { AlertTriangle, ArrowUpDown, ChevronRight, Clock3, Loader2, Ticket, UserPlus, UserX } from 'lucide-react';
+import { useClaimAssignment } from '@/lib/hooks/mutations/useAssignmentMutations';
+import { toast } from 'sonner';
 import { getUserAttentionSignals } from './workspace-signals';
 import { Column, ColumnDef } from '@tanstack/react-table';
+
+// ============================================================================
+// Assignment Cell
+// ============================================================================
+
+function AssignmentCell({ row }: { row: { original: UserListItem } }) {
+  const status = row.original.currentAssignmentStatus;
+  const reason = row.original.currentAssignmentReason;
+  const activeSupervisorCount = row.original.activeSupervisorCount;
+  const supervisorName = row.original.supervisorDisplayName || row.original.supervisorName;
+  const supervisorAvatar = row.original.supervisorAvatar;
+  const relation = row.original.relationToIslam;
+  const isRevertLike = !!relation && (
+    relation.toLowerCase().includes('revert') || relation.toLowerCase().includes('convert')
+  );
+
+  const claimAssignment = useClaimAssignment();
+
+  function handleClaim(e: React.MouseEvent) {
+    e.stopPropagation();
+    const displayName = row.original.displayName || row.original.name || 'Unknown User';
+    claimAssignment.mutate(row.original.id, {
+      onSuccess: () => toast.success('Assignment claimed', { description: displayName, duration: 4000 }),
+      onError: (error) => toast.error('Failed to claim assignment', { description: getErrorMessage(error, 'Unknown error') }),
+    });
+  }
+
+  return (
+    <div className="space-y-1">
+      {status ? (
+        <Badge
+          tone={getAssignmentStatusDescriptor(status).tone}
+          kind={getAssignmentStatusDescriptor(status).kind}
+          emphasis={getAssignmentStatusDescriptor(status).emphasis}
+        >
+          {getAssignmentStatusDescriptor(status).label}
+        </Badge>
+      ) : null}
+      {reason && (
+        <p className="text-xs text-muted-foreground">{formatStatusLabel(reason)}</p>
+      )}
+      {supervisorName ? (
+        <div className="flex items-center gap-2 text-xs text-foreground">
+          <UserAvatar src={supervisorAvatar} name={supervisorName} />
+          <div className="min-w-0">
+            <p className="truncate font-medium">{supervisorName}</p>
+            <p className="text-muted-foreground">Assigned supervisor</p>
+          </div>
+        </div>
+      ) : activeSupervisorCount > 0 ? (
+        <p className="text-xs text-muted-foreground">
+          {activeSupervisorCount} active supervisor{activeSupervisorCount === 1 ? '' : 's'}
+        </p>
+      ) : (
+        <div className="space-y-1">
+          <p className="text-xs text-muted-foreground">No supervisor assigned</p>
+          {isRevertLike && (
+            <button
+              onClick={handleClaim}
+              disabled={claimAssignment.isPending}
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground px-2 py-0.5 rounded hover:bg-muted border border-transparent hover:border-border bg-transparent whitespace-nowrap disabled:opacity-50 transition-colors"
+            >
+              {claimAssignment.isPending ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <UserPlus className="h-3 w-3" />
+              )}
+              Assign to me
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // Helper to get initials from name
 function getInitials(name: string | null): string {
@@ -51,12 +129,12 @@ function getAttentionSignalIcon(signalKey: string) {
   switch (signalKey) {
     case 'active-risk':
       return <AlertTriangle className="h-3 w-3" />;
-    case 'support-needs':
-      return <LifeBuoy className="h-3 w-3" />;
     case 'open-tickets':
       return <Ticket className="h-3 w-3" />;
     case 'left-server':
       return <UserX className="h-3 w-3" />;
+    case 'needs-assignment':
+      return <UserPlus className="h-3 w-3" />;
     default:
       return <Clock3 className="h-3 w-3" />;
   }
@@ -100,13 +178,30 @@ export const columns: ColumnDef<UserListItem>[] = [
               <span className="truncate font-medium text-foreground transition-colors group-hover:text-brand-accent-text">
                 {displayName}
               </span>
-              <ChevronRight className="h-4 w-4 flex-shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+              <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
             </div>
             <div className="flex flex-wrap items-center gap-1.5">
               {user.displayName && user.name && user.displayName !== user.name && (
                 <span className="text-xs text-muted-foreground truncate">
                   @{user.name}
                 </span>
+              )}
+              {user.activeTags.slice(0, 2).map((tag) => (
+                <span
+                  key={tag.id}
+                  className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[11px] font-medium leading-none whitespace-nowrap"
+                  style={{
+                    backgroundColor: `${tag.color}22`,
+                    color: tag.color,
+                    border: `1px solid ${tag.color}44`,
+                  }}
+                >
+                  {tag.emoji && <span>{tag.emoji}</span>}
+                  {tag.name}
+                </span>
+              ))}
+              {user.activeTags.length > 2 && (
+                <span className="text-xs text-muted-foreground">+{user.activeTags.length - 2}</span>
               )}
             </div>
           </div>
@@ -137,20 +232,26 @@ export const columns: ColumnDef<UserListItem>[] = [
     header: 'Attention',
     cell: ({ row }) => {
       const user = row.original;
-      const signals = getUserAttentionSignals(user);
-      const primarySignal = signals[0];
-      const secondarySignals = signals.slice(1, 3);
-      const overflowCount = Math.max(signals.length - 3, 0);
+      const wsSignals = getUserAttentionSignals(user);
+
+      // Prepend needs-assignment as a first-class signal if set by the backend
+      const allSignals = [
+        ...(user.needsAssignment ? [{
+          key: 'needs-assignment' as const,
+          label: 'Needs Assignment',
+          tone: 'danger' as const,
+          kind: 'status' as const,
+          emphasis: 'soft' as const,
+        }] : []),
+        ...wsSignals,
+      ];
+
+      const primarySignal = allSignals[0];
+      const secondarySignals = allSignals.slice(1, 3);
+      const overflowCount = Math.max(allSignals.length - 3, 0);
 
       if (!primarySignal) {
-        return (
-          <div className="space-y-1">
-            <Badge tone="success" kind="status" emphasis="soft">
-              Stable
-            </Badge>
-            <p className="text-xs text-muted-foreground">No urgent follow-up signals</p>
-          </div>
-        );
+        return <span className="text-muted-foreground">—</span>;
       }
 
       return (
@@ -184,42 +285,8 @@ export const columns: ColumnDef<UserListItem>[] = [
   },
   {
     accessorKey: 'currentAssignmentStatus',
-    header: 'Assignment',
-    cell: ({ row }) => {
-      const status = row.original.currentAssignmentStatus;
-      const activeSupervisorCount = row.original.activeSupervisorCount;
-      const supervisorName = row.original.supervisorDisplayName || row.original.supervisorName;
-      const supervisorAvatar = row.original.supervisorAvatar;
-
-      return (
-        <div className="space-y-1">
-          {status ? (
-            <Badge
-              tone={getAssignmentStatusDescriptor(status).tone}
-              kind={getAssignmentStatusDescriptor(status).kind}
-              emphasis={getAssignmentStatusDescriptor(status).emphasis}
-            >
-              {getAssignmentStatusDescriptor(status).label}
-            </Badge>
-          ) : null}
-          {supervisorName ? (
-            <div className="flex items-center gap-2 text-xs text-foreground">
-              <UserAvatar src={supervisorAvatar} name={supervisorName} />
-              <div className="min-w-0">
-                <p className="truncate font-medium">{supervisorName}</p>
-                <p className="text-muted-foreground">Assigned supervisor</p>
-              </div>
-            </div>
-          ) : activeSupervisorCount > 0 ? (
-            <p className="text-xs text-muted-foreground">
-              {activeSupervisorCount} active supervisor{activeSupervisorCount === 1 ? '' : 's'}
-            </p>
-          ) : (
-            <p className="text-xs text-muted-foreground">No supervisor assigned</p>
-          )}
-        </div>
-      );
-    },
+    header: 'Support State',
+    cell: ({ row }) => <AssignmentCell row={row} />,
   },
   {
     accessorKey: 'topRoles',

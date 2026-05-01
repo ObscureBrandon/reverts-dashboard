@@ -24,12 +24,10 @@ All tables are defined in [`src/lib/db/schema.ts`](../src/lib/db/schema.ts).
 ticketStatusEnum: 'OPEN' | 'CLOSED' | 'DELETED'
 
 // Assignment status for reverts
-assignmentStatusEnum: 'NEEDS_SUPPORT' | 'INACTIVE' | 'SELF_SUFFICIENT' | 'PAUSED' | 'NOT_READY'
+assignmentStatusEnum: 'OPEN' | 'ON_HOLD' | 'CLOSED'
 
-// Supervision needs categories
-supervisionNeedEnum: 'PRAYER_HELP' | 'QURAN_LEARNING' | 'FAMILY_ISSUES' | 
-                     'NEW_CONVERT_QUESTIONS' | 'ARABIC_LEARNING' | 'ISLAMIC_HISTORY' | 
-                     'COMMUNITY_INTEGRATION' | 'SPIRITUAL_GUIDANCE'
+// Revert tag governance
+revertTagKindEnum: 'system' | 'custom'
 
 // Infraction types
 infractionTypeEnum: 'NOTE' | 'WARNING' | 'TIMEOUT' | 'KICK' | 'BAN' | 
@@ -232,29 +230,61 @@ Supervisor assignments.
 | `supervisor_id` | bigint | Supervisor Discord ID |
 | `active` | boolean | Currently active |
 
+#### `UserSupervisorEntries`
+Supervisor notes and audit history.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | integer | Primary key |
+| `user_id` | bigint | FK → User (revert) |
+| `supervisor_id` | bigint | FK → User (staff author) |
+| `note` | text | Staff note body |
+| `created_at` | timestamp | When the note was written |
+
 #### `AssignmentStatus`
-Revert assignment statuses.
+Revert support-state history.
 
 | Column | Type | Description |
 |--------|------|-------------|
 | `id` | integer | Primary key |
 | `user_id` | bigint | FK → User (revert) |
 | `added_by_id` | bigint | FK → User (supervisor) |
-| `status` | enum | Assignment status |
+| `status` | enum | `OPEN`, `ON_HOLD`, or `CLOSED` |
+| `reason` | text | Optional machine-readable reason |
 | `priority` | integer | Priority level (0-5) |
+| `notes` | text | Optional staff context |
 | `active` | boolean | Currently active |
 | `resolved_by_id` | bigint | Who resolved it |
 
-#### `SupervisionNeed`
-User supervision needs.
+#### `revert_tag`
+Governed and custom tags for revert categorization.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | integer | Primary key |
+| `name` | varchar | Tag display name |
+| `slug` | varchar | Stable unique identifier |
+| `kind` | enum | `system` or `custom` |
+| `description` | text | Optional description |
+| `color` | varchar | Display color |
+| `emoji` | varchar | Optional emoji |
+| `category` | varchar | Optional grouping |
+| `is_archived` | boolean | Soft archive flag |
+
+#### `revert_tag_assignment`
+Assignment history for revert tags.
 
 | Column | Type | Description |
 |--------|------|-------------|
 | `id` | integer | Primary key |
 | `user_id` | bigint | FK → User |
-| `need_type` | enum | Type of need |
-| `severity` | integer | 1-5 scale |
-| `notes` | text | Additional notes |
+| `tag_id` | integer | FK → revert_tag |
+| `assigned_by_id` | bigint | FK → User |
+| `assigned_at` | timestamp | When the tag was assigned |
+| `removed_by_id` | bigint | FK → User |
+| `removed_at` | timestamp | When the tag was removed |
+| `note` | text | Optional assignment note |
+| `removal_note` | text | Optional removal note |
 
 ### Moderation Tables
 

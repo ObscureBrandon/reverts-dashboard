@@ -20,6 +20,7 @@ import { useSession } from '@/lib/auth-client';
 import { useUserPanel } from '@/lib/contexts/user-panel-context';
 import {
   useDashboard,
+  type DashboardClaimableRevert,
   type DashboardRevert,
   type DashboardShahadaRevert,
   type DashboardTicket,
@@ -33,26 +34,35 @@ import {
   CircleHelp,
   ClipboardCheck,
   Clock,
+  ExternalLink,
   Heart,
   ListFilter,
+  Loader2,
   MessageSquare,
   Phone,
   Ticket,
+  UserPlus,
+  UserX,
   Users,
   X,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import { useAddCheckIn } from '@/lib/hooks/mutations/useAddCheckIn';
+import { useClaimAssignment } from '@/lib/hooks/mutations/useAssignmentMutations';
+import { useStartCheckInTicket } from '@/lib/hooks/mutations/useStartCheckInTicket';
 import {
   getAssignmentStatusDescriptor,
   getTicketStatusDescriptor,
   getUserAttributeStatusDescriptor,
 } from '@/lib/status-system';
+import { getErrorMessage } from '@/lib/utils';
 
 const EMPTY_REVERTS: DashboardRevert[] = [];
 const EMPTY_SHAHADA_REVERTS: DashboardShahadaRevert[] = [];
+const EMPTY_CLAIMABLE_REVERTS: DashboardClaimableRevert[] = [];
 const EMPTY_TICKETS: DashboardTicket[] = [];
 
 // ============================================================================
@@ -107,6 +117,18 @@ function getInitials(name: string | null | undefined): string {
 
 function isNewlyAssigned(assignedAt: string): boolean {
   return Date.now() - new Date(assignedAt).getTime() < 7 * 24 * 60 * 60 * 1000;
+}
+
+function openDiscordLink(discordUrl: string) {
+  window.location.assign(discordUrl.replace(/^https:\/\//, 'discord://'));
+}
+
+function getTicketInlineLabel(outcome: string): string {
+  return outcome === 'created' ? 'Ticket opened' : 'Already open';
+}
+
+function getTicketToastTitle(outcome: string): string {
+  return outcome === 'created' ? 'Check-in ticket created' : 'Open check-in ticket found';
 }
 
 // ============================================================================
@@ -228,14 +250,71 @@ function TicketStatusBadge({ status }: { status: string | null }) {
 // Revert Row
 // ============================================================================
 
+type TicketActionState =
+  | { status: 'idle' }
+  | { status: 'pending' }
+  | { status: 'success'; discordUrl: string; outcome: string }
+  | { status: 'error'; message: string };
+
 function RevertRow({ revert, onClick, showCheckIn }: { revert: DashboardRevert; onClick: () => void; showCheckIn?: boolean }) {
   const overdue = isOverdueCheckIn(revert.lastCheckIn);
   const newlyAssigned = isNewlyAssigned(revert.assignedAt);
+  const openCheckInTicketHref = revert.openCheckInTicketId ? `/tickets/${revert.openCheckInTicketId}` : null;
   const [formState, setFormState] = useState<'closed' | 'open' | 'success'>('closed');
+  const [ticketState, setTicketState] = useState<TicketActionState>({ status: 'idle' });
+  const startTicket = useStartCheckInTicket();
+  const revertDisplayName = revert.displayName ?? revert.name ?? 'Unknown User';
 
   function handleSuccess() {
     setFormState('success');
     setTimeout(() => setFormState('closed'), 2000);
+  }
+
+  async function createTicket(toastId?: string | number) {
+    setTicketState({ status: 'pending' });
+
+    const activeToastId = toast.loading('Creating check-in ticket…', {
+      id: toastId,
+      description: revertDisplayName,
+    });
+
+    try {
+      const data = await startTicket.mutateAsync({ userId: revert.id });
+
+      setTicketState({ status: 'success', discordUrl: data.discordUrl, outcome: data.outcome });
+      toast.success(getTicketToastTitle(data.outcome), {
+        id: activeToastId,
+        description: revertDisplayName,
+        action: {
+          label: <span className="flex items-center gap-1.5"><ExternalLink className="size-3" />Open in Discord</span>,
+          onClick: () => {
+            openDiscordLink(data.discordUrl);
+            toast.dismiss(activeToastId);
+          },
+        },
+      });
+      window.setTimeout(() => setTicketState({ status: 'idle' }), 6000);
+    } catch (error) {
+      const message = getErrorMessage(error, 'Failed to create check-in ticket');
+
+      setTicketState({ status: 'error', message });
+      toast.error('Failed to create ticket', {
+        id: activeToastId,
+        description: message,
+        action: {
+          label: 'Retry',
+          onClick: () => {
+            void createTicket(activeToastId);
+          },
+        },
+      });
+      window.setTimeout(() => setTicketState({ status: 'idle' }), 4000);
+    }
+  }
+
+  function handleStartTicket(e: React.MouseEvent) {
+    e.stopPropagation();
+    void createTicket();
   }
 
   return (
@@ -276,22 +355,58 @@ function RevertRow({ revert, onClick, showCheckIn }: { revert: DashboardRevert; 
           <TagBadges tags={revert.activeTags} />
         </div>
         <div className="shrink-0 flex items-center gap-2">
-          {showCheckIn && formState === 'closed' && (
-            <button
-              onClick={e => { e.stopPropagation(); setFormState('open'); }}
-              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded-md hover:bg-muted border border-transparent hover:border-border bg-transparent"
-            >
-              <ClipboardCheck className="h-3 w-3" />
-              Log check-in
-            </button>
-          )}
-          {formState === 'success' && (
-            <span className="flex items-center gap-1 text-xs font-medium text-status-success-text">
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              Logged!
-            </span>
-          )}
-          <div className={`text-xs flex items-center justify-end gap-1 ${overdue ? 'font-medium text-status-warning-text' : 'text-muted-foreground'}`}>
+            {showCheckIn && formState === 'closed' && (
+              <button
+                onClick={e => { e.stopPropagation(); setFormState('open'); }}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded-md hover:bg-muted border border-transparent hover:border-border bg-transparent whitespace-nowrap"
+              >
+                <ClipboardCheck className="h-3 w-3" />
+                Log check-in
+              </button>
+            )}
+            {formState === 'success' && (
+              <span className="flex items-center gap-1 text-xs font-medium text-status-success-text whitespace-nowrap">
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                Logged!
+              </span>
+            )}
+            {showCheckIn && ticketState.status === 'idle' && openCheckInTicketHref && (
+              <Link
+                href={openCheckInTicketHref}
+                onClick={e => e.stopPropagation()}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded-md hover:bg-muted border border-transparent hover:border-border bg-transparent whitespace-nowrap"
+              >
+                <ExternalLink className="h-3 w-3" />
+                Jump to ticket
+              </Link>
+            )}
+            {showCheckIn && ticketState.status === 'idle' && !openCheckInTicketHref && (
+              <button
+                onClick={handleStartTicket}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded-md hover:bg-muted border border-transparent hover:border-border bg-transparent whitespace-nowrap"
+              >
+                <Ticket className="h-3 w-3" />
+                Create ticket
+              </button>
+            )}
+            {ticketState.status === 'pending' && (
+              <span className="flex items-center gap-1 text-xs text-muted-foreground whitespace-nowrap">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Creating…
+              </span>
+            )}
+            {ticketState.status === 'success' && (
+              <span className="flex items-center gap-1 text-xs font-medium text-brand-accent-text whitespace-nowrap">
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                {getTicketInlineLabel(ticketState.outcome)}
+              </span>
+            )}
+            {ticketState.status === 'error' && (
+              <span className="rounded-md border border-destructive/20 bg-destructive/10 px-2 py-1 text-xs font-medium text-destructive whitespace-nowrap">
+                Failed to create
+              </span>
+            )}
+          <div className={`text-xs flex items-center gap-1 ${overdue ? 'font-medium text-status-warning-text' : 'text-muted-foreground'}`}>
             <Clock className="h-3 w-3 shrink-0" />
             <span className="whitespace-nowrap">
               {revert.lastCheckIn ? formatRelative(revert.lastCheckIn) : 'No check-in'}
@@ -337,6 +452,15 @@ function TicketRow({ ticket }: { ticket: DashboardTicket }) {
           {formatRelative(ticket.createdAt)}
           {ticket.lastStaffMessageAt && ` · Last reply ${formatRelative(ticket.lastStaffMessageAt)}`}
         </p>
+        {ticket.lastOwnerMessageAt !== undefined && (
+          <p className="text-xs mt-0.5 truncate text-status-warning-text">
+            {ticket.lastOwnerMessageAt
+              ? `User messaged ${formatRelative(ticket.lastOwnerMessageAt)}`
+              : ticket.lastMessageAt
+                ? `Last activity ${formatRelative(ticket.lastMessageAt)}`
+                : `Open since ${formatRelative(ticket.createdAt)}`}
+          </p>
+        )}
       </div>
       <div className="shrink-0">
         <TicketStatusBadge status={ticket.status} />
@@ -776,8 +900,124 @@ function ShahadaRow({ revert, onClick }: { revert: DashboardShahadaRevert; onCli
 }
 
 // ============================================================================
+// Stale Tickets Card
+// ============================================================================
+
+function StaleTicketsCard({ tickets, count, isLoading }: { tickets: DashboardTicket[]; count: number | undefined; isLoading: boolean }) {
+  const hasStale = !isLoading && count !== undefined && count > 0;
+  const overflowCount = count !== undefined && count > tickets.length ? count - tickets.length : 0;
+  return (
+    <SectionCard
+      title="Stale Tickets"
+      icon={<Clock className="h-4 w-4" />}
+      count={isLoading ? undefined : count}
+      action={
+        hasStale ? (
+          <Link
+            href="/tickets?queue=stale"
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            View queue →
+          </Link>
+        ) : undefined
+      }
+    >
+      {isLoading ? (
+        <SkeletonRows count={5} />
+      ) : hasStale ? (
+        <>
+          {tickets.map(t => <TicketRow key={t.id} ticket={t} />)}
+          {overflowCount > 0 && (
+            <Link
+              href="/tickets?queue=stale"
+              className="flex items-center justify-center gap-1.5 px-4 py-3 text-xs text-muted-foreground hover:text-foreground transition-colors border-t border-border"
+            >
+              <ExternalLink className="h-3 w-3" />
+              {overflowCount} more stale ticket{overflowCount !== 1 ? 's' : ''} in queue
+            </Link>
+          )}
+        </>
+      ) : (
+        <EmptyState message="No stale tickets right now." />
+      )}
+    </SectionCard>
+  );
+}
+
+// ============================================================================
 // Loading skeleton
 // ============================================================================
+
+// ============================================================================
+// Claimable Revert Row
+// ============================================================================
+
+function ClaimableRevertRow({ revert, onClick }: { revert: DashboardClaimableRevert; onClick: () => void }) {
+  const claimAssignment = useClaimAssignment();
+  const displayName = revert.displayName ?? revert.name ?? 'Unknown User';
+  const overdue = isOverdueCheckIn(revert.lastCheckIn);
+
+  function handleClaim(e: React.MouseEvent) {
+    e.stopPropagation();
+    claimAssignment.mutate(revert.id, {
+      onSuccess: () => toast.success('Assignment claimed', { description: displayName, duration: 4000 }),
+      onError: (error) => toast.error('Failed to claim assignment', { description: getErrorMessage(error, 'Unknown error') }),
+    });
+  }
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}
+      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/50 transition-colors cursor-pointer border-b border-border last:border-b-0"
+    >
+      <Avatar className="h-8 w-8 shrink-0 border border-border">
+        <AvatarImage src={revert.displayAvatar ?? undefined} />
+        <AvatarFallback className="text-xs bg-muted">{getInitials(revert.displayName ?? revert.name)}</AvatarFallback>
+      </Avatar>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-sm font-medium text-foreground truncate">{displayName}</span>
+          {!revert.inGuild && (
+            <Badge
+              tone={getUserAttributeStatusDescriptor('left-server').tone}
+              kind={getUserAttributeStatusDescriptor('left-server').kind}
+              emphasis={getUserAttributeStatusDescriptor('left-server').emphasis}
+              className="shrink-0"
+            >
+              <UserX className="h-3 w-3" />
+              {getUserAttributeStatusDescriptor('left-server').label}
+            </Badge>
+          )}
+          <StatusBadge status={revert.assignmentStatus} />
+        </div>
+        <TagBadges tags={revert.activeTags} />
+      </div>
+      <div className="shrink-0 flex items-center gap-2">
+        <div className={`text-xs flex items-center gap-1 ${overdue ? 'font-medium text-status-warning-text' : 'text-muted-foreground'}`}>
+          <Clock className="h-3 w-3 shrink-0" />
+          <span className="whitespace-nowrap">
+            {revert.lastCheckIn ? formatRelative(revert.lastCheckIn) : 'No check-in'}
+          </span>
+        </div>
+        <button
+          onClick={handleClaim}
+          disabled={claimAssignment.isPending}
+          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded-md hover:bg-muted border border-transparent hover:border-border bg-transparent whitespace-nowrap disabled:opacity-50"
+        >
+          {claimAssignment.isPending ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <UserPlus className="h-3 w-3" />
+          )}
+          Assign to me
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function DashboardSkeleton() {
   return (
@@ -836,7 +1076,7 @@ export default function Home() {
   const { data, isLoading } = useDashboard();
   const { openUserPanel } = useUserPanel();
   const router = useRouter();
-  const [activeScope, setActiveScope] = useState<'assigned' | 'shahada'>('assigned');
+  const [activeScope, setActiveScope] = useState<'assigned' | 'needs-assignment' | 'shahada'>('assigned');
   const [sortBy, setSortBy] = useState<RevertSort>('needs-check-in');
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
   const [shahadaSortBy, setShahadaSortBy] = useState<ShahadaSort>('recent-shahada');
@@ -851,7 +1091,10 @@ export default function Home() {
   const stats = data?.stats;
   const assignedReverts = data?.assignedReverts ?? EMPTY_REVERTS;
   const shahadaWithMe = data?.shahadaWithMe ?? EMPTY_SHAHADA_REVERTS;
+  const claimableReverts = data?.claimableReverts ?? EMPTY_CLAIMABLE_REVERTS;
   const recentTickets = data?.recentTickets ?? EMPTY_TICKETS;
+  const staleTicketCount = data?.staleTicketCount;
+  const staleTickets = data?.staleTickets ?? EMPTY_TICKETS;
 
   const availableTags = useMemo(() => {
     const unique = new Map<number, { id: number; name: string; color: string; emoji: string | null }>();
@@ -986,8 +1229,8 @@ export default function Home() {
             icon={<Users className="h-4 w-4" />}
           />
           <StatCard
-            label="Needs Support"
-            description="Assigned users currently marked as Needs Support."
+            label="Open Support"
+            description="Assigned users currently in the open support state."
             value={stats?.needsSupport}
             icon={<AlertTriangle className="h-4 w-4" />}
           />
@@ -1020,21 +1263,38 @@ export default function Home() {
             <SectionCard
               title="My Reverts"
               icon={<Users className="h-4 w-4" />}
-              count={isLoading ? undefined : (activeScope === 'assigned' ? filteredAndSortedReverts.length : filteredAndSortedShahadas.length)}
+              count={isLoading ? undefined : (
+                activeScope === 'assigned' ? filteredAndSortedReverts.length :
+                activeScope === 'needs-assignment' ? claimableReverts.length :
+                filteredAndSortedShahadas.length
+              )}
               action={
-                <Link
-                  href={activeScope === 'assigned' ? '/users?filters=assigned-to-me' : '/users?filters=has-shahada'}
-                  className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  View all →
-                </Link>
+                !isLoading && (
+                  activeScope === 'assigned' ? filteredAndSortedReverts.length > 0 :
+                  activeScope === 'needs-assignment' ? claimableReverts.length > 0 :
+                  filteredAndSortedShahadas.length > 0
+                ) ? (
+                  <Link
+                    href={
+                      activeScope === 'assigned' ? '/users?filters=assigned-to-me' :
+                      activeScope === 'needs-assignment' ? '/users?needsAssignment=true' :
+                      '/users?filters=has-shahada'
+                    }
+                    className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    View all →
+                  </Link>
+                ) : undefined
               }
             >
-              <Tabs value={activeScope} onValueChange={(v) => setActiveScope(v as 'assigned' | 'shahada')} className="gap-0">
+              <Tabs value={activeScope} onValueChange={(v) => setActiveScope(v as 'assigned' | 'needs-assignment' | 'shahada')} className="gap-0">
                 <div className="border-b border-border bg-muted/20 px-4 pt-3">
                   <TabsList variant="line">
                     <TabsTrigger value="assigned" className="group-data-[variant=line]/tabs-list:data-[state=active]:after:bg-brand-accent-solid">
                       Assigned to me
+                    </TabsTrigger>
+                    <TabsTrigger value="needs-assignment" className="group-data-[variant=line]/tabs-list:data-[state=active]:after:bg-brand-accent-solid">
+                      Needs assignment
                     </TabsTrigger>
                     <TabsTrigger value="shahada" className="group-data-[variant=line]/tabs-list:data-[state=active]:after:bg-brand-accent-solid">
                       Shahada with me
@@ -1085,6 +1345,31 @@ export default function Home() {
                   )}
                 </TabsContent>
 
+                <TabsContent value="needs-assignment" className="mt-0">
+                  {isLoading ? (
+                    <SkeletonRows count={5} />
+                  ) : (
+                    <>
+                      {claimableReverts.length === 0 ? (
+                        <EmptyState message="No reverts need assignment right now." />
+                      ) : (
+                        claimableReverts.map(r => (
+                          <ClaimableRevertRow key={r.id} revert={r} onClick={() => openUserPanel(r.id)} />
+                        ))
+                      )}
+                      <div className="border-t border-border px-4 py-2.5 flex justify-center">
+                        <Link
+                          href="/users"
+                          className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
+                        >
+                          View full queue
+                          <ExternalLink className="h-3 w-3" />
+                        </Link>
+                      </div>
+                    </>
+                  )}
+                </TabsContent>
+
                 <TabsContent value="shahada" className="mt-0">
                   {isLoading ? (
                     <SkeletonRows count={5} />
@@ -1127,8 +1412,8 @@ export default function Home() {
 
           </div>
 
-          {/* Right column — Recent Tickets */}
-          <div className="lg:col-span-2">
+          {/* Right column — Recent Tickets + Stale Tickets */}
+          <div className="lg:col-span-2 flex flex-col gap-4">
 
             <SectionCard
               title="My Recent Tickets"
@@ -1143,6 +1428,8 @@ export default function Home() {
                 recentTickets.map(t => <TicketRow key={t.id} ticket={t} />)
               )}
             </SectionCard>
+
+            <StaleTicketsCard tickets={staleTickets} count={staleTicketCount} isLoading={isLoading} />
 
           </div>
         </div>

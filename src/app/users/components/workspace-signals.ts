@@ -1,5 +1,6 @@
 import type { BadgeEmphasis, BadgeKind, BadgeTone } from '@/components/ui/badge'
 import type { UserListItem } from '@/lib/hooks/queries/useUsersTable'
+import { isRevertLikeRelation } from '@/lib/revert-status'
 
 export const CHECK_IN_OVERDUE_DAYS = 14
 
@@ -7,7 +8,6 @@ export type UserWorkspaceSignalKey =
   | 'active-risk'
   | 'missing-check-in'
   | 'overdue-check-in'
-  | 'support-needs'
   | 'left-server'
   | 'open-tickets'
 
@@ -21,7 +21,7 @@ export type UserWorkspaceSignal = {
 
 type UserWorkspaceSignalSource = Pick<
   UserListItem,
-  'activeInfractionCount' | 'activeSupportNeedsCount' | 'inGuild' | 'lastCheckInAt' | 'openTicketCount'
+  'activeInfractionCount' | 'inGuild' | 'lastCheckInAt' | 'openTicketCount' | 'relationToIslam'
 >
 
 export function getCheckInAgeDays(lastCheckInAt: string | null) {
@@ -56,6 +56,7 @@ export function getCheckInSummaryLabel(lastCheckInAt: string | null) {
 
 export function getUserAttentionSignals(user: UserWorkspaceSignalSource): UserWorkspaceSignal[] {
   const signals: UserWorkspaceSignal[] = []
+  const isRevertLike = isRevertLikeRelation(user.relationToIslam)
 
   if (user.activeInfractionCount > 0) {
     signals.push({
@@ -67,7 +68,7 @@ export function getUserAttentionSignals(user: UserWorkspaceSignalSource): UserWo
     })
   }
 
-  if (!user.lastCheckInAt) {
+  if (!user.lastCheckInAt && isRevertLike) {
     signals.push({
       key: 'missing-check-in',
       label: 'No check-in yet',
@@ -75,23 +76,13 @@ export function getUserAttentionSignals(user: UserWorkspaceSignalSource): UserWo
       kind: 'status',
       emphasis: 'soft',
     })
-  } else if (isOverdueCheckIn(user.lastCheckInAt)) {
+  } else if (user.lastCheckInAt && isOverdueCheckIn(user.lastCheckInAt)) {
     const ageDays = getCheckInAgeDays(user.lastCheckInAt)
     signals.push({
       key: 'overdue-check-in',
       label: `${ageDays}d since check-in`,
       tone: 'warning',
       kind: 'status',
-      emphasis: 'soft',
-    })
-  }
-
-  if (user.activeSupportNeedsCount > 0) {
-    signals.push({
-      key: 'support-needs',
-      label: `${user.activeSupportNeedsCount} active support need${user.activeSupportNeedsCount === 1 ? '' : 's'}`,
-      tone: 'warning',
-      kind: 'attribute',
       emphasis: 'soft',
     })
   }

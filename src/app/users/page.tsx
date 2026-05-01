@@ -8,6 +8,7 @@ import { useUserPanel } from '@/lib/contexts/user-panel-context';
 import { StaffListItem, useStaffTable } from '@/lib/hooks/queries/useStaffTable';
 import { usePrefetchUserDetails } from '@/lib/hooks/queries/useUserDetails';
 import { useUserRole } from '@/lib/hooks/queries/useUserRole';
+import { useRevertTags } from '@/lib/hooks/queries/useRevertTags';
 import { usePrefetchUsersTable, UserListItem, UsersTableParams, useUsersTable } from '@/lib/hooks/queries/useUsersTable';
 import { useDebouncedCallback } from '@tanstack/react-pacer';
 import { SortingState, VisibilityState } from '@tanstack/react-table';
@@ -30,7 +31,13 @@ const searchParamsSchema = {
   status: parseAsString.withDefault('all'),
   relation: parseAsString.withDefault('all'),
   role: parseAsString.withDefault('all'),
+  tag: parseAsString.withDefault('all'),
+  owner: parseAsString.withDefault('all'),
   guild: parseAsString.withDefault('all'),
+  overdue: parseAsString.withDefault('all'),
+  needsAssignment: parseAsString.withDefault('all'),
+  verified: parseAsString.withDefault('all'),
+  voiceVerified: parseAsString.withDefault('all'),
   sort: parseAsString.withDefault('createdAt'),
   order: parseAsStringLiteral(orderOptions).withDefault('desc'),
   filters: parseAsArrayOf(parseAsString).withDefault([]),
@@ -42,7 +49,7 @@ const allUsersColumnLabels: Record<(typeof allUsersColumnIds)[number], string> =
   user: 'User',
   relationToIslam: 'Relation',
   attention: 'Attention',
-  currentAssignmentStatus: 'Assignment',
+  currentAssignmentStatus: 'Support State',
   topRoles: 'Roles',
   createdAt: 'Joined',
 };
@@ -160,6 +167,12 @@ export default function UsersPage() {
     relationToIslam: params.relation,
     roleId: params.role,
     inGuild: params.guild,
+    tagId: params.tag,
+    assignedStaffId: params.owner,
+    overdueCheckIn: params.overdue,
+    needsAssignment: params.needsAssignment,
+    verified: params.verified,
+    voiceVerified: params.voiceVerified,
   };
 
   // Redirect to login if not authenticated or to my-tickets if not a mod
@@ -190,7 +203,13 @@ export default function UsersPage() {
       status: newFilters.assignmentStatus === 'all' ? null : newFilters.assignmentStatus,
       relation: newFilters.relationToIslam === 'all' ? null : newFilters.relationToIslam,
       role: newFilters.roleId === 'all' ? null : newFilters.roleId,
+      tag: newFilters.tagId === 'all' ? null : newFilters.tagId,
+      owner: newFilters.assignedStaffId === 'all' ? null : newFilters.assignedStaffId,
       guild: newFilters.inGuild === 'all' ? null : newFilters.inGuild,
+      overdue: newFilters.overdueCheckIn === 'all' ? null : newFilters.overdueCheckIn,
+      needsAssignment: newFilters.needsAssignment === 'all' ? null : newFilters.needsAssignment,
+      verified: newFilters.verified === 'all' ? null : newFilters.verified,
+      voiceVerified: newFilters.voiceVerified === 'all' ? null : newFilters.voiceVerified,
       page: 1,
     });
   }, [setParams]);
@@ -277,15 +296,15 @@ export default function UsersPage() {
 
     // Apply quick filters
     if (activeQuickFilters.has('needs-support')) {
-      apiParams.assignmentStatus = 'NEEDS_SUPPORT';
+      apiParams.assignmentStatus = 'OPEN';
     }
 
-    if (activeQuickFilters.has('has-shahada')) {
-      apiParams.hasShahada = true;
+    if (activeQuickFilters.has('needs-assignment')) {
+      apiParams.needsAssignment = true;
     }
 
-    if (activeQuickFilters.has('has-support')) {
-      apiParams.hasSupport = true;
+    if (activeQuickFilters.has('overdue-check-in')) {
+      apiParams.overdueCheckIn = true;
     }
 
     if (activeQuickFilters.has('assigned-to-me')) {
@@ -305,6 +324,24 @@ export default function UsersPage() {
     if (params.role !== 'all') {
       apiParams.roleId = params.role;
     }
+    if (params.tag !== 'all') {
+      apiParams.tagId = params.tag;
+    }
+    if (params.owner !== 'all' && !apiParams.assignedStaffId) {
+      apiParams.assignedStaffId = params.owner;
+    }
+    if (params.overdue !== 'all') {
+      apiParams.overdueCheckIn = params.overdue === 'true';
+    }
+    if (params.needsAssignment !== 'all') {
+      apiParams.needsAssignment = params.needsAssignment === 'true';
+    }
+    if (params.verified !== 'all') {
+      apiParams.verified = params.verified === 'true';
+    }
+    if (params.voiceVerified !== 'all') {
+      apiParams.voiceVerified = params.voiceVerified === 'true';
+    }
 
     return apiParams;
   }, [params, activeQuickFilters]);
@@ -321,6 +358,30 @@ export default function UsersPage() {
   // Use conditional hooks - disable the inactive one to prevent stale data issues
   const usersQuery = useUsersTable(queryParams, { enabled: activeView !== 'staff' });
   const staffQuery = useStaffTable(staffQueryParams, { enabled: activeView === 'staff' });
+
+  // Always-on queries for filter panel pickers
+  const staffPickerQuery = useStaffTable(
+    { limit: 100, sortBy: 'name', sortOrder: 'asc' },
+    { enabled: true }
+  );
+  const tagsQuery = useRevertTags();
+
+  const staffOptions = useMemo(
+    () => (staffPickerQuery.data?.staff ?? []).map((s) => ({
+      id: s.id,
+      name: s.displayName || s.name || 'Unknown',
+    })),
+    [staffPickerQuery.data]
+  );
+
+  const tagOptions = useMemo(
+    () => (tagsQuery.data ?? []).map((t) => ({
+      id: t.id,
+      name: t.name,
+      emoji: t.emoji,
+    })),
+    [tagsQuery.data]
+  );
   
   const { prefetchPage } = usePrefetchUsersTable();
 
@@ -389,6 +450,8 @@ export default function UsersPage() {
       columnOptions={columnOptions}
       onColumnVisibilityToggle={handleColumnVisibilityToggle}
       isFetching={isFetching}
+      staffOptions={staffOptions}
+      tagOptions={tagOptions}
     />
   );
   

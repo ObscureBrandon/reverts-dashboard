@@ -1,6 +1,19 @@
 import { and, asc, desc, eq, exists, ilike, inArray, isNotNull, isNull, or, SQL, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { db } from './index';
+import { isRevertLikeRelation } from '@/lib/revert-status';
+import {
+  REVERT_TAG_CATEGORY_VALUES,
+  slugifyRevertTagName,
+  SUPPORT_RELEVANT_STATES,
+  SUPPORT_STATE_REASONS_BY_STATE,
+  SUPPORT_STATE_VALUES,
+  SYSTEM_REVERT_TAG_SEED_ACTOR_ID,
+  SYSTEM_REVERT_TAGS,
+  type RevertTagCategoryValue,
+  type SupportStateReasonValue,
+  type SupportStateValue,
+} from '@/lib/revert-support';
 import {
   assignmentStatuses,
   channels,
@@ -12,13 +25,13 @@ import {
   revertTags,
   roles,
   shahadas,
-  supervisionNeeds,
   tickets,
   userRoles,
   users,
   userSupervisorEntries,
   userSupervisors
 } from './schema';
+import { CHECK_IN_PANEL_ID } from '@/lib/ticket-panels';
 
 export type MessageSearchParams = {
   query?: string;
@@ -38,6 +51,9 @@ export type MessageSearchResult = {
   ticket: typeof tickets.$inferSelect | null;
   isStaff: boolean;
 };
+
+export { SUPPORT_STATE_REASONS_BY_STATE };
+export type { SupportStateReasonValue };
 
 function buildMessageSearchCondition(search: string) {
   const trimmedSearch = search.trim();
@@ -84,6 +100,317 @@ function toIsoString(value: Date | string | null | undefined) {
   }
 
   return value instanceof Date ? value.toISOString() : value;
+}
+
+export type AssignmentStatusValue = SupportStateValue;
+export type TicketQueue = 'stale' | 'waiting_staff' | 'waiting_user';
+export type TicketWaitingOn = 'staff' | 'user' | 'none';
+export type TicketQueueState = TicketQueue | 'recent';
+
+export class AssignmentMutationError extends Error {
+  status: number;
+  code: string;
+
+  constructor(message: string, status = 400, code = 'ASSIGNMENT_MUTATION_ERROR') {
+    super(message);
+    this.name = 'AssignmentMutationError';
+    this.status = status;
+    this.code = code;
+  }
+}
+
+const CHECK_IN_OVERDUE_DAYS = 14;
+const DASHBOARD_STALE_TICKET_THRESHOLD_HOURS = 48;
+const SUPPORT_RELEVANT_ASSIGNMENT_STATUSES: AssignmentStatusValue[] = SUPPORT_RELEVANT_STATES;
+
+function buildRevertLikeUserCondition() {
+  return or(
+    ilike(users.relationToIslam, '%revert%'),
+    ilike(users.relationToIslam, '%convert%')
+  )!;
+}
+
+function buildSupportRelevantAssignmentStatusList() {
+  return sql.join(
+    SUPPORT_RELEVANT_ASSIGNMENT_STATUSES.map(status => sql`${status}`),
+    sql`, `
+  );
+}
+
+function buildNeedsAssignmentCondition() {
+  return sql`(
+    ${buildRevertLikeUserCondition()}
+    AND NOT EXISTS (
+      SELECT 1 FROM ${userSupervisors}
+      WHERE ${userSupervisors.userId} = ${users.discordId}
+      AND ${userSupervisors.active} = true
+    )
+    AND EXISTS (
+      SELECT 1 FROM ${assignmentStatuses}
+      WHERE ${assignmentStatuses.userId} = ${users.discordId}
+      AND ${assignmentStatuses.active} = true
+      AND ${assignmentStatuses.status} IN (${buildSupportRelevantAssignmentStatusList()})
+    )
+  )`;
+}
+
+function buildStaffRoleNameCondition() {
+  return or(
+    ilike(roles.name, '%staff%'),
+    ilike(roles.name, '%mod%'),
+    ilike(roles.name, '%moderator%'),
+    ilike(roles.name, '%admin%'),
+    ilike(roles.name, '%helper%')
+  )!;
+}
+
+function buildTicketQueueCtes() {
+  const ticketStaffAuthors = db
+    .$with('ticket_staff_authors')
+    .as(
+      db
+        .selectDistinct({
+          userId: userRoles.userId,
+        })
+        .from(userRoles)
+        .innerJoin(roles, eq(userRoles.roleId, roles.roleId))
+        .where(buildStaffRoleNameCondition())
+    );
+
+  const ticketMessageMetrics = db
+    .$with('ticket_message_metrics')
+    .as(
+      db
+        .select({
+          ticketId: tickets.id,
+          messageCount: sql<number>`COUNT(${messages.messageId})::int`.as('message_count'),
+          lastMessageAt: sql<Date | null>`MAX(${messages.createdAt})`.as('last_message_at'),
+          lastStaffReplyAt: sql<Date | null>`MAX(CASE WHEN ${ticketStaffAuthors.userId} IS NOT NULL THEN ${messages.createdAt} END)`.as('last_staff_reply_at'),
+          lastOwnerMessageAt: sql<Date | null>`MAX(CASE WHEN ${messages.authorId} = ${tickets.authorId} THEN ${messages.createdAt} END)`.as('last_owner_message_at'),
+        })
+        .from(tickets)
+        .leftJoin(
+          messages,
+          and(
+            eq(messages.channelId, tickets.channelId),
+            eq(messages.isDeleted, false)
+          )
+        )
+        .leftJoin(ticketStaffAuthors, eq(messages.authorId, ticketStaffAuthors.userId))
+        .groupBy(tickets.id)
+    );
+
+  const waitingStaffCondition = sql`(
+    ${ticketMessageMetrics.lastStaffReplyAt} IS NULL
+    OR (
+      ${ticketMessageMetrics.lastOwnerMessageAt} IS NOT NULL
+      AND ${ticketMessageMetrics.lastOwnerMessageAt} > ${ticketMessageMetrics.lastStaffReplyAt}
+    )
+  )`;
+
+  const waitingUserCondition = sql`(
+    ${ticketMessageMetrics.lastStaffReplyAt} IS NOT NULL
+    AND (
+      ${ticketMessageMetrics.lastOwnerMessageAt} IS NULL
+      OR ${ticketMessageMetrics.lastStaffReplyAt} >= ${ticketMessageMetrics.lastOwnerMessageAt}
+    )
+  )`;
+
+  const staleCondition = sql`(
+    ${tickets.status} = 'OPEN'
+    AND ${waitingStaffCondition}
+    AND COALESCE(${ticketMessageMetrics.lastOwnerMessageAt}, ${tickets.createdAt}) <= NOW() - ${DASHBOARD_STALE_TICKET_THRESHOLD_HOURS} * INTERVAL '1 hour'
+  )`;
+
+  const ticketQueueState = db
+    .$with('ticket_queue_state')
+    .as(
+      db
+        .select({
+          ticketId: tickets.id,
+          messageCount: sql<number>`COALESCE(${ticketMessageMetrics.messageCount}, 0)`.as('message_count'),
+          lastMessageAt: sql<Date | null>`${ticketMessageMetrics.lastMessageAt}`.as('last_message_at'),
+          lastStaffReplyAt: sql<Date | null>`${ticketMessageMetrics.lastStaffReplyAt}`.as('last_staff_reply_at'),
+          lastOwnerMessageAt: sql<Date | null>`${ticketMessageMetrics.lastOwnerMessageAt}`.as('last_owner_message_at'),
+          waitingOn: sql<TicketWaitingOn>`CASE
+            WHEN ${waitingStaffCondition} THEN 'staff'
+            WHEN ${waitingUserCondition} THEN 'user'
+            ELSE 'none'
+          END`.as('waiting_on'),
+          isStale: sql<boolean>`CASE
+            WHEN ${staleCondition} THEN true
+            ELSE false
+          END`.as('is_stale'),
+          queueState: sql<TicketQueueState>`CASE
+            WHEN ${staleCondition} THEN 'stale'
+            WHEN ${tickets.status} = 'OPEN' AND ${waitingStaffCondition} THEN 'waiting_staff'
+            WHEN ${tickets.status} = 'OPEN' AND ${waitingUserCondition} THEN 'waiting_user'
+            ELSE 'recent'
+          END`.as('queue_state'),
+        })
+        .from(tickets)
+        .leftJoin(ticketMessageMetrics, eq(ticketMessageMetrics.ticketId, tickets.id))
+    );
+
+  return {
+    ticketStaffAuthors,
+    ticketMessageMetrics,
+    ticketQueueState,
+  };
+}
+
+function buildTicketListConditions(params: TicketListParams, ticketQueueState: ReturnType<typeof buildTicketQueueCtes>['ticketQueueState']) {
+  const { status, authorId, panelIds, search, queue, ownedByUserId } = params;
+  const conditions: SQL[] = [];
+
+  if (status) {
+    conditions.push(eq(tickets.status, status));
+  }
+
+  if (authorId) {
+    conditions.push(eq(tickets.authorId, authorId));
+  }
+
+  if (panelIds && panelIds.length > 0) {
+    conditions.push(inArray(tickets.panelId, panelIds));
+  }
+
+  if (search) {
+    const searchCondition = buildTicketSearchCondition(search);
+
+    if (searchCondition) {
+      conditions.push(searchCondition);
+    }
+  }
+
+  if (queue) {
+    conditions.push(eq(ticketQueueState.queueState, queue));
+  }
+
+  if (ownedByUserId) {
+    conditions.push(sql`EXISTS (
+      SELECT 1
+      FROM ${messages}
+      WHERE ${messages.channelId} = ${tickets.channelId}
+      AND ${messages.isDeleted} = false
+      AND ${messages.authorId} = ${ownedByUserId}
+    )`);
+  }
+
+  return conditions;
+}
+
+function buildOverdueCheckInCondition() {
+  return sql`EXISTS (
+    SELECT 1 FROM ${revertCheckIns}
+    WHERE ${revertCheckIns.userId} = ${users.discordId}
+    GROUP BY ${revertCheckIns.userId}
+    HAVING MAX(${revertCheckIns.checkedInAt}) <= NOW() - ${CHECK_IN_OVERDUE_DAYS} * INTERVAL '1 day'
+  )`;
+}
+
+async function getPhaseOneAssignmentUser(userId: bigint) {
+  const result = await db
+    .select({
+      discordId: users.discordId,
+      relationToIslam: users.relationToIslam,
+    })
+    .from(users)
+    .where(eq(users.discordId, userId))
+    .limit(1);
+
+  const targetUser = result[0];
+
+  if (!targetUser) {
+    throw new AssignmentMutationError('User not found', 404, 'USER_NOT_FOUND');
+  }
+
+  if (!isRevertLikeRelation(targetUser.relationToIslam)) {
+    throw new AssignmentMutationError(
+      'Phase 1 supervision actions are only available for revert-like users',
+      403,
+      'NOT_REVERT_LIKE'
+    );
+  }
+
+  return targetUser;
+}
+
+async function getCurrentActiveAssignmentStatus(userId: bigint) {
+  const result = await db
+    .select({
+      id: assignmentStatuses.id,
+      status: assignmentStatuses.status,
+      reason: assignmentStatuses.reason,
+      priority: assignmentStatuses.priority,
+      notes: assignmentStatuses.notes,
+      reachoutLogId: assignmentStatuses.reachoutLogId,
+      createdAt: assignmentStatuses.createdAt,
+    })
+    .from(assignmentStatuses)
+    .where(and(
+      eq(assignmentStatuses.userId, userId),
+      eq(assignmentStatuses.active, true)
+    ))
+    .orderBy(desc(assignmentStatuses.createdAt))
+    .limit(1);
+
+  return result[0] ?? null;
+}
+
+async function buildAssignmentMutationResult(userId: bigint) {
+  const [primarySupervisor, currentAssignmentStatus] = await Promise.all([
+    getPrimaryActiveSupervisor(userId),
+    getCurrentActiveAssignmentStatus(userId),
+  ]);
+
+  return {
+    primarySupervisor,
+    assignmentStatus: currentAssignmentStatus?.status ?? null,
+    assignmentReason: currentAssignmentStatus?.reason ?? null,
+  };
+}
+
+function normalizeTagCategory(category?: string | null) {
+  const normalized = category?.trim().toLowerCase();
+
+  if (!normalized) {
+    return null;
+  }
+
+  if (!REVERT_TAG_CATEGORY_VALUES.includes(normalized as RevertTagCategoryValue)) {
+    throw new Error(`Invalid tag category: ${category}`);
+  }
+
+  return normalized as RevertTagCategoryValue;
+}
+
+async function ensureSeededSystemRevertTags() {
+  await db
+    .insert(revertTags)
+    .values(
+      SYSTEM_REVERT_TAGS.map((tag) => ({
+        name: tag.name,
+        slug: tag.slug,
+        kind: 'system' as const,
+        description: tag.description,
+        color: tag.color,
+        emoji: tag.emoji,
+        category: tag.category,
+        createdById: SYSTEM_REVERT_TAG_SEED_ACTOR_ID,
+      }))
+    )
+    .onConflictDoNothing({ target: revertTags.slug });
+}
+
+async function getRevertTagById(tagId: number) {
+  const result = await db
+    .select()
+    .from(revertTags)
+    .where(eq(revertTags.id, tagId))
+    .limit(1);
+
+  return result[0] ?? null;
 }
 
 export async function searchMessages(params: MessageSearchParams) {
@@ -265,10 +592,12 @@ export type TicketListParams = {
   status?: 'OPEN' | 'CLOSED' | 'DELETED';
   authorId?: bigint;
   panelIds?: number[];
+  queue?: TicketQueue;
+  ownedByUserId?: bigint;
   limit?: number;
   offset?: number;
   search?: string;
-  sortBy?: 'newest' | 'oldest' | 'messages' | 'fewestMessages' | 'sequence' | 'createdAt' | 'messageCount';
+  sortBy?: 'newest' | 'oldest' | 'messages' | 'fewestMessages' | 'sequence' | 'createdAt' | 'messageCount' | 'oldestActivity';
   sortOrder?: 'asc' | 'desc';
 };
 
@@ -322,9 +651,6 @@ function buildTicketSearchCondition(search: string) {
 
 export async function getTickets(params: TicketListParams = {}) {
   const {
-    status,
-    authorId,
-    panelIds,
     limit = 50,
     offset = 0,
     search,
@@ -332,41 +658,8 @@ export async function getTickets(params: TicketListParams = {}) {
     sortOrder = 'desc',
   } = params;
 
-  const conditions = [];
-
-  if (status) {
-    conditions.push(eq(tickets.status, status));
-  }
-
-  if (authorId) {
-    conditions.push(eq(tickets.authorId, authorId));
-  }
-
-  if (panelIds && panelIds.length > 0) {
-    conditions.push(inArray(tickets.panelId, panelIds));
-  }
-
-  if (search) {
-    const searchCondition = buildTicketSearchCondition(search);
-
-    if (searchCondition) {
-      conditions.push(searchCondition);
-    }
-  }
-
-  // Use CTE to compute message counts once, then JOIN instead of N+1 subqueries
-  const messageCounts = db
-    .$with('message_counts')
-    .as(
-      db
-        .select({
-          channelId: messages.channelId,
-          count: sql<number>`COUNT(*)::int`.as('count'),
-        })
-        .from(messages)
-        .where(eq(messages.isDeleted, false))
-        .groupBy(messages.channelId)
-    );
+  const { ticketStaffAuthors, ticketMessageMetrics, ticketQueueState } = buildTicketQueueCtes();
+  const conditions = buildTicketListConditions(params, ticketQueueState);
 
   const normalizedSort = (() => {
     if (sortBy === 'newest') {
@@ -385,6 +678,10 @@ export async function getTickets(params: TicketListParams = {}) {
       return { sortBy: 'messageCount' as const, sortOrder: 'asc' as const };
     }
 
+    if (sortBy === 'oldestActivity') {
+      return { sortBy: 'oldestActivity' as const, sortOrder: 'asc' as const };
+    }
+
     return {
       sortBy: (sortBy === 'sequence' || sortBy === 'messageCount' || sortBy === 'createdAt' ? sortBy : 'createdAt') as 'sequence' | 'messageCount' | 'createdAt',
       sortOrder,
@@ -392,14 +689,16 @@ export async function getTickets(params: TicketListParams = {}) {
   })();
 
   let orderByClause;
-  if (normalizedSort.sortBy === 'sequence') {
+  if (normalizedSort.sortBy === 'oldestActivity') {
+    orderByClause = sql`COALESCE(${ticketQueueState.lastOwnerMessageAt}, ${tickets.createdAt}) ASC`;
+  } else if (normalizedSort.sortBy === 'sequence') {
     orderByClause = normalizedSort.sortOrder === 'asc'
       ? sql`COALESCE(${tickets.sequence}, ${tickets.id}) ASC`
       : sql`COALESCE(${tickets.sequence}, ${tickets.id}) DESC`;
   } else if (normalizedSort.sortBy === 'messageCount') {
     orderByClause = normalizedSort.sortOrder === 'asc'
-      ? sql`COALESCE(${messageCounts.count}, 0) ASC`
-      : sql`COALESCE(${messageCounts.count}, 0) DESC`;
+      ? sql`COALESCE(${ticketQueueState.messageCount}, 0) ASC`
+      : sql`COALESCE(${ticketQueueState.messageCount}, 0) DESC`;
   } else {
     orderByClause = normalizedSort.sortOrder === 'asc'
       ? asc(tickets.createdAt)
@@ -407,13 +706,19 @@ export async function getTickets(params: TicketListParams = {}) {
   }
 
   const results = await db
-    .with(messageCounts)
+    .with(ticketStaffAuthors, ticketMessageMetrics, ticketQueueState)
     .select({
       ticket: tickets,
       author: users,
       channel: channels,
       panel: panels,
-      messageCount: sql<number>`COALESCE(${messageCounts.count}, 0)`,
+      messageCount: sql<number>`COALESCE(${ticketQueueState.messageCount}, 0)`,
+      lastMessageAt: ticketQueueState.lastMessageAt,
+      lastStaffReplyAt: ticketQueueState.lastStaffReplyAt,
+      lastOwnerMessageAt: ticketQueueState.lastOwnerMessageAt,
+      waitingOn: ticketQueueState.waitingOn,
+      isStale: ticketQueueState.isStale,
+      queueState: ticketQueueState.queueState,
       searchMatchedByParticipant: search
         ? /^\d+$/.test(search.trim())
           ? sql<boolean>`EXISTS (
@@ -442,7 +747,7 @@ export async function getTickets(params: TicketListParams = {}) {
     .leftJoin(users, eq(tickets.authorId, users.discordId))
     .leftJoin(channels, eq(tickets.channelId, channels.channelId))
     .leftJoin(panels, eq(tickets.panelId, panels.id))
-    .leftJoin(messageCounts, eq(tickets.channelId, messageCounts.channelId))
+    .leftJoin(ticketQueueState, eq(tickets.id, ticketQueueState.ticketId))
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(orderByClause)
     .limit(limit)
@@ -452,34 +757,15 @@ export async function getTickets(params: TicketListParams = {}) {
 }
 
 export async function getTicketCount(params: TicketListParams = {}) {
-  const { status, authorId, panelIds, search } = params;
-  
-  const conditions = [];
-
-  if (status) {
-    conditions.push(eq(tickets.status, status));
-  }
-
-  if (authorId) {
-    conditions.push(eq(tickets.authorId, authorId));
-  }
-
-  if (panelIds && panelIds.length > 0) {
-    conditions.push(inArray(tickets.panelId, panelIds));
-  }
-
-  if (search) {
-    const searchCondition = buildTicketSearchCondition(search);
-
-    if (searchCondition) {
-      conditions.push(searchCondition);
-    }
-  }
+  const { ticketStaffAuthors, ticketMessageMetrics, ticketQueueState } = buildTicketQueueCtes();
+  const conditions = buildTicketListConditions(params, ticketQueueState);
 
   const result = await db
+    .with(ticketStaffAuthors, ticketMessageMetrics, ticketQueueState)
     .select({ count: sql<number>`count(*)::int` })
     .from(tickets)
     .leftJoin(users, eq(tickets.authorId, users.discordId))
+    .leftJoin(ticketQueueState, eq(tickets.id, ticketQueueState.ticketId))
     .where(conditions.length > 0 ? and(...conditions) : undefined);
 
   return result[0]?.count ?? 0;
@@ -663,13 +949,16 @@ export async function getAllRoles() {
 
 export type UserSearchParams = {
   query?: string;
-  assignmentStatus?: 'NEEDS_SUPPORT' | 'INACTIVE' | 'SELF_SUFFICIENT' | 'PAUSED' | 'NOT_READY';
+  assignmentStatus?: AssignmentStatusValue;
   relationToIslam?: string;
   inGuild?: boolean;
   verified?: boolean;
   voiceVerified?: boolean;
   roleId?: bigint;
-  supervisorId?: bigint;
+  assignedStaffId?: bigint;
+  tagId?: number;
+  needsAssignment?: boolean;
+  overdueCheckIn?: boolean;
   hasShahada?: boolean;
   hasSupport?: boolean;
   sortBy?: 'name' | 'createdAt';
@@ -689,7 +978,10 @@ function buildUserFilterConditions(params: UserFilterParams): SQL[] {
     verified,
     voiceVerified,
     roleId,
-    supervisorId,
+    assignedStaffId,
+    tagId,
+    needsAssignment,
+    overdueCheckIn,
     hasShahada,
     hasSupport,
   } = params;
@@ -731,6 +1023,17 @@ function buildUserFilterConditions(params: UserFilterParams): SQL[] {
     );
   }
 
+  if (tagId !== undefined) {
+    conditions.push(
+      sql`EXISTS (
+        SELECT 1 FROM ${revertTagAssignments}
+        WHERE ${revertTagAssignments.userId} = ${users.discordId}
+        AND ${revertTagAssignments.tagId} = ${tagId}
+        AND ${revertTagAssignments.removedAt} IS NULL
+      )`
+    );
+  }
+
   if (assignmentStatus) {
     conditions.push(
       sql`EXISTS (
@@ -742,14 +1045,32 @@ function buildUserFilterConditions(params: UserFilterParams): SQL[] {
     );
   }
 
-  if (supervisorId) {
+  if (assignedStaffId) {
     conditions.push(
       sql`EXISTS (
         SELECT 1 FROM ${userSupervisors}
         WHERE ${userSupervisors.userId} = ${users.discordId}
-        AND ${userSupervisors.supervisorId} = ${supervisorId}
+        AND ${userSupervisors.supervisorId} = ${assignedStaffId}
         AND ${userSupervisors.active} = true
       )`
+    );
+  }
+
+  if (needsAssignment !== undefined) {
+    const needsAssignmentCondition = buildNeedsAssignmentCondition();
+    conditions.push(
+      needsAssignment
+        ? needsAssignmentCondition
+        : sql`NOT ${needsAssignmentCondition}`
+    );
+  }
+
+  if (overdueCheckIn !== undefined) {
+    const overdueCheckInCondition = buildOverdueCheckInCondition();
+    conditions.push(
+      overdueCheckIn
+        ? overdueCheckInCondition
+        : sql`NOT ${overdueCheckInCondition}`
     );
   }
 
@@ -795,6 +1116,7 @@ export async function searchUsers(params: UserSearchParams) {
     .selectDistinctOn([assignmentStatuses.userId], {
       userId: assignmentStatuses.userId,
       currentAssignmentStatus: assignmentStatuses.status,
+      currentAssignmentReason: assignmentStatuses.reason,
     })
     .from(assignmentStatuses)
     .where(eq(assignmentStatuses.active, true))
@@ -811,6 +1133,29 @@ export async function searchUsers(params: UserSearchParams) {
     .groupBy(userSupervisors.userId)
     .as('active_supervisor_counts');
 
+  const activeUserTags = db
+    .select({
+      userId: revertTagAssignments.userId,
+      activeTags: sql<Array<{ id: number; name: string; color: string; emoji: string | null }> | null>`
+        COALESCE(
+          json_agg(
+            json_build_object(
+              'id', ${revertTags.id},
+              'name', ${revertTags.name},
+              'color', ${revertTags.color},
+              'emoji', ${revertTags.emoji}
+            )
+          ),
+          '[]'::json
+        )
+      `.as('activeTags'),
+    })
+    .from(revertTagAssignments)
+    .innerJoin(revertTags, eq(revertTagAssignments.tagId, revertTags.id))
+    .where(isNull(revertTagAssignments.removedAt))
+    .groupBy(revertTagAssignments.userId)
+    .as('active_user_tags');
+
   const latestActiveSupervisors = db
     .selectDistinctOn([userSupervisors.userId], {
       userId: userSupervisors.userId,
@@ -823,16 +1168,6 @@ export async function searchUsers(params: UserSearchParams) {
     .where(eq(userSupervisors.active, true))
     .orderBy(userSupervisors.userId, desc(userSupervisors.createdAt))
     .as('latest_active_supervisors');
-
-  const activeSupportNeedsCounts = db
-    .select({
-      userId: supervisionNeeds.userId,
-      activeSupportNeedsCount: sql<number>`COUNT(*)::int`.as('activeSupportNeedsCount'),
-    })
-    .from(supervisionNeeds)
-    .where(isNull(supervisionNeeds.resolvedAt))
-    .groupBy(supervisionNeeds.userId)
-    .as('active_support_needs_counts');
 
   const activeInfractionCounts = db
     .select({
@@ -873,13 +1208,30 @@ export async function searchUsers(params: UserSearchParams) {
     .select({
       user: users,
       currentAssignmentStatus: currentAssignmentStatuses.currentAssignmentStatus,
+      currentAssignmentReason: currentAssignmentStatuses.currentAssignmentReason,
       activeSupervisorCount: sql<number>`COALESCE(${activeSupervisorCounts.activeSupervisorCount}, 0)`,
       supervisorName: latestActiveSupervisors.supervisorName,
       supervisorDisplayName: latestActiveSupervisors.supervisorDisplayName,
       supervisorAvatar: latestActiveSupervisors.supervisorAvatar,
-      activeSupportNeedsCount: sql<number>`COALESCE(${activeSupportNeedsCounts.activeSupportNeedsCount}, 0)`,
       activeInfractionCount: sql<number>`COALESCE(${activeInfractionCounts.activeInfractionCount}, 0)`,
       lastCheckInAt: lastCheckIns.lastCheckInAt,
+      activeTags: activeUserTags.activeTags,
+      needsAssignment: sql<boolean>`
+        CASE
+          WHEN COALESCE(${activeSupervisorCounts.activeSupervisorCount}, 0) = 0
+            AND ${buildRevertLikeUserCondition()}
+            AND ${currentAssignmentStatuses.currentAssignmentStatus} IN (${buildSupportRelevantAssignmentStatusList()})
+          THEN true
+          ELSE false
+        END
+      `,
+      isOverdueCheckIn: sql<boolean>`
+        CASE
+          WHEN ${lastCheckIns.lastCheckInAt} IS NULL THEN false
+          WHEN ${lastCheckIns.lastCheckInAt} <= NOW() - ${CHECK_IN_OVERDUE_DAYS} * INTERVAL '1 day' THEN true
+          ELSE false
+        END
+      `,
       openTicketCount: sql<number>`COALESCE(${openTicketCounts.openTicketCount}, 0)`,
       topRoles: sql<Array<{ id: string; name: string; color: number }> | null>`(
         SELECT COALESCE(json_agg(role_data), '[]'::json)
@@ -900,9 +1252,9 @@ export async function searchUsers(params: UserSearchParams) {
     .leftJoin(currentAssignmentStatuses, eq(currentAssignmentStatuses.userId, users.discordId))
     .leftJoin(activeSupervisorCounts, eq(activeSupervisorCounts.userId, users.discordId))
     .leftJoin(latestActiveSupervisors, eq(latestActiveSupervisors.userId, users.discordId))
-    .leftJoin(activeSupportNeedsCounts, eq(activeSupportNeedsCounts.userId, users.discordId))
     .leftJoin(activeInfractionCounts, eq(activeInfractionCounts.userId, users.discordId))
     .leftJoin(lastCheckIns, eq(lastCheckIns.userId, users.discordId))
+    .leftJoin(activeUserTags, eq(activeUserTags.userId, users.discordId))
     .leftJoin(openTicketCounts, eq(openTicketCounts.userId, users.discordId))
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(orderByClause)
@@ -911,6 +1263,7 @@ export async function searchUsers(params: UserSearchParams) {
 
   return results.map(r => ({
     ...r,
+    activeTags: r.activeTags || [],
     topRoles: r.topRoles || [],
   }));
 }
@@ -972,6 +1325,30 @@ export async function getUserSupervisors(userId: bigint) {
     .orderBy(desc(userSupervisors.createdAt));
 }
 
+export async function getPrimaryActiveSupervisor(userId: bigint) {
+  const result = await db
+    .select({
+      id: userSupervisors.id,
+      userId: userSupervisors.userId,
+      supervisorId: userSupervisors.supervisorId,
+      active: userSupervisors.active,
+      createdAt: userSupervisors.createdAt,
+      supervisorName: users.name,
+      supervisorDisplayName: users.displayName,
+      supervisorAvatar: users.displayAvatar,
+    })
+    .from(userSupervisors)
+    .leftJoin(users, eq(userSupervisors.supervisorId, users.discordId))
+    .where(and(
+      eq(userSupervisors.userId, userId),
+      eq(userSupervisors.active, true)
+    ))
+    .orderBy(desc(userSupervisors.createdAt))
+    .limit(1);
+
+  return result[0] ?? null;
+}
+
 /**
  * Get assignment status history for a user
  */
@@ -980,6 +1357,7 @@ export async function getUserAssignmentHistory(userId: bigint) {
     .select({
       id: assignmentStatuses.id,
       status: assignmentStatuses.status,
+      reason: assignmentStatuses.reason,
       priority: assignmentStatuses.priority,
       notes: assignmentStatuses.notes,
       active: assignmentStatuses.active,
@@ -989,36 +1367,26 @@ export async function getUserAssignmentHistory(userId: bigint) {
       addedByName: sql<string | null>`(
         SELECT name FROM "User" WHERE discord_id = ${assignmentStatuses.addedById}
       )`,
+      addedByDisplayName: sql<string | null>`(
+        SELECT display_name FROM "User" WHERE discord_id = ${assignmentStatuses.addedById}
+      )`,
+      addedByAvatar: sql<string | null>`(
+        SELECT display_avatar FROM "User" WHERE discord_id = ${assignmentStatuses.addedById}
+      )`,
       resolvedById: assignmentStatuses.resolvedById,
       resolvedByName: sql<string | null>`(
         SELECT name FROM "User" WHERE discord_id = ${assignmentStatuses.resolvedById}
+      )`,
+      resolvedByDisplayName: sql<string | null>`(
+        SELECT display_name FROM "User" WHERE discord_id = ${assignmentStatuses.resolvedById}
+      )`,
+      resolvedByAvatar: sql<string | null>`(
+        SELECT display_avatar FROM "User" WHERE discord_id = ${assignmentStatuses.resolvedById}
       )`,
     })
     .from(assignmentStatuses)
     .where(eq(assignmentStatuses.userId, userId))
     .orderBy(desc(assignmentStatuses.createdAt));
-}
-
-/**
- * Get supervision needs for a user
- */
-export async function getUserSupervisionNeeds(userId: bigint) {
-  return db
-    .select({
-      id: supervisionNeeds.id,
-      needType: supervisionNeeds.needType,
-      severity: supervisionNeeds.severity,
-      notes: supervisionNeeds.notes,
-      createdAt: supervisionNeeds.createdAt,
-      resolvedAt: supervisionNeeds.resolvedAt,
-      addedById: supervisionNeeds.addedBy,
-      addedByName: sql<string | null>`(
-        SELECT name FROM "User" WHERE discord_id = ${supervisionNeeds.addedBy}
-      )`,
-    })
-    .from(supervisionNeeds)
-    .where(eq(supervisionNeeds.userId, userId))
-    .orderBy(desc(supervisionNeeds.createdAt));
 }
 
 /**
@@ -1064,10 +1432,30 @@ export async function getUserSupervisorEntries(userId: bigint) {
       supervisorDisplayName: sql<string | null>`(
         SELECT display_name FROM "User" WHERE discord_id = ${userSupervisorEntries.supervisorId}
       )`,
+      supervisorAvatar: sql<string | null>`(
+        SELECT display_avatar FROM "User" WHERE discord_id = ${userSupervisorEntries.supervisorId}
+      )`,
     })
     .from(userSupervisorEntries)
     .where(eq(userSupervisorEntries.userId, userId))
     .orderBy(desc(userSupervisorEntries.createdAt));
+}
+
+export async function createUserSupervisorEntry(data: {
+  userId: bigint;
+  supervisorId: bigint;
+  note: string;
+}) {
+  const result = await db
+    .insert(userSupervisorEntries)
+    .values({
+      userId: data.userId,
+      supervisorId: data.supervisorId,
+      note: data.note,
+    })
+    .returning();
+
+  return result[0];
 }
 
 /**
@@ -1346,7 +1734,7 @@ export async function getStaffDetails(staffId: bigint) {
     })),
     stats: {
       totalSupervisees: superviseesData.length,
-      needsSupport: superviseesData.filter(s => s.currentAssignmentStatus === 'NEEDS_SUPPORT').length,
+      needsSupport: superviseesData.filter(s => s.currentAssignmentStatus === 'OPEN').length,
     },
   };
 }
@@ -1359,17 +1747,21 @@ export async function getStaffDetails(staffId: bigint) {
  * Get all non-archived tags
  */
 export async function getRevertTags() {
+  await ensureSeededSystemRevertTags();
+
   return db
     .select()
     .from(revertTags)
     .where(eq(revertTags.isArchived, false))
-    .orderBy(asc(revertTags.category), asc(revertTags.name));
+    .orderBy(asc(revertTags.kind), asc(revertTags.category), asc(revertTags.name));
 }
 
 /**
  * Get all tags including archived (for admin page)
  */
 export async function getAllRevertTags() {
+  await ensureSeededSystemRevertTags();
+
   return db
     .select({
       tag: revertTags,
@@ -1379,7 +1771,7 @@ export async function getAllRevertTags() {
       )`,
     })
     .from(revertTags)
-    .orderBy(asc(revertTags.category), asc(revertTags.name));
+    .orderBy(asc(revertTags.kind), asc(revertTags.category), asc(revertTags.name));
 }
 
 /**
@@ -1393,14 +1785,23 @@ export async function createRevertTag(data: {
   category?: string;
   createdById: bigint;
 }) {
+  const slug = slugifyRevertTagName(data.name);
+  if (!slug) {
+    throw new Error('Tag name must contain at least one letter or number');
+  }
+
+  const category = normalizeTagCategory(data.category);
+
   const result = await db
     .insert(revertTags)
     .values({
       name: data.name,
+      slug,
+      kind: 'custom',
       description: data.description || null,
       color: data.color,
       emoji: data.emoji || null,
-      category: data.category || null,
+      category,
       createdById: data.createdById,
     })
     .returning();
@@ -1418,9 +1819,29 @@ export async function updateRevertTag(tagId: number, data: {
   emoji?: string;
   category?: string;
 }) {
+  const currentTag = await getRevertTagById(tagId);
+
+  if (!currentTag) {
+    return null;
+  }
+
+  if (currentTag.kind === 'system') {
+    throw new Error('System tags cannot be edited');
+  }
+
+  const name = data.name?.trim();
+  const category = data.category === undefined ? undefined : normalizeTagCategory(data.category);
+
   const result = await db
     .update(revertTags)
-    .set(data)
+    .set({
+      name,
+      slug: name ? slugifyRevertTagName(name) : undefined,
+      description: data.description,
+      color: data.color,
+      emoji: data.emoji,
+      category,
+    })
     .where(eq(revertTags.id, tagId))
     .returning();
 
@@ -1431,6 +1852,16 @@ export async function updateRevertTag(tagId: number, data: {
  * Archive a tag (soft-delete)
  */
 export async function archiveRevertTag(tagId: number) {
+  const currentTag = await getRevertTagById(tagId);
+
+  if (!currentTag) {
+    return null;
+  }
+
+  if (currentTag.kind === 'system') {
+    throw new Error('System tags cannot be archived');
+  }
+
   const result = await db
     .update(revertTags)
     .set({ isArchived: true })
@@ -1449,6 +1880,8 @@ export async function getUserTagAssignments(userId: bigint) {
       id: revertTagAssignments.id,
       tagId: revertTagAssignments.tagId,
       tagName: revertTags.name,
+      tagSlug: revertTags.slug,
+      tagKind: revertTags.kind,
       tagColor: revertTags.color,
       tagEmoji: revertTags.emoji,
       tagCategory: revertTags.category,
@@ -1480,6 +1913,8 @@ export async function assignTagToUser(data: {
   assignedById: bigint;
   note?: string;
 }) {
+  await ensureSeededSystemRevertTags();
+
   // Check for existing active assignment
   const existing = await db
     .select({ id: revertTagAssignments.id })
@@ -1582,9 +2017,402 @@ export async function addCheckIn(data: {
   return result[0];
 }
 
+export async function claimUserAssignment(userId: bigint, actorDiscordId: bigint) {
+  await getPhaseOneAssignmentUser(userId);
+
+  await db.transaction(async (tx) => {
+    const [activeSupervisor] = await Promise.all([
+      tx
+        .select({ id: userSupervisors.id })
+        .from(userSupervisors)
+        .where(and(
+          eq(userSupervisors.userId, userId),
+          eq(userSupervisors.active, true)
+        ))
+        .limit(1),
+    ]);
+
+    if (activeSupervisor[0]) {
+      throw new AssignmentMutationError('User already has an active supervisor', 409, 'ALREADY_ASSIGNED');
+    }
+
+    await tx
+      .insert(userSupervisors)
+      .values({
+        userId,
+        supervisorId: actorDiscordId,
+        active: true,
+      });
+  });
+
+  return buildAssignmentMutationResult(userId);
+}
+
+export async function assignUserToSupervisor(
+  userId: bigint,
+  supervisorId: bigint,
+  actorDiscordId: bigint,
+  note?: string
+) {
+  await getPhaseOneAssignmentUser(userId);
+
+  await db.transaction(async (tx) => {
+    const trimmedNote = note?.trim();
+    const [activeSupervisor, currentAssignmentStatus] = await Promise.all([
+      tx
+        .select({ id: userSupervisors.id })
+        .from(userSupervisors)
+        .where(and(
+          eq(userSupervisors.userId, userId),
+          eq(userSupervisors.active, true)
+        ))
+        .limit(1),
+      tx
+        .select({
+          id: assignmentStatuses.id,
+          reachoutLogId: assignmentStatuses.reachoutLogId,
+          status: assignmentStatuses.status,
+          reason: assignmentStatuses.reason,
+          priority: assignmentStatuses.priority,
+        })
+        .from(assignmentStatuses)
+        .where(and(
+          eq(assignmentStatuses.userId, userId),
+          eq(assignmentStatuses.active, true)
+        ))
+        .orderBy(desc(assignmentStatuses.createdAt))
+        .limit(1),
+    ]);
+
+    if (activeSupervisor[0]) {
+      throw new AssignmentMutationError(
+        'User already has an active supervisor; use transfer instead',
+        409,
+        'ALREADY_ASSIGNED'
+      );
+    }
+
+    await tx
+      .insert(userSupervisors)
+      .values({
+        userId,
+        supervisorId,
+        active: true,
+      });
+
+    if (trimmedNote && currentAssignmentStatus[0]) {
+      const currentStatus = currentAssignmentStatus[0];
+
+      await tx
+        .update(assignmentStatuses)
+        .set({
+          active: false,
+          resolvedAt: new Date(),
+          resolvedById: actorDiscordId,
+        })
+        .where(and(
+          eq(assignmentStatuses.userId, userId),
+          eq(assignmentStatuses.active, true)
+        ));
+
+      await tx
+        .insert(assignmentStatuses)
+        .values({
+          userId,
+          reachoutLogId: currentStatus.reachoutLogId,
+          addedById: actorDiscordId,
+          status: currentStatus.status,
+          reason: currentStatus.reason,
+          priority: currentStatus.priority,
+          notes: trimmedNote,
+          active: true,
+        });
+    }
+  });
+
+  return buildAssignmentMutationResult(userId);
+}
+
+export async function transferUserAssignment(
+  userId: bigint,
+  supervisorId: bigint,
+  actorDiscordId: bigint,
+  note?: string
+) {
+  await getPhaseOneAssignmentUser(userId);
+
+  await db.transaction(async (tx) => {
+    const trimmedNote = note?.trim();
+    const [activeSupervisors, currentAssignmentStatus] = await Promise.all([
+      tx
+        .select({
+          id: userSupervisors.id,
+          supervisorId: userSupervisors.supervisorId,
+        })
+        .from(userSupervisors)
+        .where(and(
+          eq(userSupervisors.userId, userId),
+          eq(userSupervisors.active, true)
+        )),
+      tx
+        .select({
+          id: assignmentStatuses.id,
+          reachoutLogId: assignmentStatuses.reachoutLogId,
+          status: assignmentStatuses.status,
+          reason: assignmentStatuses.reason,
+          priority: assignmentStatuses.priority,
+        })
+        .from(assignmentStatuses)
+        .where(and(
+          eq(assignmentStatuses.userId, userId),
+          eq(assignmentStatuses.active, true)
+        ))
+        .orderBy(desc(assignmentStatuses.createdAt))
+        .limit(1),
+    ]);
+
+    if (activeSupervisors.length === 0) {
+      throw new AssignmentMutationError(
+        'User does not have an active supervisor; use assign instead',
+        409,
+        'NOT_ASSIGNED'
+      );
+    }
+
+    const alreadyPrimary = activeSupervisors.length === 1 && activeSupervisors[0].supervisorId === supervisorId;
+
+    if (!alreadyPrimary || activeSupervisors.length > 1) {
+      await tx
+        .update(userSupervisors)
+        .set({ active: false })
+        .where(and(
+          eq(userSupervisors.userId, userId),
+          eq(userSupervisors.active, true)
+        ));
+
+      await tx
+        .insert(userSupervisors)
+        .values({
+          userId,
+          supervisorId,
+          active: true,
+        });
+    }
+
+    if (trimmedNote && currentAssignmentStatus[0]) {
+      const currentStatus = currentAssignmentStatus[0];
+
+      await tx
+        .update(assignmentStatuses)
+        .set({
+          active: false,
+          resolvedAt: new Date(),
+          resolvedById: actorDiscordId,
+        })
+        .where(and(
+          eq(assignmentStatuses.userId, userId),
+          eq(assignmentStatuses.active, true)
+        ));
+
+      await tx
+        .insert(assignmentStatuses)
+        .values({
+          userId,
+          reachoutLogId: currentStatus.reachoutLogId,
+          addedById: actorDiscordId,
+          status: currentStatus.status,
+          reason: currentStatus.reason,
+          priority: currentStatus.priority,
+          notes: trimmedNote,
+          active: true,
+        });
+    }
+  });
+
+  return buildAssignmentMutationResult(userId);
+}
+
+export async function unassignUser(
+  userId: bigint,
+  actorDiscordId: bigint,
+  nextStatus: AssignmentStatusValue,
+  reason?: SupportStateReasonValue,
+  note?: string
+) {
+  await getPhaseOneAssignmentUser(userId);
+
+  await db.transaction(async (tx) => {
+    const trimmedNote = note?.trim();
+    const [activeSupervisor, currentAssignmentStatus] = await Promise.all([
+      tx
+        .select({ id: userSupervisors.id })
+        .from(userSupervisors)
+        .where(and(
+          eq(userSupervisors.userId, userId),
+          eq(userSupervisors.active, true)
+        ))
+        .limit(1),
+      tx
+        .select({
+          id: assignmentStatuses.id,
+          reachoutLogId: assignmentStatuses.reachoutLogId,
+          status: assignmentStatuses.status,
+          reason: assignmentStatuses.reason,
+          priority: assignmentStatuses.priority,
+        })
+        .from(assignmentStatuses)
+        .where(and(
+          eq(assignmentStatuses.userId, userId),
+          eq(assignmentStatuses.active, true)
+        ))
+        .orderBy(desc(assignmentStatuses.createdAt))
+        .limit(1),
+    ]);
+
+    if (!activeSupervisor[0]) {
+      throw new AssignmentMutationError('User does not have an active supervisor', 409, 'NOT_ASSIGNED');
+    }
+
+    await tx
+      .update(userSupervisors)
+      .set({ active: false })
+      .where(and(
+        eq(userSupervisors.userId, userId),
+        eq(userSupervisors.active, true)
+      ));
+
+    const currentStatus = currentAssignmentStatus[0];
+
+    if (currentStatus) {
+      const shouldWriteNewStatus = currentStatus.status !== nextStatus || currentStatus.reason !== (reason ?? null) || Boolean(trimmedNote);
+
+      if (shouldWriteNewStatus) {
+        await tx
+          .update(assignmentStatuses)
+          .set({
+            active: false,
+            resolvedAt: new Date(),
+            resolvedById: actorDiscordId,
+          })
+          .where(and(
+            eq(assignmentStatuses.userId, userId),
+            eq(assignmentStatuses.active, true)
+          ));
+
+        await tx
+          .insert(assignmentStatuses)
+          .values({
+            userId,
+            reachoutLogId: currentStatus.reachoutLogId,
+            addedById: actorDiscordId,
+            status: nextStatus,
+            reason: reason ?? null,
+            priority: currentStatus.priority,
+            notes: trimmedNote ?? null,
+            active: true,
+          });
+      }
+
+      return;
+    }
+
+    await tx
+      .insert(assignmentStatuses)
+      .values({
+        userId,
+        addedById: actorDiscordId,
+        status: nextStatus,
+        reason: reason ?? null,
+        priority: 0,
+        notes: trimmedNote ?? null,
+        active: true,
+      });
+  });
+
+  return buildAssignmentMutationResult(userId);
+}
+
+export async function updateUserSupportState(
+  userId: bigint,
+  actorDiscordId: bigint,
+  nextState: AssignmentStatusValue,
+  reason?: SupportStateReasonValue,
+) {
+  await getPhaseOneAssignmentUser(userId);
+
+  if (reason && !SUPPORT_STATE_REASONS_BY_STATE[nextState].includes(reason)) {
+    throw new AssignmentMutationError('Reason is not valid for the selected support state', 400, 'INVALID_REASON');
+  }
+
+  await db.transaction(async (tx) => {
+    const currentStatus = await tx
+      .select({
+        id: assignmentStatuses.id,
+        reachoutLogId: assignmentStatuses.reachoutLogId,
+        status: assignmentStatuses.status,
+        reason: assignmentStatuses.reason,
+        priority: assignmentStatuses.priority,
+        notes: assignmentStatuses.notes,
+      })
+      .from(assignmentStatuses)
+      .where(and(
+        eq(assignmentStatuses.userId, userId),
+        eq(assignmentStatuses.active, true)
+      ))
+      .orderBy(desc(assignmentStatuses.createdAt))
+      .limit(1);
+
+    const current = currentStatus[0];
+
+    if (current && current.status === nextState && current.reason === (reason ?? null)) {
+      return;
+    }
+
+    if (current) {
+      await tx
+        .update(assignmentStatuses)
+        .set({
+          active: false,
+          resolvedAt: new Date(),
+          resolvedById: actorDiscordId,
+        })
+        .where(and(
+          eq(assignmentStatuses.userId, userId),
+          eq(assignmentStatuses.active, true)
+        ));
+    }
+
+    await tx
+      .insert(assignmentStatuses)
+      .values({
+        userId,
+        reachoutLogId: current?.reachoutLogId ?? null,
+        addedById: actorDiscordId,
+        status: nextState,
+        reason: reason ?? null,
+        priority: current?.priority ?? 0,
+        notes: current?.notes ?? null,
+        active: true,
+      });
+  });
+}
+
 // ============================================================================
 // DASHBOARD QUERIES
 // ============================================================================
+
+async function getDashboardStaleTicketCount() {
+  const { ticketStaffAuthors, ticketMessageMetrics, ticketQueueState } = buildTicketQueueCtes();
+
+  const result = await db
+    .with(ticketStaffAuthors, ticketMessageMetrics, ticketQueueState)
+    .select({
+      count: sql<number>`COUNT(*) FILTER (WHERE ${ticketQueueState.queueState} = 'stale')::int`.as('count'),
+    })
+    .from(ticketQueueState);
+
+  return result[0]?.count ?? 0;
+}
 
 /**
  * Get dashboard data for a staff member
@@ -1597,6 +2425,7 @@ export async function getMyDashboardData(staffDiscordId: bigint) {
     .selectDistinctOn([assignmentStatuses.userId], {
       userId: assignmentStatuses.userId,
       currentAssignmentStatus: assignmentStatuses.status,
+      currentAssignmentStatusCreatedAt: assignmentStatuses.createdAt,
     })
     .from(assignmentStatuses)
     .where(eq(assignmentStatuses.active, true))
@@ -1606,7 +2435,7 @@ export async function getMyDashboardData(staffDiscordId: bigint) {
   const userLastCheckIns = db
     .select({
       userId: revertCheckIns.userId,
-      lastCheckIn: sql<string | null>`MAX(${revertCheckIns.checkedInAt})::text`.as('lastCheckIn'),
+      lastCheckIn: sql<Date | null>`MAX(${revertCheckIns.checkedInAt})`.as('lastCheckIn'),
     })
     .from(revertCheckIns)
     .groupBy(revertCheckIns.userId)
@@ -1696,6 +2525,48 @@ export async function getMyDashboardData(staffDiscordId: bigint) {
     .groupBy(shahadas.userId)
     .as('dashboard_shahada_with_me_dates');
 
+  const openCheckInTickets = db
+    .select({
+      authorId: tickets.authorId,
+      ticketId: sql<number>`MAX(${tickets.id})::int`.as('ticketId'),
+    })
+    .from(tickets)
+    .where(and(
+      eq(tickets.status, 'OPEN'),
+      eq(tickets.panelId, CHECK_IN_PANEL_ID),
+    ))
+    .groupBy(tickets.authorId)
+    .as('dashboard_open_check_in_tickets');
+
+  const claimableReverts = await db
+    .select({
+      userId: users.discordId,
+      userName: users.name,
+      userDisplayName: users.displayName,
+      userAvatar: users.displayAvatar,
+      inGuild: users.inGuild,
+      currentAssignmentStatus: currentAssignmentStatuses.currentAssignmentStatus,
+      lastCheckIn: userLastCheckIns.lastCheckIn,
+      activeTags: activeUserTags.activeTags,
+      currentAssignmentStatusCreatedAt: currentAssignmentStatuses.currentAssignmentStatusCreatedAt,
+    })
+    .from(users)
+    .leftJoin(currentAssignmentStatuses, eq(currentAssignmentStatuses.userId, users.discordId))
+    .leftJoin(userLastCheckIns, eq(userLastCheckIns.userId, users.discordId))
+    .leftJoin(activeUserTags, eq(activeUserTags.userId, users.discordId))
+    .leftJoin(activeAssigneeCounts, eq(activeAssigneeCounts.userId, users.discordId))
+    .where(and(
+      buildRevertLikeUserCondition(),
+      sql`COALESCE(${activeAssigneeCounts.activeAssigneeCount}, 0) = 0`,
+      eq(currentAssignmentStatuses.currentAssignmentStatus, 'OPEN')
+    ))
+    .orderBy(
+      asc(sql<number>`CASE WHEN ${userLastCheckIns.lastCheckIn} IS NULL THEN 0 ELSE 1 END`),
+      asc(userLastCheckIns.lastCheckIn),
+      asc(currentAssignmentStatuses.currentAssignmentStatusCreatedAt),
+      asc(users.displayName)
+    );
+
   // 1. Get assigned reverts with their status, active tags, and last check-in
   const assignedReverts = await db
     .select({
@@ -1708,12 +2579,14 @@ export async function getMyDashboardData(staffDiscordId: bigint) {
       currentAssignmentStatus: currentAssignmentStatuses.currentAssignmentStatus,
       lastCheckIn: userLastCheckIns.lastCheckIn,
       activeTags: activeUserTags.activeTags,
+      openCheckInTicketId: openCheckInTickets.ticketId,
     })
     .from(userSupervisors)
     .innerJoin(users, eq(userSupervisors.userId, users.discordId))
     .leftJoin(currentAssignmentStatuses, eq(currentAssignmentStatuses.userId, users.discordId))
     .leftJoin(userLastCheckIns, eq(userLastCheckIns.userId, users.discordId))
     .leftJoin(activeUserTags, eq(activeUserTags.userId, users.discordId))
+    .leftJoin(openCheckInTickets, eq(openCheckInTickets.authorId, users.discordId))
     .where(and(
       eq(userSupervisors.supervisorId, staffDiscordId),
       eq(userSupervisors.active, true)
@@ -1731,6 +2604,31 @@ export async function getMyDashboardData(staffDiscordId: bigint) {
     .from(tickets)
     .innerJoin(recentTicketActivity, eq(recentTicketActivity.channelId, tickets.channelId))
     .where(eq(tickets.status, 'OPEN'));
+
+  const staleTicketCount = await getDashboardStaleTicketCount();
+
+  // Stale ticket list — same definition as the count query, but returning rows for dashboard display
+  const { ticketStaffAuthors: staleAuthors, ticketMessageMetrics: staleMetrics, ticketQueueState: staleQueueState } = buildTicketQueueCtes();
+  const staleTicketsList = await db
+    .with(staleAuthors, staleMetrics, staleQueueState)
+    .select({
+      ticketId: tickets.id,
+      ticketSequence: tickets.sequence,
+      ticketStatus: tickets.status,
+      ticketCreatedAt: tickets.createdAt,
+      authorId: tickets.authorId,
+      authorName: sql<string | null>`COALESCE(${dashboardTicketAuthors.displayName}, ${dashboardTicketAuthors.name})`,
+      authorAvatar: dashboardTicketAuthors.displayAvatar,
+      lastStaffReplyAt: staleQueueState.lastStaffReplyAt,
+      lastOwnerMessageAt: staleQueueState.lastOwnerMessageAt,
+      lastMessageAt: staleQueueState.lastMessageAt,
+    })
+    .from(tickets)
+    .innerJoin(staleQueueState, eq(staleQueueState.ticketId, tickets.id))
+    .leftJoin(dashboardTicketAuthors, eq(tickets.authorId, dashboardTicketAuthors.discordId))
+    .where(eq(staleQueueState.queueState, 'stale' as TicketQueueState))
+    .orderBy(sql`COALESCE(${staleQueueState.lastOwnerMessageAt}, ${tickets.createdAt}) ASC`)
+    .limit(10);
 
   // 3. Get recent tickets where staff replied or was mentioned
   const staffTickets = await db
@@ -1785,7 +2683,7 @@ export async function getMyDashboardData(staffDiscordId: bigint) {
 
   // Compute stats
   const totalReverts = assignedReverts.length;
-  const needsSupport = assignedReverts.filter(r => r.currentAssignmentStatus === 'NEEDS_SUPPORT').length;
+  const needsSupport = assignedReverts.filter(r => r.currentAssignmentStatus === 'OPEN').length;
   const now = new Date();
   const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
   const overdueCheckIns = assignedReverts.filter(r => {
@@ -1803,6 +2701,7 @@ export async function getMyDashboardData(staffDiscordId: bigint) {
       openTickets,
       shahadaCount,
     },
+    staleTicketCount,
     assignedReverts: assignedReverts.map(r => ({
       id: r.userId.toString(),
       name: r.userName,
@@ -1811,8 +2710,33 @@ export async function getMyDashboardData(staffDiscordId: bigint) {
       inGuild: r.inGuild,
       assignedAt: r.assignedAt.toISOString(),
       assignmentStatus: r.currentAssignmentStatus,
-      lastCheckIn: r.lastCheckIn,
+      lastCheckIn: toIsoString(r.lastCheckIn),
       activeTags: r.activeTags || [],
+      openCheckInTicketId: r.openCheckInTicketId ?? null,
+    })),
+    claimableReverts: claimableReverts.map(r => ({
+      id: r.userId.toString(),
+      name: r.userName,
+      displayName: r.userDisplayName,
+      displayAvatar: r.userAvatar,
+      inGuild: r.inGuild,
+      assignmentStatus: r.currentAssignmentStatus,
+      lastCheckIn: toIsoString(r.lastCheckIn),
+      activeTags: r.activeTags || [],
+    })),
+    staleTickets: staleTicketsList.map(t => ({
+      id: t.ticketId,
+      sequence: t.ticketSequence,
+      status: t.ticketStatus,
+      createdAt: t.ticketCreatedAt.toISOString(),
+      author: {
+        id: t.authorId.toString(),
+        name: t.authorName,
+        avatar: t.authorAvatar,
+      },
+      lastStaffMessageAt: toIsoString(t.lastStaffReplyAt),
+      lastOwnerMessageAt: toIsoString(t.lastOwnerMessageAt),
+      lastMessageAt: toIsoString(t.lastMessageAt),
     })),
     recentTickets: staffTickets.map(t => ({
       id: t.ticketId,

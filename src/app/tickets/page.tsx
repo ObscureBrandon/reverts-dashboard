@@ -5,7 +5,7 @@ import { PageHeader } from '@/app/components/page-header';
 import { Badge } from '@/components/ui/badge';
 import { useUserPanel } from '@/lib/contexts/user-panel-context';
 import { usePanels } from '@/lib/hooks/queries/usePanels';
-import { usePrefetchTicketDetail, usePrefetchTickets, useTickets } from '@/lib/hooks/queries/useTickets';
+import { usePrefetchTicketDetail, usePrefetchTickets, useTickets, TicketQueue } from '@/lib/hooks/queries/useTickets';
 import { usePrefetchUserDetails } from '@/lib/hooks/queries/useUserDetails';
 import { useUserRole } from '@/lib/hooks/queries/useUserRole';
 import { useUser } from '@/lib/hooks/queries/useUsers';
@@ -16,10 +16,11 @@ import { parseAsArrayOf, parseAsInteger, parseAsString, parseAsStringLiteral, us
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { TicketListItem, ticketColumns } from './components/columns';
 import { TicketsDataTable } from './components/data-table';
-import { TicketFilterState, TicketsToolbar } from './components/data-table-toolbar';
+import { TicketFilterState, TicketQueueChip, TicketsToolbar } from './components/data-table-toolbar';
 import TicketsListSkeleton from './skeleton';
 
 const ticketStatusOptions = ['all', 'OPEN', 'CLOSED', 'DELETED'] as const;
+const ticketQueueOptions = ['stale', 'waiting_staff', 'waiting_user', 'my_activity'] as const;
 const ticketSortOptions = ['ticket', 'createdAt', 'messageCount'] as const;
 const ticketSortOrderOptions = ['asc', 'desc'] as const;
 
@@ -29,6 +30,7 @@ const searchParamsSchema = {
   status: parseAsStringLiteral(ticketStatusOptions).withDefault('all'),
   panel: parseAsArrayOf(parseAsInteger).withDefault([]),
   author: parseAsString.withDefault(''),
+  queue: parseAsStringLiteral(ticketQueueOptions),
   sort: parseAsStringLiteral(ticketSortOptions).withDefault('createdAt'),
   order: parseAsStringLiteral(ticketSortOrderOptions).withDefault('desc'),
 };
@@ -63,29 +65,43 @@ function TicketsContent() {
     : params.sort === 'messageCount'
       ? 'messageCount'
       : 'createdAt';
-  
+
+  // For stale/waiting_staff queues, auto-sort by oldest waiting obligation first
+  const isQueueWithStaleSort = params.queue === 'stale' || params.queue === 'waiting_staff';
+  const effectiveSortBy = isQueueWithStaleSort ? 'oldestActivity' : ticketSortBy;
+  const effectiveSortOrder = isQueueWithStaleSort ? 'asc' : params.order;
+
+  // Translate UI queue chip to API params
+  const apiQueue: TicketQueue | undefined =
+    params.queue && params.queue !== 'my_activity' ? (params.queue as TicketQueue) : undefined;
+  const ownedByMe = params.queue === 'my_activity' ? true : undefined;
+
   // Use TanStack Query hooks for data fetching
   const { data, isLoading, isFetching, error } = useTickets({
     page: params.page,
     limit,
-    sortBy: ticketSortBy,
-    sortOrder: params.order,
+    sortBy: effectiveSortBy,
+    sortOrder: effectiveSortOrder,
     status: params.status !== 'all' ? params.status : undefined,
     author: authorParam || undefined,
     panels: panelIds.length > 0 ? panelIds : undefined,
     search: params.q || undefined,
+    queue: apiQueue,
+    ownedByMe,
   });
   
   // Prefetch adjacent pages for instant navigation
   const { prefetchPage } = usePrefetchTickets({
     page: params.page,
     limit,
-    sortBy: ticketSortBy,
-    sortOrder: params.order,
+    sortBy: effectiveSortBy,
+    sortOrder: effectiveSortOrder,
     status: params.status !== 'all' ? params.status : undefined,
     author: authorParam || undefined,
     panels: panelIds.length > 0 ? panelIds : undefined,
     search: params.q || undefined,
+    queue: apiQueue,
+    ownedByMe,
   });
 
   // Prefetch ticket details on hover
@@ -141,7 +157,8 @@ function TicketsContent() {
     query: searchInput,
     status: params.status,
     panelIds,
-  }), [panelIds, params.status, searchInput]);
+    queue: (params.queue as TicketQueueChip | null) ?? null,
+  }), [panelIds, params.queue, params.status, searchInput]);
 
   const handleFiltersChange = useCallback((newFilters: TicketFilterState) => {
     if (newFilters.query !== searchInput) {
@@ -154,6 +171,7 @@ function TicketsContent() {
     setParams({
       status: newFilters.status === 'all' ? null : newFilters.status,
       panel: nextPanelIds.length > 0 ? nextPanelIds : null,
+      queue: newFilters.queue ?? null,
       page: 1,
     });
   }, [debouncedSearch, searchInput, setParams]);
