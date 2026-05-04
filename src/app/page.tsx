@@ -1293,7 +1293,7 @@ export default function Home() {
                   <Link
                     href={
                       activeScope === 'assigned' ? '/users?filters=assigned-to-me' :
-                      activeScope === 'needs-assignment' ? '/users?needsAssignment=true' :
+                      activeScope === 'needs-assignment' ? '/users?filters=needs-assignment' :
                       '/users?filters=has-shahada'
                     }
                     className="text-xs text-muted-foreground hover:text-foreground transition-colors"
@@ -1378,7 +1378,7 @@ export default function Home() {
                       )}
                       <div className="border-t border-border px-4 py-2.5 flex justify-center">
                         <Link
-                          href="/users"
+                          href="/users?filters=needs-assignment"
                           className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
                         >
                           View full queue
