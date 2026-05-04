@@ -1067,11 +1067,18 @@ function DashboardSkeleton() {
               <SkeletonRows count={5} />
             </div>
           </div>
-          <div className="lg:col-span-2">
+          <div className="lg:col-span-2 flex flex-col gap-4">
             <div className="relative overflow-hidden rounded-lg border border-border bg-card">
               <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-brand-accent-solid/30 via-brand-accent-solid to-brand-accent-solid/30" />
               <div className="px-4 py-3 border-b border-border bg-muted/30">
                 <Skeleton className="h-4 w-36" />
+              </div>
+              <SkeletonRows count={5} />
+            </div>
+            <div className="relative overflow-hidden rounded-lg border border-border bg-card">
+              <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-brand-accent-solid/30 via-brand-accent-solid to-brand-accent-solid/30" />
+              <div className="px-4 py-3 border-b border-border bg-muted/30">
+                <Skeleton className="h-4 w-28" />
               </div>
               <SkeletonRows count={5} />
             </div>
