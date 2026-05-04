@@ -155,10 +155,12 @@ function UserAvatar({
   src?: string | null
 }) {
   const [imageError, setImageError] = React.useState(false)
+  const [prevSrc, setPrevSrc] = React.useState(src)
 
-  React.useEffect(() => {
+  if (src !== prevSrc) {
+    setPrevSrc(src)
     setImageError(false)
-  }, [src])
+  }
 
   return (
     <Avatar size={size} className={className} {...props}>
