@@ -1,5 +1,6 @@
 import { botApiClient } from '@/lib/bot-api'
 import { authMacro } from '@/lib/elysia/auth'
+import { getActiveSupervisorId } from '@/lib/user-role'
 import { Elysia } from 'elysia'
 
 type StartCheckInRequest = {
@@ -89,9 +90,9 @@ export const botRoutes = new Elysia({ prefix: '/bot' })
     }
 
     return data
-  }, { modAuth: true })
+  }, { staffAuth: true })
 
-  .post('/check-ins/start', async ({ body, discordId, set }) => {
+  .post('/check-ins/start', async ({ access, body, discordId, set }) => {
     const { revertUserId } = body as StartCheckInRequest
 
     if (!revertUserId || !/^\d+$/.test(revertUserId)) {
@@ -102,6 +103,15 @@ export const botRoutes = new Elysia({ prefix: '/bot' })
     if (!discordId || !/^\d+$/.test(discordId)) {
       set.status = 500
       return { error: 'Acting moderator is missing a Discord ID', code: 'MOD_DISCORD_ID_MISSING' }
+    }
+
+    if (access.role !== 'mod') {
+      const activeSupervisorId = await getActiveSupervisorId(BigInt(revertUserId))
+
+      if (activeSupervisorId !== null && activeSupervisorId.toString() !== discordId) {
+        set.status = 403
+        return { error: 'Access denied', code: 'CROSS_STAFF_ACTION_FORBIDDEN' }
+      }
     }
 
     const { data, error: apiError, response } = await botApiClient.POST('/check-ins/start', {
@@ -128,4 +138,4 @@ export const botRoutes = new Elysia({ prefix: '/bot' })
       panelId: data.panel_id,
       panelTitle: data.panel_title,
     } satisfies StartCheckInResponse
-  }, { modAuth: true })
+  }, { staffAuth: true })

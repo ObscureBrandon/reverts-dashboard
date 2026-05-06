@@ -158,7 +158,7 @@ function formatExactDateTime(value: string) {
 }
 
 export function GlobalSearchPalette() {
-  const { isMod, isLoading: roleLoading } = useUserRole()
+  const { canUseGlobalSearch, isLoading: roleLoading } = useUserRole()
   const { isOpen, closeGlobalSearch, toggleGlobalSearch } = useGlobalSearchOverlay()
   const { openUserPanel } = useUserPanel()
   const { prefetch } = usePrefetchUserDetails()
@@ -487,7 +487,7 @@ export function GlobalSearchPalette() {
     element.scrollIntoView({ block: 'nearest' })
   }, [selectedResult, showResultsPanel])
 
-  if (roleLoading || !isMod) {
+  if (roleLoading || !canUseGlobalSearch) {
     return null
   }
 

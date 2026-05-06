@@ -216,7 +216,7 @@ function MessageAttachments({ attachments }: { attachments: string[] }) {
           >
             <AttachmentIcon type={type} />
             <span className="font-medium truncate max-w-xs">{filename}</span>
-            <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
           </a>
@@ -375,7 +375,7 @@ function DiscordEmbedDisplay({
               <img 
                 src={embed.thumbnail.url}
                 alt=""
-                className="max-w-[80px] max-h-[80px] rounded object-cover"
+                className="max-h-20 max-w-20 rounded object-cover"
               />
             </div>
           )}
@@ -493,7 +493,13 @@ export default function TicketDetailPage() {
   const [copiedLink, setCopiedLink] = useState(false);
   
   // Role-based access
-  const { isMod, discordId, isLoading: roleLoading } = useUserRole();
+  const {
+    canAccessTicketsPage,
+    canAccessUsersPage,
+    discordId,
+    isMod,
+    isLoading: roleLoading,
+  } = useUserRole();
   
   // Global panel context (mod-only feature)
   const { openUserPanel } = useUserPanel();
@@ -516,9 +522,9 @@ export default function TicketDetailPage() {
   const summaryError = summaryMutationError?.message || null;
 
   // Back link: mods go to /tickets, users go to /my-tickets
-  const fallbackBackHref = isMod ? '/tickets' : '/my-tickets';
+  const fallbackBackHref = canAccessTicketsPage ? '/tickets' : '/my-tickets';
   const backHref = safeReturnHref(searchParams.get('returnTo'), fallbackBackHref);
-  const backLabel = isMod ? 'Back to Tickets' : 'Back to My Tickets';
+  const backLabel = canAccessTicketsPage ? 'Back to Tickets' : 'Back to My Tickets';
   const targetMessageId = searchParams.get('message');
   const highlightTerm = searchParams.get('highlight');
   const statusDescriptor = getTicketStatusDescriptor(ticket?.status);
@@ -611,7 +617,7 @@ export default function TicketDetailPage() {
   }
   
   // Access control: non-mods can only see their own tickets
-  if (!loading && ticket && !isMod && ticket.author?.id !== discordId) {
+  if (!loading && ticket && !canAccessTicketsPage && ticket.author?.id !== discordId) {
     return (
       <div className="min-h-screen bg-background">
         <NavigationHeader />
@@ -715,13 +721,13 @@ export default function TicketDetailPage() {
                     Opened by
                   </div>
                   <div
-                    className={cn('mt-1 flex min-w-0 items-center gap-2.5', isMod && ticketAuthor && 'cursor-pointer')}
-                    onClick={isMod && ticketAuthorId ? (e) => {
+                    className={cn('mt-1 flex min-w-0 items-center gap-2.5', canAccessUsersPage && ticketAuthor && 'cursor-pointer')}
+                    onClick={canAccessUsersPage && ticketAuthorId ? (e) => {
                       e.preventDefault();
                       e.stopPropagation();
                       openUserPanel(ticketAuthorId);
                     } : undefined}
-                    onMouseEnter={isMod && ticketAuthorId ? () => prefetchUserDetails(ticketAuthorId) : undefined}
+                    onMouseEnter={canAccessUsersPage && ticketAuthorId ? () => prefetchUserDetails(ticketAuthorId) : undefined}
                   >
                     <UserAvatar
                       src={ticketAuthor?.displayAvatar}
@@ -791,13 +797,13 @@ export default function TicketDetailPage() {
                                 src={participant.displayAvatar}
                                 name={participantName}
                                 size="sm"
-                                className={cn('border border-border', isMod && 'cursor-pointer')}
-                                onClick={isMod ? (e) => {
+                                  className={cn('border border-border', canAccessUsersPage && 'cursor-pointer')}
+                                  onClick={canAccessUsersPage ? (e) => {
                                   e.preventDefault();
                                   e.stopPropagation();
                                   openUserPanel(participant.id);
                                 } : undefined}
-                                onMouseEnter={isMod ? () => prefetchUserDetails(participant.id) : undefined}
+                                  onMouseEnter={canAccessUsersPage ? () => prefetchUserDetails(participant.id) : undefined}
                               />
                             );
                           })}
@@ -822,7 +828,7 @@ export default function TicketDetailPage() {
 
             {hasSummary ? (
               <CardContent className="px-6 py-6">
-                <p className="whitespace-pre-wrap break-words text-sm leading-6 text-foreground/90">
+                <p className="whitespace-pre-wrap wrap-break-word text-sm leading-6 text-foreground/90">
                   {ticket.summary}
                 </p>
               </CardContent>
@@ -883,7 +889,7 @@ export default function TicketDetailPage() {
           </Card>
 
           <Card className="relative gap-0 overflow-hidden border-border py-0 shadow-sm">
-            <div className="absolute left-0 right-0 top-0 h-0.5 bg-gradient-to-r from-brand-accent-solid/30 via-brand-accent-solid to-brand-accent-solid/30" />
+            <div className="absolute left-0 right-0 top-0 h-0.5 bg-linear-to-r from-brand-accent-solid/30 via-brand-accent-solid to-brand-accent-solid/30" />
             <CardHeader className="border-b border-border px-6 py-5">
               <CardTitle>Transcript</CardTitle>
             </CardHeader>
@@ -946,13 +952,13 @@ export default function TicketDetailPage() {
 
                               {msg.author ? (
                                 <div
-                                  className={cn('flex-shrink-0 self-start', isMod && 'cursor-pointer')}
-                                  onClick={isMod ? (e) => {
+                                  className={cn('shrink-0 self-start', canAccessUsersPage && 'cursor-pointer')}
+                                  onClick={canAccessUsersPage ? (e) => {
                                     e.preventDefault();
                                     e.stopPropagation();
                                     openUserPanel(msg.author!.id);
                                   } : undefined}
-                                  onMouseEnter={isMod ? () => prefetchUserDetails(msg.author!.id) : undefined}
+                                  onMouseEnter={canAccessUsersPage ? () => prefetchUserDetails(msg.author!.id) : undefined}
                                 >
                                   <UserAvatar
                                     src={msg.author.displayAvatar}
@@ -1029,7 +1035,7 @@ export default function TicketDetailPage() {
                                 />
                               ) : null}
 
-                              <div className="relative flex w-10 flex-shrink-0 items-start justify-center overflow-visible">
+                              <div className="relative flex w-10 shrink-0 items-start justify-center overflow-visible">
                                 <span className="absolute right-0 top-0 whitespace-nowrap text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
                                   {formatTime(msg.createdAt)}
                                 </span>

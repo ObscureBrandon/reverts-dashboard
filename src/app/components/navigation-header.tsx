@@ -10,11 +10,14 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useLayoutEffect, useRef, useState } from 'react';
 
-// Full nav items for mods
-const modNavItems = [
+const staffNavItems = [
   { href: '/', label: 'Home', icon: Home },
   { href: '/users', label: 'Users', icon: Users },
   { href: '/tickets', label: 'Tickets', icon: Ticket },
+];
+
+const modNavItems = [
+  ...staffNavItems,
   { href: '/messages', label: 'Messages', icon: MessageSquare },
 ];
 
@@ -25,12 +28,17 @@ const userNavItems = [
 
 export function NavigationHeader() {
   const pathname = usePathname();
-  const { isMod, isLoading } = useUserRole();
+  const {
+    canUseGlobalSearch,
+    canAccessMessagesPage,
+    isStaff,
+    isLoading,
+  } = useUserRole();
   const { openGlobalSearch } = useGlobalSearchOverlay();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // Select nav items based on role
-  const navItems = isLoading ? [] : isMod ? modNavItems : userNavItems;
+  const navItems = isLoading ? [] : isStaff ? (canAccessMessagesPage ? modNavItems : staffNavItems) : userNavItems;
   
   // Refs for measuring nav link positions for sliding underline
   const navContainerRef = useRef<HTMLDivElement>(null);
@@ -63,8 +71,8 @@ export function NavigationHeader() {
   }, [activeIndex, pathname]);
 
   // Determine which items to show in the desktop nav (skip Home for mods)
-  const desktopNavItems = isMod ? navItems.slice(1) : navItems;
-  const desktopActiveOffset = isMod ? 1 : 0;
+  const desktopNavItems = isStaff ? navItems.slice(1) : navItems;
+  const desktopActiveOffset = isStaff ? 1 : 0;
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -72,7 +80,7 @@ export function NavigationHeader() {
         <div className="flex h-14 items-center justify-between">
           {/* Logo/Brand */}
           <Link 
-            href={isMod ? '/' : '/my-tickets'}
+            href={isStaff ? '/' : '/my-tickets'}
             className="flex items-center gap-2 font-semibold text-foreground transition-colors hover:text-brand-accent-text"
           >
             <Image
@@ -125,7 +133,7 @@ export function NavigationHeader() {
           </nav>
 
           <div className="hidden md:flex items-center gap-2">
-            {isMod ? (
+            {canUseGlobalSearch ? (
               <Button
                 type="button"
                 variant="outline"
@@ -142,7 +150,7 @@ export function NavigationHeader() {
 
           {/* Mobile Menu Button */}
           <div className="flex items-center gap-1 md:hidden">
-            {isMod ? (
+            {canUseGlobalSearch ? (
               <Button
                 variant="ghost"
                 size="sm"

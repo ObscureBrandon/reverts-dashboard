@@ -336,7 +336,7 @@ function SupervisionActionsRow({
   isRevertLike: boolean;
   activeSupervisors: UserDetails['supervisors'];
 }) {
-  const { discordId } = useUserRole();
+  const { canPerformCrossStaffActions, discordId } = useUserRole();
   const claimAssignment = useClaimAssignment();
   const transferAssignment = useTransferAssignment();
   const unassignUser = useUnassignUser();
@@ -356,6 +356,7 @@ function SupervisionActionsRow({
   const activeSup = activeSupervisors.find(s => s.active) ?? null;
   const isAssigned = !!activeSup;
   const isAssignedToMe = activeSup?.supervisor?.id === discordId;
+  const canManageAssignedUser = !isAssigned || isAssignedToMe || canPerformCrossStaffActions;
   const isPending = claimAssignment.isPending || transferAssignment.isPending || unassignUser.isPending || updateSupportState.isPending;
 
   function handleClaim() {
@@ -411,7 +412,7 @@ function SupervisionActionsRow({
             Assign to me
           </Button>
         )}
-        {isAssigned && isAssignedToMe && (
+        {isAssigned && (isAssignedToMe || canPerformCrossStaffActions) && (
           <Button
             size="sm"
             variant="outline"
@@ -422,7 +423,7 @@ function SupervisionActionsRow({
             Unassign
           </Button>
         )}
-        {isAssigned && (
+        {isAssigned && canManageAssignedUser && (
           <Button
             size="sm"
             variant="outline"
@@ -432,7 +433,7 @@ function SupervisionActionsRow({
             Change state
           </Button>
         )}
-        {isAssigned && !isAssignedToMe && (
+        {isAssigned && !isAssignedToMe && canPerformCrossStaffActions && (
           <Button size="sm" variant="outline" onClick={handleTakeOver} disabled={isPending}>
             {transferAssignment.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowLeftRight className="h-3.5 w-3.5" />}
             Take over
@@ -921,7 +922,7 @@ const TAG_COLORS = [
   '#3b82f6', '#64748b',
 ];
 
-function TagsSection({ userId }: { userId: string }) {
+function TagsSection({ userId, canManageTags }: { userId: string; canManageTags: boolean }) {
   const { data: tagsData, isLoading } = useUserTags(userId);
   const { data: allTagsData } = useRevertTags();
   const createTag = useCreateTag();
@@ -1045,24 +1046,28 @@ function TagsSection({ userId }: { userId: string }) {
           >
             {tag.emoji && <span>{tag.emoji}</span>}
             {tag.name}
-            <button
-              onClick={() => { setRemoveId(tag.assignmentId); setRemovalNote(''); }}
-              className="ml-0.5 p-0.5 rounded-full hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
-              title="Remove tag"
-            >
-              <X className="h-3 w-3" />
-            </button>
+            {canManageTags ? (
+              <button
+                onClick={() => { setRemoveId(tag.assignmentId); setRemovalNote(''); }}
+                className="ml-0.5 p-0.5 rounded-full hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
+                title="Remove tag"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            ) : null}
           </span>
         ))}
 
         {/* Add tag button */}
-        <button
-          onClick={() => setShowPicker(!showPicker)}
-          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-muted hover:bg-muted/80 text-muted-foreground border border-dashed border-border transition-colors"
-        >
-          <Plus className="h-3 w-3" />
-          Add Tag
-        </button>
+        {canManageTags ? (
+          <button
+            onClick={() => setShowPicker(!showPicker)}
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-muted hover:bg-muted/80 text-muted-foreground border border-dashed border-border transition-colors"
+          >
+            <Plus className="h-3 w-3" />
+            Add Tag
+          </button>
+        ) : null}
       </div>
 
       {/* Empty state */}
@@ -1071,7 +1076,7 @@ function TagsSection({ userId }: { userId: string }) {
       )}
 
       {/* Picker panel */}
-      {showPicker && (
+      {canManageTags && showPicker && (
         <div className="border border-border rounded-lg bg-background shadow-md overflow-hidden">
 
           {/* Search / name input */}
@@ -1293,7 +1298,7 @@ function TagsSection({ userId }: { userId: string }) {
       )}
 
       {/* Remove confirmation */}
-      {removeId !== null && (
+      {canManageTags && removeId !== null && (
         <div className="border border-border rounded-lg bg-muted/30 p-3 space-y-3">
           <p className="text-sm font-medium text-foreground">Remove this tag?</p>
           <input
@@ -1370,7 +1375,17 @@ type TicketActionState =
   | { status: 'success'; discordUrl: string; outcome: string }
   | { status: 'error'; message: string };
 
-function CheckInsSection({ userId, displayName, openCheckInTicketId }: { userId: string; displayName: string; openCheckInTicketId: number | null }) {
+function CheckInsSection({
+  userId,
+  displayName,
+  openCheckInTicketId,
+  canManageCheckIns,
+}: {
+  userId: string;
+  displayName: string;
+  openCheckInTicketId: number | null;
+  canManageCheckIns: boolean;
+}) {
   const { data: checkIns, isLoading } = useCheckIns(userId);
   const addCheckIn = useAddCheckIn();
   const startTicket = useStartCheckInTicket();
@@ -1441,85 +1456,85 @@ function CheckInsSection({ userId, displayName, openCheckInTicketId }: { userId:
   }
 
   if (isLoading) {
-    return <div className="space-y-2">{[1,2].map(i => <Skeleton key={i} className="h-12 w-full rounded" />)}</div>;
+    return <div className="space-y-2">{[1, 2].map((index) => <Skeleton key={index} className="h-12 w-full rounded" />)}</div>;
   }
 
   const items = checkIns || [];
 
   return (
     <div className="space-y-3">
-      {/* Action buttons */}
-      <div className="flex flex-wrap items-center gap-2">
-        {!showForm && (
-          <button
-            onClick={() => setShowForm(true)}
-            className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors font-medium"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Log Check-in
-          </button>
-        )}
-        {ticketState.status === 'idle' && openCheckInTicketHref && (
-          <a
-            href={openCheckInTicketHref}
-            className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md bg-muted border border-border text-foreground hover:bg-muted/80 transition-colors font-medium"
-          >
-            <ExternalLink className="h-3.5 w-3.5" />
-            Jump to ticket
-          </a>
-        )}
-        {ticketState.status === 'idle' && !openCheckInTicketHref && (
-          <button
-            onClick={handleStartTicket}
-            className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md bg-muted border border-border text-foreground hover:bg-muted/80 transition-colors font-medium"
-          >
-            <Ticket className="h-3.5 w-3.5" />
-            Create ticket
-          </button>
-        )}
-        {ticketState.status === 'pending' && (
-          <span className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 text-muted-foreground">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            Creating…
-          </span>
-        )}
-        {ticketState.status === 'success' && (
-          <span className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md font-medium text-brand-accent-text">
-            <Check className="h-3.5 w-3.5" />
-            {getTicketInlineLabel(ticketState.outcome)}
-          </span>
-        )}
-        {ticketState.status === 'error' && (
-          <span className="text-xs font-medium text-destructive">
-            Failed to create ticket
-          </span>
-        )}
-      </div>
+      {canManageCheckIns ? (
+        <div className="flex flex-wrap items-center gap-2">
+          {!showForm && (
+            <button
+              onClick={() => setShowForm(true)}
+              className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors font-medium"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Log Check-in
+            </button>
+          )}
+          {ticketState.status === 'idle' && openCheckInTicketHref ? (
+            <a
+              href={openCheckInTicketHref}
+              className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md bg-muted border border-border text-foreground hover:bg-muted/80 transition-colors font-medium"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              Jump to ticket
+            </a>
+          ) : null}
+          {ticketState.status === 'idle' && !openCheckInTicketHref ? (
+            <button
+              onClick={handleStartTicket}
+              className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md bg-muted border border-border text-foreground hover:bg-muted/80 transition-colors font-medium"
+            >
+              <Ticket className="h-3.5 w-3.5" />
+              Create ticket
+            </button>
+          ) : null}
+          {ticketState.status === 'pending' ? (
+            <span className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Creating…
+            </span>
+          ) : null}
+          {ticketState.status === 'success' ? (
+            <span className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md font-medium text-brand-accent-text">
+              <Check className="h-3.5 w-3.5" />
+              {getTicketInlineLabel(ticketState.outcome)}
+            </span>
+          ) : null}
+          {ticketState.status === 'error' ? (
+            <span className="text-xs font-medium text-destructive">
+              Failed to create ticket
+            </span>
+          ) : null}
+        </div>
+      ) : null}
 
-      {/* Inline form */}
-      {showForm && (
+      {canManageCheckIns && showForm ? (
         <div className="border border-border rounded-lg p-3 space-y-3">
           <div className="grid grid-cols-3 gap-2">
-            {CHECK_IN_METHODS.map(m => (
+            {CHECK_IN_METHODS.map((checkInMethod) => (
               <button
-                key={m}
-                onClick={() => setMethod(m)}
+                key={checkInMethod}
+                onClick={() => setMethod(checkInMethod)}
                 className={cn(
                   'flex items-center justify-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-colors border',
-                  method === m
+                  method === checkInMethod
                     ? 'bg-primary text-primary-foreground border-primary'
                     : 'bg-muted border-border text-muted-foreground hover:bg-muted/80'
                 )}
               >
-                {CHECK_IN_METHOD_ICONS[m]}
-                {m}
+                {CHECK_IN_METHOD_ICONS[checkInMethod]}
+                {checkInMethod}
               </button>
             ))}
           </div>
           <textarea
             placeholder="Optional summary…"
             value={summary}
-            onChange={e => setSummary(e.target.value)}
+            onChange={(event) => setSummary(event.target.value)}
             rows={2}
             className="w-full text-sm bg-muted rounded px-2.5 py-2 outline-none placeholder:text-muted-foreground resize-none"
           />
@@ -1539,38 +1554,100 @@ function CheckInsSection({ userId, displayName, openCheckInTicketId }: { userId:
             </button>
           </div>
         </div>
-      )}
+      ) : null}
 
-      {/* Check-in list */}
-      {items.length === 0 && !showForm && (
+      {items.length === 0 && !showForm ? (
         <p className="text-sm text-muted-foreground">No check-ins recorded</p>
-      )}
-      {items.length > 0 && (
+      ) : null}
+
+      {items.length > 0 ? (
         <div className="space-y-2">
-          {items.map(ci => (
-            <div key={ci.id} className="text-sm border-l-2 border-primary/25 pl-3 py-1 space-y-0.5">
+          {items.map((checkIn) => (
+            <div key={checkIn.id} className="text-sm border-l-2 border-primary/25 pl-3 py-1 space-y-0.5">
               <div className="flex items-center gap-2">
                 <span className="text-primary">
-                  {CHECK_IN_METHOD_ICONS[ci.method] || <MessageSquare className="h-3.5 w-3.5" />}
+                  {CHECK_IN_METHOD_ICONS[checkIn.method] || <MessageSquare className="h-3.5 w-3.5" />}
                 </span>
-                <span className="font-medium text-xs">{ci.method}</span>
+                <span className="font-medium text-xs">{checkIn.method}</span>
                 <span className="text-xs text-muted-foreground">•</span>
-                <span className="text-xs text-muted-foreground">{formatRelativeTime(ci.checkedInAt)}</span>
+                <span className="text-xs text-muted-foreground">{formatRelativeTime(checkIn.checkedInAt)}</span>
               </div>
-              {ci.staffName && (
+              {checkIn.staffName ? (
                 <div className="flex items-center gap-1.5">
                   <Avatar className="h-4 w-4">
-                    <AvatarImage src={ci.staffAvatar || undefined} />
-                    <AvatarFallback className="text-[8px] bg-muted">{getInitials(ci.staffName)}</AvatarFallback>
+                    <AvatarImage src={checkIn.staffAvatar || undefined} />
+                    <AvatarFallback className="text-[8px] bg-muted">{getInitials(checkIn.staffName)}</AvatarFallback>
                   </Avatar>
-                  <span className="text-xs text-muted-foreground">{ci.staffName}</span>
+                  <span className="text-xs text-muted-foreground">{checkIn.staffName}</span>
                 </div>
-              )}
-              {ci.summary && (
-                <p className="text-xs text-muted-foreground mt-0.5 wrap-break-word overflow-hidden">{ci.summary}</p>
-              )}
+              ) : null}
+              {checkIn.summary ? (
+                <p className="mt-0.5 overflow-hidden text-xs text-muted-foreground wrap-break-word">{checkIn.summary}</p>
+              ) : null}
             </div>
           ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// ============================================================================
+// Tickets Section
+// ============================================================================
+
+function TicketsSection({
+  ticketStats,
+  recentTickets,
+}: {
+  ticketStats: UserDetails['ticketStats'];
+  recentTickets: UserDetails['recentTickets'];
+  userId: string;
+}) {
+  const statItems = [
+    { label: 'Open', value: ticketStats.open },
+    { label: 'Closed', value: ticketStats.closed },
+    { label: 'Deleted', value: ticketStats.deleted },
+  ];
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-3 gap-2">
+        {statItems.map((item) => (
+          <div key={item.label} className="rounded-lg border border-border bg-muted/40 p-3 text-center">
+            <p className="text-lg font-semibold text-foreground">{item.value}</p>
+            <p className="text-xs text-muted-foreground">{item.label}</p>
+          </div>
+        ))}
+      </div>
+
+      {recentTickets.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No recent tickets</p>
+      ) : (
+        <div className="space-y-2">
+          {recentTickets.map((ticket) => {
+            const descriptor = getTicketStatusDescriptor(ticket.status);
+
+            return (
+              <a
+                key={ticket.id}
+                href={`/tickets/${ticket.id}`}
+                className="flex items-center justify-between gap-3 rounded-lg border border-border p-3 transition-colors hover:bg-muted/40"
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-foreground">
+                    Ticket #{ticket.sequence ?? ticket.id}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Opened {formatRelativeTime(ticket.createdAt)}
+                  </p>
+                </div>
+                <Badge tone={descriptor.tone} kind={descriptor.kind} emphasis={descriptor.emphasis}>
+                  {descriptor.label}
+                </Badge>
+              </a>
+            );
+          })}
         </div>
       )}
     </div>
@@ -1581,7 +1658,15 @@ function CheckInsSection({ userId, displayName, openCheckInTicketId }: { userId:
 // Supervisor Notes Section
 // ============================================================================
 
-function SupervisorNotesSection({ entries, userId }: { entries: UserDetails['supervisorNotes']; userId: string }) {
+function SupervisorNotesSection({
+  entries,
+  userId,
+  canAddNotes,
+}: {
+  entries: UserDetails['supervisorNotes'];
+  userId: string;
+  canAddNotes: boolean;
+}) {
   const [showAll, setShowAll] = useState(false);
   const [noteText, setNoteText] = useState('');
   const addNote = useAddSupervisorNote();
@@ -1602,23 +1687,25 @@ function SupervisorNotesSection({ entries, userId }: { entries: UserDetails['sup
   return (
     <div className="space-y-3">
       {/* Note composer */}
-      <div className="space-y-2">
-        <textarea
-          placeholder="Add a note…"
-          value={noteText}
-          onChange={e => setNoteText(e.target.value)}
-          rows={2}
-          className="w-full text-sm bg-muted rounded px-2.5 py-2 outline-none placeholder:text-muted-foreground resize-none"
-        />
-        <Button
-          size="sm"
-          onClick={handleAddNote}
-          disabled={!noteText.trim() || addNote.isPending}
-        >
-          {addNote.isPending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-          {addNote.isPending ? 'Adding…' : 'Add note'}
-        </Button>
-      </div>
+      {canAddNotes ? (
+        <div className="space-y-2">
+          <textarea
+            placeholder="Add a note…"
+            value={noteText}
+            onChange={e => setNoteText(e.target.value)}
+            rows={2}
+            className="w-full text-sm bg-muted rounded px-2.5 py-2 outline-none placeholder:text-muted-foreground resize-none"
+          />
+          <Button
+            size="sm"
+            onClick={handleAddNote}
+            disabled={!noteText.trim() || addNote.isPending}
+          >
+            {addNote.isPending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+            {addNote.isPending ? 'Adding…' : 'Add note'}
+          </Button>
+        </div>
+      ) : null}
 
       {entries.length === 0 && (
         <p className="text-sm text-muted-foreground">No supervisor notes yet</p>
@@ -1666,8 +1753,6 @@ function ModerationSection({ infractions }: { infractions: UserDetails['infracti
 
   const activeInfractions = infractions.filter((i) => i.status === 'ACTIVE');
   const hiddenCount = infractions.filter((i) => i.hidden).length;
-
-  // Count by type
   const typeCounts = infractions.reduce((acc, inf) => {
     acc[inf.type] = (acc[inf.type] || 0) + 1;
     return acc;
@@ -1675,7 +1760,6 @@ function ModerationSection({ infractions }: { infractions: UserDetails['infracti
 
   return (
     <div className="space-y-4">
-      {/* Summary counts */}
       <div className="flex items-center gap-3 text-sm">
         <span className="font-medium text-foreground">
           {activeInfractions.length} active
@@ -1690,7 +1774,6 @@ function ModerationSection({ infractions }: { infractions: UserDetails['infracti
         )}
       </div>
 
-      {/* Type breakdown */}
       <div className="flex flex-wrap gap-2">
         {Object.entries(typeCounts).map(([type, count]) => (
           <span
@@ -1698,31 +1781,58 @@ function ModerationSection({ infractions }: { infractions: UserDetails['infracti
             className="inline-flex items-center gap-1.5 px-2 py-1 bg-muted rounded-md text-xs"
           >
             <InfractionTypeIcon type={type} />
-            <span className="capitalize">{type.toLowerCase().replace(/_/g, ' ')}</span>
-            <span className="font-medium">{count}</span>
+            <span className="font-medium text-foreground">{type}</span>
+            <span className="text-muted-foreground">{count}</span>
           </span>
         ))}
       </div>
 
-      {/* Recent infractions list */}
-      <div className="space-y-2">
-        <span className="text-xs text-muted-foreground uppercase tracking-wide">Recent</span>
-        {infractions.slice(0, 3).map((inf) => (
-          <div
-            key={inf.id}
-            className={cn(
-              'p-2 rounded-md text-sm',
-              inf.status === 'ACTIVE' ? 'bg-red-50 dark:bg-red-950/30' : 'bg-muted/50'
-            )}
-          >
-            <div className="flex items-center gap-2">
-              <InfractionTypeIcon type={inf.type} />
-              <span className="capitalize font-medium">{inf.type.toLowerCase().replace(/_/g, ' ')}</span>
-              <span className="text-xs text-muted-foreground">{formatRelativeTime(inf.createdAt)}</span>
+      <div className="space-y-3">
+        {infractions.map((infraction) => (
+          <div key={infraction.id} className="rounded-lg border border-border p-3 space-y-2">
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="inline-flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 font-medium text-foreground">
+                <InfractionTypeIcon type={infraction.type} />
+                {infraction.type}
+              </span>
+              <span className={cn(
+                'rounded-md px-2 py-1 font-medium',
+                infraction.status === 'ACTIVE'
+                  ? 'bg-destructive/10 text-destructive'
+                  : 'bg-muted text-muted-foreground'
+              )}>
+                {infraction.status}
+              </span>
+              {infraction.hidden ? (
+                <span className="rounded-md bg-muted px-2 py-1 text-muted-foreground">Hidden</span>
+              ) : null}
+              {infraction.expiresAt ? (
+                <span className="text-muted-foreground">Expires {formatRelativeTime(infraction.expiresAt)}</span>
+              ) : null}
             </div>
-            {inf.reason && (
-              <p className="mt-1 text-xs text-muted-foreground line-clamp-2">{inf.reason}</p>
+
+            {infraction.reason ? (
+              <p className="text-sm text-foreground wrap-break-word">{infraction.reason}</p>
+            ) : (
+              <p className="text-sm text-muted-foreground">No reason recorded</p>
             )}
+
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <span>Added {formatRelativeTime(infraction.createdAt)}</span>
+              {infraction.moderator?.name ? <span>by {infraction.moderator.name}</span> : null}
+              {infraction.pardonedBy ? <span>Pardoned</span> : null}
+              {infraction.jumpUrl ? (
+                <a
+                  href={infraction.jumpUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 text-primary hover:underline"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  View source
+                </a>
+              ) : null}
+            </div>
           </div>
         ))}
       </div>
@@ -1730,102 +1840,6 @@ function ModerationSection({ infractions }: { infractions: UserDetails['infracti
   );
 }
 
-// ============================================================================
-// Tickets Section
-// ============================================================================
-
-function TicketsSection({ 
-  ticketStats, 
-  recentTickets,
-  userId,
-}: { 
-  ticketStats: UserDetails['ticketStats'];
-  recentTickets: UserDetails['recentTickets'];
-  userId: string;
-}) {
-  const totalTickets = ticketStats.open + ticketStats.closed + ticketStats.deleted;
-  
-  return (
-    <div className="space-y-4">
-      {/* Stat row */}
-      <div className="flex gap-4">
-        <div className="flex-1">
-          <div className="text-2xl font-bold text-primary">
-            {ticketStats.open}
-          </div>
-          <div className="text-xs text-muted-foreground">Open</div>
-        </div>
-        <div className="flex-1">
-          <div className="text-2xl font-bold text-muted-foreground">
-            {ticketStats.closed}
-          </div>
-          <div className="text-xs text-muted-foreground">Closed</div>
-        </div>
-        <div className="flex-1">
-          <div className="text-2xl font-bold text-red-600 dark:text-red-400">
-            {ticketStats.deleted}
-          </div>
-          <div className="text-xs text-muted-foreground">Deleted</div>
-        </div>
-      </div>
-      
-      {/* Scrollable ticket list */}
-      {recentTickets.length > 0 && (
-        <div className="space-y-2">
-          <div className="text-xs text-muted-foreground uppercase tracking-wide">All Tickets</div>
-          <div className="max-h-[200px] overflow-y-auto space-y-1 pr-1">
-            {recentTickets.map((ticket) => (
-              <a
-                key={ticket.id}
-                href={`/tickets/${ticket.id}`}
-                className="flex items-center justify-between px-2 py-1.5 rounded-md hover:bg-muted/50 transition-colors group"
-              >
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-primary group-hover:underline">
-                    #{ticket.sequence !== null ? ticket.sequence : ticket.id}
-                  </span>
-                  <span className={cn(
-                    'inline-flex items-center'
-                  )}>
-                    <Badge
-                      tone={getTicketStatusDescriptor(ticket.status).tone}
-                      kind={getTicketStatusDescriptor(ticket.status).kind}
-                      emphasis={getTicketStatusDescriptor(ticket.status).emphasis}
-                      className="px-1.5 py-0 text-[10px]"
-                    >
-                      {getTicketStatusDescriptor(ticket.status).label}
-                    </Badge>
-                  </span>
-                </div>
-                <span className="text-xs text-muted-foreground">
-                  {new Date(ticket.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                </span>
-              </a>
-            ))}
-          </div>
-        </div>
-      )}
-      
-      {/* View All link */}
-      {totalTickets > 0 && (
-        <a
-          href={`/tickets?author=${userId}`}
-          className="flex items-center justify-center gap-1 px-3 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors text-sm font-medium"
-        >
-          View All Tickets
-          <ChevronRight className="h-4 w-4" />
-        </a>
-      )}
-      
-      {/* Empty state */}
-      {totalTickets === 0 && (
-        <p className="text-sm text-muted-foreground">No tickets found</p>
-      )}
-    </div>
-  );
-}
-
-// ============================================================================
 // Timeline Footer
 // ============================================================================
 
@@ -1947,6 +1961,10 @@ export interface UserPanelContentProps {
 }
 
 function UserPanelSections({ data, isMobile }: { data: UserDetails; isMobile: boolean }) {
+  const { canPerformCrossStaffActions, discordId } = useUserRole();
+  const activeSupervisor = data.supervisors.find((supervisor) => supervisor.active) ?? null;
+  const canManageTarget = !activeSupervisor || activeSupervisor.supervisor?.id === discordId || canPerformCrossStaffActions;
+
   return (
     <>
       <CollapsibleSection
@@ -1970,6 +1988,7 @@ function UserPanelSections({ data, isMobile }: { data: UserDetails; isMobile: bo
           userId={data.user.id}
           displayName={data.user.displayName || data.user.name || 'Unknown User'}
           openCheckInTicketId={data.openCheckInTicketId}
+          canManageCheckIns={canManageTarget}
         />
       </CollapsibleSection>
 
@@ -1978,7 +1997,7 @@ function UserPanelSections({ data, isMobile }: { data: UserDetails; isMobile: bo
         icon={<Tag className="h-4 w-4" />}
         defaultOpen={false}
       >
-        <TagsSection userId={data.user.id} />
+        <TagsSection userId={data.user.id} canManageTags={canManageTarget} />
       </CollapsibleSection>
 
       <CollapsibleSection
@@ -2005,7 +2024,7 @@ function UserPanelSections({ data, isMobile }: { data: UserDetails; isMobile: bo
         }
         defaultOpen={false}
       >
-        <SupervisorNotesSection entries={data.supervisorNotes} userId={data.user.id} />
+        <SupervisorNotesSection entries={data.supervisorNotes} userId={data.user.id} canAddNotes={canManageTarget} />
       </CollapsibleSection>
 
       <CollapsibleSection

@@ -27,7 +27,7 @@ export const tagsRoutes = new Elysia({ prefix: '/tags' })
       console.error('Error fetching tags:', error)
       throw new Error('Failed to fetch tags')
     }
-  }, { modAuth: true })
+  }, { staffAuth: true })
 
   // GET /tags/all - List all tags including archived (for management page)
   .get('/all', async () => {
@@ -45,7 +45,7 @@ export const tagsRoutes = new Elysia({ prefix: '/tags' })
       console.error('Error fetching all tags:', error)
       throw new Error('Failed to fetch tags')
     }
-  }, { modAuth: true })
+  }, { staffAuth: true })
 
   // POST /tags - Create a new tag
   .post('/', async ({ body, discordId, set }) => {
@@ -102,7 +102,7 @@ export const tagsRoutes = new Elysia({ prefix: '/tags' })
       console.error('Error creating tag:', error)
       throw new Error('Failed to create tag')
     }
-  }, { modAuth: true })
+  }, { staffAuth: true })
 
   // PATCH /tags/:id - Update a tag
   .patch('/:id', async ({ params, body, set }) => {
@@ -164,7 +164,7 @@ export const tagsRoutes = new Elysia({ prefix: '/tags' })
       console.error('Error updating tag:', error)
       throw new Error('Failed to update tag')
     }
-  }, { modAuth: true })
+  }, { staffAuth: true })
 
   // PATCH /tags/:id/archive - Archive a tag
   .patch('/:id/archive', async ({ params, set }) => {
@@ -192,4 +192,4 @@ export const tagsRoutes = new Elysia({ prefix: '/tags' })
       console.error('Error archiving tag:', error)
       throw new Error('Failed to archive tag')
     }
-  }, { modAuth: true })
+  }, { staffAuth: true })

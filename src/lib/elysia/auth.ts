@@ -6,6 +6,7 @@ import { Elysia } from 'elysia'
  * Auth macro for Elysia routes.
  * Provides two guards:
  * - `auth`: Requires any authenticated session, returns user + session
+ * - `staffAuth`: Requires authenticated dashboard staff access
  * - `modAuth`: Requires authenticated session with mod role, returns user + session + discordId
  */
 export const authMacro = new Elysia({ name: 'auth-macro' })
@@ -18,9 +19,35 @@ export const authMacro = new Elysia({ name: 'auth-macro' })
           return status(401)
         }
 
+        const access = await getUserRole(session.user.id)
+
         return {
           user: session.user,
-          session: session.session
+          session: session.session,
+          access,
+          discordId: access?.discordId ?? null,
+        }
+      }
+    },
+    staffAuth: {
+      async resolve({ status, request: { headers } }) {
+        const session = await auth.api.getSession({ headers })
+
+        if (!session) {
+          return status(401)
+        }
+
+        const access = await getUserRole(session.user.id)
+
+        if (!access || !access.capabilities.canAccessDashboard) {
+          return status(403)
+        }
+
+        return {
+          user: session.user,
+          session: session.session,
+          access,
+          discordId: access.discordId,
         }
       }
     },
@@ -41,7 +68,8 @@ export const authMacro = new Elysia({ name: 'auth-macro' })
         return {
           user: session.user,
           session: session.session,
-          discordId: result.discordId
+          access: result,
+          discordId: result.discordId,
         }
       }
     }

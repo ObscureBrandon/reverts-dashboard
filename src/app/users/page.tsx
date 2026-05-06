@@ -133,7 +133,11 @@ function UsersLoading() {
 export default function UsersPage() {
   const router = useRouter();
   const { data: session, isPending: isSessionLoading } = useSession();
-  const { isMod, isLoading: roleLoading } = useUserRole();
+  const {
+    canAccessStaffOverview,
+    canAccessUsersPage,
+    isLoading: roleLoading,
+  } = useUserRole();
   
   // URL-synced state using nuqs
   const [params, setParams] = useQueryStates(searchParamsSchema, {
@@ -179,10 +183,22 @@ export default function UsersPage() {
   useEffect(() => {
     if (!isSessionLoading && !session) {
       router.push('/login?callbackUrl=/users');
-    } else if (session && !roleLoading && !isMod) {
+    } else if (session && !roleLoading && !canAccessUsersPage) {
       router.replace('/my-tickets');
     }
-  }, [session, isSessionLoading, isMod, roleLoading, router]);
+  }, [session, isSessionLoading, canAccessUsersPage, roleLoading, router]);
+
+  useEffect(() => {
+    if (!roleLoading && !canAccessStaffOverview && activeView === 'staff') {
+      void setParams({
+        view: null,
+        filters: null,
+        sort: null,
+        order: null,
+        page: 1,
+      });
+    }
+  }, [activeView, canAccessStaffOverview, roleLoading, setParams]);
 
   // Debounced search - updates URL after typing stops
   const debouncedSearch = useDebouncedCallback(
@@ -362,7 +378,7 @@ export default function UsersPage() {
   // Always-on queries for filter panel pickers
   const staffPickerQuery = useStaffTable(
     { limit: 100, sortBy: 'name', sortOrder: 'asc' },
-    { enabled: true }
+    { enabled: canAccessStaffOverview }
   );
   const tagsQuery = useRevertTags();
 
@@ -445,6 +461,7 @@ export default function UsersPage() {
       onSearch={handleSearch}
       activeView={activeView}
       onViewChange={handleViewChange}
+      canAccessStaffOverview={canAccessStaffOverview}
       activeQuickFilters={activeQuickFilters}
       onQuickFilterToggle={handleQuickFilterToggle}
       columnOptions={columnOptions}
@@ -460,7 +477,7 @@ export default function UsersPage() {
   }
 
   // Don't render content if not authenticated or not mod (will redirect)
-  if (!session || (!roleLoading && !isMod)) {
+  if (!session || (!roleLoading && !canAccessUsersPage)) {
     return <UsersLoading />;
   }
 

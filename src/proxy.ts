@@ -3,8 +3,9 @@ import { getUserRole, isTicketOwner } from "@/lib/user-role";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
-// Routes only accessible to mods
-const MOD_ONLY_ROUTES = ["/tickets", "/users", "/messages"];
+const MESSAGES_ROUTE = "/messages";
+const STAFF_OVERVIEW_ROUTE = "/users/staff";
+const STAFF_ROUTES = ["/tickets", "/users"];
 
 function getTicketDetailId(pathname: string) {
   const segments = pathname.split('/').filter(Boolean)
@@ -64,15 +65,50 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next()
   }
 
-  // Redirect non-mods away from mod-only routes
-  const isModOnlyRoute = MOD_ONLY_ROUTES.some(
-    (route) => pathname === route || pathname.startsWith(route + "/")
-  );
+  const isMessagesRoute = pathname === MESSAGES_ROUTE || pathname.startsWith(MESSAGES_ROUTE + "/")
 
-  if (isModOnlyRoute) {
-    const result = await getUserRole(session.user.id);
-    if (!result || result.role !== "mod") {
-      return NextResponse.redirect(new URL("/my-tickets", request.url));
+  if (isMessagesRoute) {
+    const result = await getUserRole(session.user.id)
+
+    if (!result || !result.capabilities.canAccessMessagesPage) {
+      return NextResponse.redirect(new URL("/my-tickets", request.url))
+    }
+  }
+
+  const isStaffOverviewRoute = pathname === STAFF_OVERVIEW_ROUTE || pathname.startsWith(STAFF_OVERVIEW_ROUTE + "/")
+
+  if (isStaffOverviewRoute) {
+    const result = await getUserRole(session.user.id)
+
+    if (!result) {
+      return NextResponse.redirect(new URL("/my-tickets", request.url))
+    }
+
+    if (!result.capabilities.canAccessStaffOverview) {
+      const fallbackPath = result.capabilities.canAccessUsersPage ? "/users" : "/my-tickets"
+      return NextResponse.redirect(new URL(fallbackPath, request.url))
+    }
+  }
+
+  const isStaffRoute = STAFF_ROUTES.some(
+    (route) => pathname === route || pathname.startsWith(route + "/")
+  )
+
+  if (isStaffRoute) {
+    const result = await getUserRole(session.user.id)
+
+    if (!result) {
+      return NextResponse.redirect(new URL("/my-tickets", request.url))
+    }
+
+    if (pathname === "/users" || pathname.startsWith("/users/")) {
+      if (!result.capabilities.canAccessUsersPage) {
+        return NextResponse.redirect(new URL("/my-tickets", request.url))
+      }
+    } else if (pathname === "/tickets" || pathname.startsWith("/tickets/")) {
+      if (!result.capabilities.canAccessTicketsPage) {
+        return NextResponse.redirect(new URL("/my-tickets", request.url))
+      }
     }
   }
 

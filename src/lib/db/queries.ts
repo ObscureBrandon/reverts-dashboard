@@ -2417,7 +2417,15 @@ async function getDashboardStaleTicketCount() {
 /**
  * Get dashboard data for a staff member
  */
-export async function getMyDashboardData(staffDiscordId: bigint) {
+export async function getMyDashboardData(
+  staffDiscordId: bigint,
+  options?: {
+    includeStaleTickets?: boolean;
+    includeMentionedTickets?: boolean;
+  }
+) {
+  const includeStaleTickets = options?.includeStaleTickets ?? true;
+  const includeMentionedTickets = options?.includeMentionedTickets ?? true;
   const dashboardSupervisorUsers = alias(users, 'dashboard_supervisor_users');
   const dashboardTicketAuthors = alias(users, 'dashboard_ticket_authors');
 
@@ -2497,10 +2505,12 @@ export async function getMyDashboardData(staffDiscordId: bigint) {
     })
     .from(messages)
     .where(
-      or(
-        eq(messages.authorId, staffDiscordId),
-        sql`array_position(${messages.memberMentions}, ${staffDiscordId}) IS NOT NULL`
-      )
+      includeMentionedTickets
+        ? or(
+            eq(messages.authorId, staffDiscordId),
+            sql`array_position(${messages.memberMentions}, ${staffDiscordId}) IS NOT NULL`
+          )
+        : eq(messages.authorId, staffDiscordId)
     )
     .groupBy(messages.channelId)
     .as('dashboard_recent_ticket_activity');
@@ -2605,30 +2615,45 @@ export async function getMyDashboardData(staffDiscordId: bigint) {
     .innerJoin(recentTicketActivity, eq(recentTicketActivity.channelId, tickets.channelId))
     .where(eq(tickets.status, 'OPEN'));
 
-  const staleTicketCount = await getDashboardStaleTicketCount();
+  const staleTicketCount = includeStaleTickets ? await getDashboardStaleTicketCount() : 0;
 
-  // Stale ticket list — same definition as the count query, but returning rows for dashboard display
-  const { ticketStaffAuthors: staleAuthors, ticketMessageMetrics: staleMetrics, ticketQueueState: staleQueueState } = buildTicketQueueCtes();
-  const staleTicketsList = await db
-    .with(staleAuthors, staleMetrics, staleQueueState)
-    .select({
-      ticketId: tickets.id,
-      ticketSequence: tickets.sequence,
-      ticketStatus: tickets.status,
-      ticketCreatedAt: tickets.createdAt,
-      authorId: tickets.authorId,
-      authorName: sql<string | null>`COALESCE(${dashboardTicketAuthors.displayName}, ${dashboardTicketAuthors.name})`,
-      authorAvatar: dashboardTicketAuthors.displayAvatar,
-      lastStaffReplyAt: staleQueueState.lastStaffReplyAt,
-      lastOwnerMessageAt: staleQueueState.lastOwnerMessageAt,
-      lastMessageAt: staleQueueState.lastMessageAt,
-    })
-    .from(tickets)
-    .innerJoin(staleQueueState, eq(staleQueueState.ticketId, tickets.id))
-    .leftJoin(dashboardTicketAuthors, eq(tickets.authorId, dashboardTicketAuthors.discordId))
-    .where(eq(staleQueueState.queueState, 'stale' as TicketQueueState))
-    .orderBy(sql`COALESCE(${staleQueueState.lastOwnerMessageAt}, ${tickets.createdAt}) ASC`)
-    .limit(10);
+  let staleTicketsList: Array<{
+    ticketId: number;
+    ticketSequence: number | null;
+    ticketStatus: 'OPEN' | 'CLOSED' | 'DELETED' | null;
+    ticketCreatedAt: Date;
+    authorId: bigint;
+    authorName: string | null;
+    authorAvatar: string | null;
+    lastStaffReplyAt: Date | null;
+    lastOwnerMessageAt: Date | null;
+    lastMessageAt: Date | null;
+  }> = [];
+
+  if (includeStaleTickets) {
+    // Stale ticket list — same definition as the count query, but returning rows for dashboard display
+    const { ticketStaffAuthors: staleAuthors, ticketMessageMetrics: staleMetrics, ticketQueueState: staleQueueState } = buildTicketQueueCtes();
+    staleTicketsList = await db
+      .with(staleAuthors, staleMetrics, staleQueueState)
+      .select({
+        ticketId: tickets.id,
+        ticketSequence: tickets.sequence,
+        ticketStatus: tickets.status,
+        ticketCreatedAt: tickets.createdAt,
+        authorId: tickets.authorId,
+        authorName: sql<string | null>`COALESCE(${dashboardTicketAuthors.displayName}, ${dashboardTicketAuthors.name})`,
+        authorAvatar: dashboardTicketAuthors.displayAvatar,
+        lastStaffReplyAt: staleQueueState.lastStaffReplyAt,
+        lastOwnerMessageAt: staleQueueState.lastOwnerMessageAt,
+        lastMessageAt: staleQueueState.lastMessageAt,
+      })
+      .from(tickets)
+      .innerJoin(staleQueueState, eq(staleQueueState.ticketId, tickets.id))
+      .leftJoin(dashboardTicketAuthors, eq(tickets.authorId, dashboardTicketAuthors.discordId))
+      .where(eq(staleQueueState.queueState, 'stale' as TicketQueueState))
+      .orderBy(sql`COALESCE(${staleQueueState.lastOwnerMessageAt}, ${tickets.createdAt}) ASC`)
+      .limit(10);
+  }
 
   // 3. Get recent tickets where staff replied or was mentioned
   const staffTickets = await db

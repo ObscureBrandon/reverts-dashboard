@@ -50,7 +50,7 @@ function formatMessageTimestamp(value: string) {
 
 function MessagesPageContent() {
   const router = useRouter();
-  const { isMod, isLoading: roleLoading } = useUserRole();
+  const { canAccessMessagesPage, isLoading: roleLoading } = useUserRole();
   const [params, setParams] = useQueryStates(searchParamsSchema, {
     history: 'replace',
     shallow: true,
@@ -171,17 +171,17 @@ function MessagesPageContent() {
   
   // Redirect to my-tickets if not a mod
   useEffect(() => {
-    if (!roleLoading && !isMod) {
+    if (!roleLoading && !canAccessMessagesPage) {
       router.replace('/my-tickets');
     }
-  }, [isMod, roleLoading, router]);
+  }, [canAccessMessagesPage, roleLoading, router]);
 
   if (roleLoading) {
     return <MessagesPageSkeleton />;
   }
 
   // Don't render content if redirecting
-  if (!roleLoading && !isMod) {
+  if (!roleLoading && !canAccessMessagesPage) {
     return <MessagesPageSkeleton />;
   }
 

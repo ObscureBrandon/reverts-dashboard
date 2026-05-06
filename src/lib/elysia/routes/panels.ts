@@ -16,4 +16,4 @@ export const panelsRoutes = new Elysia({ prefix: '/panels' })
       console.error('Error fetching panels:', err)
       throw new Error('Failed to fetch panels')
     }
-  }, { modAuth: true })
+  }, { staffAuth: true })

@@ -3,7 +3,7 @@ import { db } from '@/lib/db'
 import { getTicketById, getTicketCount, getTickets, TicketQueue } from '@/lib/db/queries'
 import { tickets } from '@/lib/db/schema'
 import { authMacro } from '@/lib/elysia/auth'
-import { getUserRole } from '@/lib/user-role'
+import { getUserRole, hasTicketActivity } from '@/lib/user-role'
 import { eq } from 'drizzle-orm'
 import { Elysia } from 'elysia'
 
@@ -46,8 +46,11 @@ export const ticketsRoutes = new Elysia({ prefix: '/tickets' })
         }
 
         const ownsTicket = ticket.ticket.authorId.toString() === userRole.discordId
+        const hasActivity = userRole.capabilities.canAccessTicketsPage
+          ? await hasTicketActivity(userRole.discordId, parsedTicketId)
+          : false
 
-        if (userRole.role !== 'mod' && !ownsTicket) {
+        if (userRole.role !== 'mod' && !ownsTicket && !hasActivity) {
           set.status = 403
           return { error: 'Access denied' }
         }
@@ -88,7 +91,7 @@ export const ticketsRoutes = new Elysia({ prefix: '/tickets' })
       }
     }
 
-    if (userRole.role !== 'mod') {
+    if (!userRole.capabilities.canAccessTicketsPage) {
       set.status = 403
       return { error: 'Access denied' }
     }
@@ -118,7 +121,9 @@ export const ticketsRoutes = new Elysia({ prefix: '/tickets' })
 
       // Parse authorId and panelIds if provided
       const authorId = authorIdParam ? BigInt(authorIdParam) : undefined
-      const ownedByUserId = ownedByMe ? BigInt(userRole.discordId) : undefined
+      const ownedByUserId = userRole.role === 'mod'
+        ? (ownedByMe ? BigInt(userRole.discordId) : undefined)
+        : BigInt(userRole.discordId)
       const panelIds = panelParam
         ? panelParam
             .split(',')

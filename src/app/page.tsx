@@ -1094,7 +1094,7 @@ function DashboardSkeleton() {
 // ============================================================================
 
 export default function Home() {
-  const { role, isLoading: roleLoading } = useUserRole();
+  const { canAccessDashboard, isLoading: roleLoading } = useUserRole();
   const { data: session } = useSession();
   const { data, isLoading } = useDashboard();
   const { openUserPanel } = useUserPanel();
@@ -1106,10 +1106,10 @@ export default function Home() {
   const [selectedShahadaTagIds, setSelectedShahadaTagIds] = useState<number[]>([]);
 
   useEffect(() => {
-    if (!roleLoading && role === 'user') {
+    if (!roleLoading && !canAccessDashboard) {
       router.replace('/my-tickets');
     }
-  }, [role, roleLoading, router]);
+  }, [canAccessDashboard, roleLoading, router]);
 
   const stats = data?.stats;
   const assignedReverts = data?.assignedReverts ?? EMPTY_REVERTS;
@@ -1219,7 +1219,7 @@ export default function Home() {
     ));
   }
 
-  if (roleLoading || role === 'user') {
+  if (roleLoading || !canAccessDashboard) {
     return <DashboardSkeleton />;
   }
 

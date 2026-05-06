@@ -41,7 +41,7 @@ function normalizePanelIds(panelIds: number[]) {
 
 function TicketsContent() {
   const router = useRouter();
-  const { isMod, isLoading: roleLoading } = useUserRole();
+  const { canAccessTicketsPage, isLoading: roleLoading } = useUserRole();
   const [params, setParams] = useQueryStates(searchParamsSchema, {
     history: 'replace',
     shallow: true,
@@ -219,13 +219,13 @@ function TicketsContent() {
   
   // Redirect to my-tickets if not a mod
   useEffect(() => {
-    if (!roleLoading && !isMod) {
+    if (!roleLoading && !canAccessTicketsPage) {
       router.replace('/my-tickets');
     }
-  }, [isMod, roleLoading, router]);
+  }, [canAccessTicketsPage, roleLoading, router]);
 
   // Don't render content if redirecting
-  if (!roleLoading && !isMod) {
+  if (!roleLoading && !canAccessTicketsPage) {
     return <TicketsListSkeleton />;
   }
 

@@ -1,6 +1,6 @@
 import { getMentionsForMessages, getMessageCount, getStaffRoles, searchMessages } from '@/lib/db/queries';
 import { authMacro } from '@/lib/elysia/auth';
-import { getUserRole, isTicketOwner } from '@/lib/user-role';
+import { getUserRole, hasTicketActivity, isTicketOwner } from '@/lib/user-role';
 import { Elysia } from 'elysia';
 
 // In-memory cache for staff role IDs (refresh every 5 minutes)
@@ -65,8 +65,11 @@ export const messagesRoutes = new Elysia({ prefix: '/messages' })
         }
 
         const ownsTicket = await isTicketOwner(userRole.discordId, parsedTicketId)
+        const hasActivity = userRole.capabilities.canAccessTicketsPage
+          ? await hasTicketActivity(userRole.discordId, parsedTicketId)
+          : false
 
-        if (!ownsTicket) {
+        if (!ownsTicket && !hasActivity) {
           set.status = 403
           return { error: 'Access denied' }
         }

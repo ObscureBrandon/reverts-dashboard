@@ -32,6 +32,7 @@ import {
 import { authAccount, users } from '@/lib/db/schema'
 import { CHECK_IN_PANEL_ID } from '@/lib/ticket-panels'
 import { authMacro } from '@/lib/elysia/auth'
+import { getActiveSupervisorId } from '@/lib/user-role'
 import { eq } from 'drizzle-orm'
 import { Elysia } from 'elysia'
 
@@ -103,6 +104,29 @@ const validAssignmentStatuses: AssignmentStatusValue[] = [
   'ON_HOLD',
   'CLOSED',
 ]
+
+type StaffAccess = {
+  role: string
+  discordId: string
+}
+
+function denyAccess(set: { status?: number | string }) {
+  set.status = 403
+  return { error: 'Access denied' }
+}
+
+async function getUserMutationScope(access: StaffAccess, userId: bigint) {
+  const actorDiscordId = BigInt(access.discordId)
+  const activeSupervisorId = await getActiveSupervisorId(userId)
+
+  return {
+    actorDiscordId,
+    activeSupervisorId,
+    isMod: access.role === 'mod',
+    isAssignedToActor: activeSupervisorId === actorDiscordId,
+    isUnassigned: activeSupervisorId === null,
+  }
+}
 
 export const usersRoutes = new Elysia({ prefix: '/users' })
   // GET /users - List/search users with pagination
@@ -224,7 +248,7 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
       console.error('Error fetching users:', err)
       throw new Error('Failed to fetch users')
     }
-  }, { modAuth: true })
+  }, { staffAuth: true })
 
   // GET /users/staff - Get staff members with supervisees
   .get('/staff', async ({ query }) => {
@@ -273,7 +297,7 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
       console.error('Error fetching staff:', err)
       throw new Error('Failed to fetch staff')
     }
-  }, { modAuth: true })
+  }, { staffAuth: true })
 
   // GET /users/:id/staff-details - Get staff member details with supervisees
   .get('/:id/staff-details', async ({ params, set }) => {
@@ -293,7 +317,7 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
       console.error('Error fetching staff details:', err)
       throw new Error('Failed to fetch staff details')
     }
-  }, { modAuth: true })
+  }, { staffAuth: true })
 
   // GET /users/:id - Get user by ID
   .get('/:id', async ({ params, query, set }) => {
@@ -493,7 +517,7 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
       console.error('User fetch error:', error)
       throw new Error('Failed to fetch user')
     }
-  }, { modAuth: true })
+  }, { staffAuth: true })
 
   // GET /users/:id/popover - User popover data
   .get('/:id/popover', async ({ params, set }) => {
@@ -576,9 +600,9 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
       console.error('User ticket stats fetch error:', error)
       throw new Error('Failed to fetch ticket stats')
     }
-  }, { modAuth: true })
+  }, { staffAuth: true })
 
-  .post('/:id/supervisor-notes', async ({ params, body, discordId, set }) => {
+  .post('/:id/supervisor-notes', async ({ access, params, body, discordId, set }) => {
     try {
       const userId = BigInt(params.id)
       const rawNote = typeof (body as { note?: unknown })?.note === 'string'
@@ -594,6 +618,12 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
       if (note.length > MAX_SUPERVISOR_NOTE_LENGTH) {
         set.status = 400
         return { error: `Note must be ${MAX_SUPERVISOR_NOTE_LENGTH} characters or fewer` }
+      }
+
+      const scope = await getUserMutationScope(access, userId)
+
+      if (!scope.isMod && !scope.isUnassigned && !scope.isAssignedToActor) {
+        return denyAccess(set)
       }
 
       const createdNote = await createUserSupervisorEntry({
@@ -615,11 +645,17 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
       console.error('Error creating supervisor note:', error)
       throw new Error('Failed to create supervisor note')
     }
-  }, { modAuth: true })
+  }, { staffAuth: true })
 
-  .post('/:id/assignment/claim', async ({ params, discordId, set }) => {
+  .post('/:id/assignment/claim', async ({ access, params, discordId, set }) => {
     try {
       const userId = BigInt(params.id)
+      const scope = await getUserMutationScope(access, userId)
+
+      if (!scope.isMod && !scope.isUnassigned && !scope.isAssignedToActor) {
+        return denyAccess(set)
+      }
+
       const result = await claimUserAssignment(userId, BigInt(discordId))
 
       return serializeAssignmentMutationResult(result)
@@ -633,9 +669,9 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
       console.error('Error claiming user assignment:', error)
       throw new Error('Failed to claim assignment')
     }
-  }, { modAuth: true })
+  }, { staffAuth: true })
 
-  .post('/:id/assignment/assign', async ({ params, body, discordId, set }) => {
+  .post('/:id/assignment/assign', async ({ access, params, body, discordId, set }) => {
     try {
       const userId = BigInt(params.id)
       const { supervisorId, note } = body as { supervisorId?: string; note?: string }
@@ -643,6 +679,18 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
       if (!supervisorId || !/^\d+$/.test(supervisorId)) {
         set.status = 400
         return { error: 'A valid supervisorId is required' }
+      }
+
+      const scope = await getUserMutationScope(access, userId)
+
+      if (!scope.isMod) {
+        if (!scope.isUnassigned && !scope.isAssignedToActor) {
+          return denyAccess(set)
+        }
+
+        if (BigInt(supervisorId) !== scope.actorDiscordId) {
+          return denyAccess(set)
+        }
       }
 
       const result = await assignUserToSupervisor(
@@ -663,9 +711,9 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
       console.error('Error assigning user supervisor:', error)
       throw new Error('Failed to assign supervisor')
     }
-  }, { modAuth: true })
+  }, { staffAuth: true })
 
-  .post('/:id/assignment/transfer', async ({ params, body, discordId, set }) => {
+  .post('/:id/assignment/transfer', async ({ access, params, body, discordId, set }) => {
     try {
       const userId = BigInt(params.id)
       const { supervisorId, note } = body as { supervisorId?: string; note?: string }
@@ -673,6 +721,10 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
       if (!supervisorId || !/^\d+$/.test(supervisorId)) {
         set.status = 400
         return { error: 'A valid supervisorId is required' }
+      }
+
+      if (access.role !== 'mod') {
+        return denyAccess(set)
       }
 
       const result = await transferUserAssignment(
@@ -693,9 +745,9 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
       console.error('Error transferring user assignment:', error)
       throw new Error('Failed to transfer assignment')
     }
-  }, { modAuth: true })
+  }, { staffAuth: true })
 
-  .post('/:id/assignment/unassign', async ({ params, body, discordId, set }) => {
+  .post('/:id/assignment/unassign', async ({ access, params, body, discordId, set }) => {
     try {
       const userId = BigInt(params.id)
       const { nextState, reason, note } = body as {
@@ -714,6 +766,12 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
       if (reason?.trim() && !normalizedReason) {
         set.status = 400
         return { error: 'A valid reason is required for the selected nextState' }
+      }
+
+      const scope = await getUserMutationScope(access, userId)
+
+      if (!scope.isMod && !scope.isAssignedToActor) {
+        return denyAccess(set)
       }
 
       const result = await unassignUser(
@@ -735,9 +793,9 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
       console.error('Error unassigning user supervisor:', error)
       throw new Error('Failed to unassign supervisor')
     }
-  }, { modAuth: true })
+  }, { staffAuth: true })
 
-  .post('/:id/assignment/status', async ({ params, body, discordId, set }) => {
+  .post('/:id/assignment/status', async ({ access, params, body, discordId, set }) => {
     try {
       const userId = BigInt(params.id)
       const { nextState, reason } = body as {
@@ -757,6 +815,12 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
         return { error: 'A valid reason is required for the selected nextState' }
       }
 
+      const scope = await getUserMutationScope(access, userId)
+
+      if (!scope.isMod && !scope.isUnassigned && !scope.isAssignedToActor) {
+        return denyAccess(set)
+      }
+
       await updateUserSupportState(
         userId,
         BigInt(discordId),
@@ -769,7 +833,7 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
       console.error('Error updating support state:', error)
       throw new Error('Failed to update support state')
     }
-  }, { modAuth: true })
+  }, { staffAuth: true })
 
   // GET /users/:id/tags - Get user's active tags + full history
   .get('/:id/tags', async ({ params }) => {
@@ -814,10 +878,10 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
       console.error('Error fetching user tags:', error)
       throw new Error('Failed to fetch user tags')
     }
-  }, { modAuth: true })
+  }, { staffAuth: true })
 
   // POST /users/:id/tags - Assign a tag to a user
-  .post('/:id/tags', async ({ params, body, discordId, set }) => {
+  .post('/:id/tags', async ({ access, params, body, discordId, set }) => {
     try {
       const userId = BigInt(params.id)
       const { tagId, note } = body as { tagId: number; note?: string }
@@ -825,6 +889,12 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
       if (!tagId) {
         set.status = 400
         return { error: 'tagId is required' }
+      }
+
+      const scope = await getUserMutationScope(access, userId)
+
+      if (!scope.isMod && !scope.isUnassigned && !scope.isAssignedToActor) {
+        return denyAccess(set)
       }
 
       const assignment = await assignTagToUser({
@@ -850,11 +920,12 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
       console.error('Error assigning tag:', error)
       throw new Error('Failed to assign tag')
     }
-  }, { modAuth: true })
+  }, { staffAuth: true })
 
   // DELETE /users/:id/tags/:assignmentId - Remove a tag from a user
-  .delete('/:id/tags/:assignmentId', async ({ params, body, discordId, set }) => {
+  .delete('/:id/tags/:assignmentId', async ({ access, params, body, discordId, set }) => {
     try {
+      const userId = BigInt(params.id)
       const assignmentId = parseInt(params.assignmentId)
       if (isNaN(assignmentId)) {
         set.status = 400
@@ -862,6 +933,12 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
       }
 
       const { removalNote } = (body || {}) as { removalNote?: string }
+
+      const scope = await getUserMutationScope(access, userId)
+
+      if (!scope.isMod && !scope.isUnassigned && !scope.isAssignedToActor) {
+        return denyAccess(set)
+      }
 
       const result = await removeTagFromUser({
         assignmentId,
@@ -879,7 +956,7 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
       console.error('Error removing tag:', error)
       throw new Error('Failed to remove tag')
     }
-  }, { modAuth: true })
+  }, { staffAuth: true })
 
   // GET /users/:id/check-ins - List check-ins for a user
   .get('/:id/check-ins', async ({ params }) => {
@@ -902,10 +979,10 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
       console.error('Error fetching check-ins:', error)
       throw new Error('Failed to fetch check-ins')
     }
-  }, { modAuth: true })
+  }, { staffAuth: true })
 
   // POST /users/:id/check-ins - Log a new check-in
-  .post('/:id/check-ins', async ({ params, body, discordId, set }) => {
+  .post('/:id/check-ins', async ({ access, params, body, discordId, set }) => {
     try {
       const userId = BigInt(params.id)
       const { method, summary } = body as { method: string; summary?: string }
@@ -913,6 +990,12 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
       if (!method) {
         set.status = 400
         return { error: 'method is required' }
+      }
+
+      const scope = await getUserMutationScope(access, userId)
+
+      if (!scope.isMod && !scope.isUnassigned && !scope.isAssignedToActor) {
+        return denyAccess(set)
       }
 
       const checkIn = await addCheckIn({
@@ -933,4 +1016,4 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
       console.error('Error adding check-in:', error)
       throw new Error('Failed to add check-in')
     }
-  }, { modAuth: true })
+  }, { staffAuth: true })

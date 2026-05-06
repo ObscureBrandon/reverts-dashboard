@@ -45,6 +45,7 @@ interface DataTableToolbarProps {
   onSearch: (query: string) => void;
   activeView: ViewPreset;
   onViewChange: (view: ViewPreset) => void;
+  canAccessStaffOverview?: boolean;
   activeQuickFilters: Set<QuickFilter>;
   onQuickFilterToggle: (filter: QuickFilter) => void;
   columnOptions: ColumnOption[];
@@ -189,6 +190,7 @@ export function DataTableToolbar({
   onSearch,
   activeView,
   onViewChange,
+  canAccessStaffOverview = true,
   activeQuickFilters,
   onQuickFilterToggle,
   columnOptions,
@@ -263,12 +265,15 @@ export function DataTableToolbar({
     value: String(t.id),
     label: t.emoji ? `${t.emoji} ${t.name}` : t.name,
   }));
+  const visibleViewPresets = canAccessStaffOverview
+    ? viewPresets
+    : viewPresets.filter((preset) => preset.id !== 'staff');
 
   return (
     <div className="space-y-3">
       {/* View Preset Tabs */}
       <div ref={tabsContainerRef} className="relative flex items-center gap-6">
-        {viewPresets.map((preset, index) => (
+        {visibleViewPresets.map((preset, index) => (
           <button
             key={preset.id}
             onClick={() => onViewChange(preset.id)}
